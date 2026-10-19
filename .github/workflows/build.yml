@@ -1,0 +1,53 @@
+name: Build macOS
+
+# Compile le projet Xcode sur un Mac distant (GitHub Actions).
+# Muse pousse le code → ce build vérifie la compilation → le journal
+# (et les lignes « error: ») est rangé sur la branche ci-logs, où Muse
+# peut le lire via l'API GitHub. Aucune signature requise (build seul).
+
+on:
+  push:
+    paths:
+      - '**.swift'
+      - '**.xcodeproj/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version de Xcode
+        run: xcodebuild -version
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ScanRecus.xcodeproj \
+            -scheme ScanRecus \
+            -destination 'generic/platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log
+
+      - name: Publier le journal sur la branche ci-logs
+        if: always()
+        run: |
+          grep -n "error:" build.log > errors.txt || true
+          tail -n 800 build.log > build-tail.log
+          for f in errors.txt build-tail.log; do
+            b64=$(base64 < "$f" | tr -d '\n')
+            name="${f%.txt}-${{ github.run_id }}.txt"
+            [ "$f" = "errors.txt" ] || name="build-tail-${{ github.run_id }}.log"
+            curl -s -X PUT \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/${{ github.repository }}/contents/$name \
+              -d "{\"message\":\"CI $f run ${{ github.run_id }}\",\"content\":\"$b64\",\"branch\":\"ci-logs\"}" \
+              > /dev/null || true
+          done
