@@ -844,6 +844,7 @@ final class CompositeScanner: NSObject,
         // est affichée (et qui, à l'étape 2, sera lue par l'OCR) ;
         // la version brute reste publiée à part pour comparaison.
         let rawCG = ciContext.createCGImage(image, from: image.extent)
+        let enhanced = enhanceDocument(image)
         let finalCG = ciContext.createCGImage(enhanced.image,
                                               from: enhanced.image.extent)
         finishInfo = "Scan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
