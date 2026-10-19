@@ -38,6 +38,9 @@ struct CompositeScanView: View {
     /// ne permet à une app de monter la luminosité système ; le
     /// blanc plein écran est le levier fiable.
     @AppStorage("scanLighting") private var scanLighting = true
+    /// En mode figé : afficher le scan AMÉLIORÉ (par défaut) ou
+    /// l'original brut, pour comparer l'effet de l'amélioration.
+    @State private var showEnhanced = true
 
     private var isDone: Bool { scanner.state == .done }
 
@@ -60,7 +63,9 @@ struct CompositeScanView: View {
                     GeometryReader { geo in
                         ZStack {
                             Color.black
-                            if isDone, let image = scanner.finalImage {
+                            if isDone, let image = (showEnhanced
+                                ? scanner.finalImage
+                                : scanner.rawFinalImage) ?? scanner.finalImage {
                                 Image(image, scale: 1, label: Text("Scan du reçu"))
                                     .resizable()
                                     .scaledToFit()
@@ -142,6 +147,13 @@ struct CompositeScanView: View {
                                 if scanLighting { enterFullScreen() }
                             }
                             .focusable(false)
+                            if isDone, scanner.rawFinalImage != nil {
+                                Button(showEnhanced
+                                       ? "Image : améliorée" : "Image : originale") {
+                                    showEnhanced.toggle()
+                                }
+                                .focusable(false)
+                            }
                         }
                     }
 

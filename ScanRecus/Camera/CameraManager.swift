@@ -126,8 +126,6 @@ final class CameraManager: NSObject, @unchecked Sendable {
     ) throws {
         session.beginConfiguration()
         defer { session.commitConfiguration() }
-        // 720p : bon compromis vitesse/qualité pour l'OCR à 5 Hz.
-        session.sessionPreset = .hd1280x720
 
         guard let device = AVCaptureDevice.default(for: .video) else {
             throw SetupError.noCamera
@@ -135,6 +133,40 @@ final class CameraManager: NSObject, @unchecked Sendable {
         let input = try AVCaptureDeviceInput(device: device)
         guard session.canAddInput(input) else { throw SetupError.cannotAddInput }
         session.addInput(input)
+
+        // Résolution : le meilleur format de la caméra qui garde un
+        // débit fluide (≥ 20 img/s), plafonné à 2560 px de large.
+        // Le 720p fixe d'origine laissait le scan final trop mou
+        // pour l'OCR (constat de Grégoire, 2026-10-19) ; les seuils
+        // de calibrage du scanner sont exprimés en pixels et mis à
+        // l'échelle en conséquence (voir CompositeScanner.pxScale).
+        // Repli en cas de pépin : 720p, comportement d'origine.
+        session.sessionPreset = .hd1280x720
+        let fluid = device.formats.filter { format in
+            format.videoSupportedFrameRateRanges.contains {
+                $0.maxFrameRate >= 20
+            }
+        }
+        let pixels: (AVCaptureDevice.Format) -> Int = { format in
+            let d = CMVideoFormatDescriptionGetDimensions(
+                format.formatDescription)
+            return Int(d.width) * Int(d.height)
+        }
+        let capped = fluid.filter {
+            CMVideoFormatDescriptionGetDimensions(
+                $0.formatDescription).width <= 2560
+        }
+        if let best = (capped.isEmpty ? fluid : capped)
+            .max(by: { pixels($0) < pixels($1) }) {
+            do {
+                try device.lockForConfiguration()
+                session.sessionPreset = .inputPriority
+                device.activeFormat = best
+                device.unlockForConfiguration()
+            } catch {
+                session.sessionPreset = .hd1280x720
+            }
+        }
 
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true

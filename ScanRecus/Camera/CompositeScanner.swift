@@ -83,8 +83,12 @@ final class CompositeScanner: NSObject,
     private(set) var filledTiles: Int = 0
     /// Aperçu vivant du composite pendant la capture.
     private(set) var livePreview: CGImage?
-    /// Le scan final : redressé, caractères à l'endroit.
+    /// Le scan final : redressé, caractères à l'endroit, AMÉLIORÉ
+    /// automatiquement (voir enhanceDocument).
     private(set) var finalImage: CGImage?
+    /// Le même scan AVANT amélioration, pour comparaison (bascule
+    /// dans la vue) — sert à juger si l'amélioration aide ou nuit.
+    private(set) var rawFinalImage: CGImage?
     /// Statistiques de diagnostic (temps par étape, compteurs).
     private(set) var statsText = ""
 
@@ -99,6 +103,10 @@ final class CompositeScanner: NSObject,
     private let tileCols = 24
     private let tileRows = 14
     private let sharpRenderScale: CGFloat = 1.0 / 6.0
+    /// Échelle des seuils exprimés en pixels : ils ont été réglés
+    /// à 720p (1280 px de large) ; à plus haute résolution, la même
+    /// tolérance physique couvre davantage de pixels.
+    private var pxScale: CGFloat { max(1, fullSize.width / 1280) }
 
     // MARK: État interne (file série du délégué caméra uniquement)
 
@@ -138,6 +146,10 @@ final class CompositeScanner: NSObject,
     /// Vrai seulement après confirmation du verrouillage provisoire
     /// sur une image ultérieure (voir confirm()).
     private var recipeConfirmed = false
+
+    /// Informations du figeage (taille du scan final + résumé de
+    /// l'amélioration), ajoutées aux statistiques par buildStats().
+    private var finishInfo: String?
 
     // Statistiques
     private var framesSeen = 0
@@ -195,6 +207,8 @@ final class CompositeScanner: NSObject,
             self.filledTiles = 0
             self.livePreview = nil
             self.finalImage = nil
+            self.rawFinalImage = nil
+            self.finishInfo = nil
             self.statsText = ""
         }
     }
@@ -469,7 +483,7 @@ final class CompositeScanner: NSObject,
                 }
             }
         }
-        guard let found = best, found.rms < 15 else { return false }
+        guard let found = best, found.rms < 15 * pxScale else { return false }
         recipe = found.recipe
         recipeConfirmed = false  // provisoire : à confirmer plus tard
         return true
@@ -517,7 +531,7 @@ final class CompositeScanner: NSObject,
                 + (a.y - b.y) * (a.y - b.y)
         }
         let rms = (sumSq / CGFloat(testPoints.count)).squareRoot()
-        guard rms < 15 else { return .rejected }
+        guard rms < 15 * pxScale else { return .rejected }
         recipeConfirmed = true
         return .confirmed(hSmall)
     }
@@ -613,7 +627,7 @@ final class CompositeScanner: NSObject,
                         + (a.y - b.y) * (a.y - b.y)
                 }
                 let rms = (sumSq / CGFloat(src.count)).squareRoot()
-                guard rms < 30 else { return false }
+                guard rms < 30 * pxScale else { return false }
             }
         }
         return true
@@ -826,7 +840,14 @@ final class CompositeScanner: NSObject,
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
-        let finalCG = ciContext.createCGImage(image, from: image.extent)
+        // Amélioration automatique « look scanner » : c'est elle qui
+        // est affichée (et qui, à l'étape 2, sera lue par l'OCR) ;
+        // la version brute reste publiée à part pour comparaison.
+        let rawCG = ciContext.createCGImage(image, from: image.extent)
+        let finalCG = ciContext.createCGImage(enhanced.image,
+                                              from: enhanced.image.extent)
+        finishInfo = "Scan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
+            + "\nAmélioration auto : \(enhanced.summary)"
 
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
@@ -835,6 +856,7 @@ final class CompositeScanner: NSObject,
             self.statusText = "Scan terminé — voici le composite."
             self.progress = 1
             self.finalImage = finalCG
+            self.rawFinalImage = rawCG
             self.livePreview = finalCG
             self.statsText = stats
         }
@@ -873,6 +895,130 @@ final class CompositeScanner: NSObject,
             }
         }
         return image.oriented(best)
+    }
+
+    // MARK: - Amélioration automatique (look « scanner »)
+
+    /// Constantes de l'amélioration, affichées dans les statistiques
+    /// pour pouvoir les régler d'après les retours de terrain.
+    private let enhanceSaturation: CGFloat = 0.35
+    private let enhanceSharpness: CGFloat = 0.7
+
+    /// Rend le scan redressé « propre » comme un scanner de
+    /// documents, pour l'œil ET pour l'OCR de l'étape 2 :
+    /// 1. aplatissement de l'éclairage — division par un fond estimé
+    ///    (version très floue de l'image) : le papier devient blanc
+    ///    même sous une lumière inégale, ombres et vignettage
+    ///    disparaissent ;
+    /// 2. niveaux automatiques par percentiles — le blanc devient
+    ///    vraiment blanc, l'encre vraiment noire ;
+    /// 3. saturation réduite — presque gris, un soupçon de couleur
+    ///    (tampons, logos) survit ;
+    /// 4. accentuation de la LUMINANCE seulement — caractères plus
+    ///    nets, aucun halo coloré.
+    /// Aucune étape ne déplace un pixel : la géométrie du scan
+    /// redressé est intacte (rien n'est « déformé »).
+    private func enhanceDocument(_ image: CIImage)
+    -> (image: CIImage, summary: String) {
+        let extent = image.extent
+
+        // 1. Fond estimé : l'image elle-même, très floue.
+        let background = image.clampedToExtent()
+            .applyingFilter("CIGaussianBlur", parameters: [
+                "inputRadius": max(24, extent.width / 14),
+            ])
+            .cropped(to: extent)
+
+        // 2. Aplatissement par division. La sémantique exacte de
+        // CIDivideBlendMode (qui divise qui) est vérifiée PAR LES
+        // DONNÉES : le bon candidat garde le texte sombre (son
+        // percentile 2 reste bas) ; le candidat inversé blanchit le
+        // texte jusqu'au clip (p2 proche de 1). On garde le plus bas.
+        func divided(_ backgroundImage: CIImage,
+                     _ foreground: CIImage) -> CIImage? {
+            guard let filter = CIFilter(name: "CIDivideBlendMode")
+            else { return nil }
+            filter.setValue(foreground, forKey: kCIInputImageKey)
+            filter.setValue(backgroundImage,
+                            forKey: kCIInputBackgroundImageKey)
+            return filter.outputImage?.cropped(to: extent)
+        }
+        var flat = image
+        if let a = divided(image, background),
+           let b = divided(background, image) {
+            let p2a = grayPercentiles(a, [0.02]).first ?? 1
+            let p2b = grayPercentiles(b, [0.02]).first ?? 1
+            flat = p2a <= p2b ? a : b
+        } else if let a = divided(image, background) {
+            flat = a
+        }
+
+        // 3. Niveaux automatiques : point noir au percentile 2,
+        // point blanc au percentile 98 (bornés pour rester sains),
+        // appliqués par une matrice de couleur + clamp.
+        let levels = grayPercentiles(flat, [0.02, 0.98])
+        let bp = min(max(levels.first ?? 0, 0), 0.45)
+        let wp = min(max(levels.last ?? 1, bp + 0.25), 1)
+        let s = 1 / (wp - bp)
+        var leveled = flat.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: s, y: 0, z: 0, w: 0),
+            "inputGVector": CIVector(x: 0, y: s, z: 0, w: 0),
+            "inputBVector": CIVector(x: 0, y: 0, z: s, w: 0),
+            "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1),
+            "inputBiasVector": CIVector(x: -bp * s, y: -bp * s,
+                                        z: -bp * s, w: 0),
+        ])
+        leveled = leveled.applyingFilter("CIColorClamp", parameters: [
+            "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
+        ]).cropped(to: extent)
+
+        // 4. Saturation réduite, puis accentuation de la luminance.
+        let desaturated = leveled.applyingFilter(
+            "CIColorControls", parameters: [
+                "inputSaturation": enhanceSaturation,
+            ])
+        let sharpened = desaturated.applyingFilter(
+            "CISharpenLuminance", parameters: [
+                "inputSharpness": enhanceSharpness,
+            ]).cropped(to: extent)
+
+        let summary = String(
+            format: "fond aplati (division), niveaux noir %.2f / blanc %.2f, saturation 0,35, netteté %.1f",
+            bp, wp, enhanceSharpness)
+        return (sharpened, summary)
+    }
+
+    /// Percentiles de gris d'une image, calculés sur un rendu réduit
+    /// (≤ 240 px de grand côté) — un sac de pixels : l'orientation
+    /// des rangées n'a aucune importance ici.
+    private func grayPercentiles(_ image: CIImage,
+                                 _ ps: [Double]) -> [CGFloat] {
+        let longest = max(image.extent.width, image.extent.height)
+        guard longest > 0 else { return ps.map { _ in 0 } }
+        let k = min(1, 240 / longest)
+        let small = image.transformed(
+            by: CGAffineTransform(scaleX: k, y: k))
+        let w = max(1, Int(small.extent.width.rounded()))
+        let h = max(1, Int(small.extent.height.rounded()))
+        var buf = [UInt8](repeating: 0, count: w * h)
+        buf.withUnsafeMutableBytes { raw in
+            ciContext.render(small, toBitmap: raw.baseAddress!,
+                             rowBytes: w, bounds: small.extent,
+                             format: .L8, colorSpace: graySpace)
+        }
+        var hist = [Int](repeating: 0, count: 256)
+        for v in buf { hist[Int(v)] += 1 }
+        let total = Double(buf.count)
+        return ps.map { p in
+            let target = p * total
+            var acc = 0.0
+            for i in 0..<256 {
+                acc += Double(hist[i])
+                if acc >= target { return CGFloat(i) / 255 }
+            }
+            return 1
+        }
     }
 
     // MARK: - Détection du quadrilatère
@@ -976,7 +1122,12 @@ final class CompositeScanner: NSObject,
             calib = "non verrouillé (\(calibrationAttempts) tentative(s), "
                 + "\(calibrationRejections) rejet(s) en confirmation)"
         }
-        return "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
+        var text = ""
+        if fullSize != .zero {
+            text += String(format: "Caméra : %.0f × %.0f\n",
+                           fullSize.width, fullSize.height)
+        }
+        text += "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
             + " (dont chaînées : \(framesChained))\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
@@ -984,6 +1135,10 @@ final class CompositeScanner: NSObject,
             + "Calibrage Vision : \(calib)\n"
             + String(format: "Enregistrement : %.0f ms/img  •  fusion : %.0f ms/img",
                      regMs, fuseMs)
+        if let finishInfo {
+            text += "\n" + finishInfo
+        }
+        return text
     }
 
     // MARK: - Maths (homographies, conventions maison)
