@@ -1,0 +1,4 @@
+551:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift:163:42: error: 'inputPriority' is unavailable in macOS
+561:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:847:47: error: cannot find 'enhanced' in scope
+564:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:848:53: error: cannot find 'enhanced' in scope
+567:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:850:41: error: cannot find 'enhanced' in scope
