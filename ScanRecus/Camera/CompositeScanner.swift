@@ -423,7 +423,8 @@ final class CompositeScanner: NSObject, ObservableObject,
 
         calibrationAttempts += 1
         let testPoints = src + [centroid(src)]
-        let judgePoints = testPoints.map { applyH(judge, $0) }
+        let judgePoints = testPoints.compactMap { applyH(judge, $0) }
+        guard judgePoints.count == testPoints.count else { return false }
 
         var best: (recipe: Recipe, h: matrix_float3x3, rms: CGFloat)?
         for base in 0..<4 {
