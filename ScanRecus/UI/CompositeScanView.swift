@@ -29,14 +29,25 @@ struct CompositeScanView: View {
     /// Ne concerne que l'aperçu pendant la recherche/capture — le scan
     /// final est toujours affiché à l'endroit.
     @AppStorage("previewMirrored") private var previewMirrored = true
+    /// Éclairage de scan : pendant la recherche et la capture, la
+    /// fenêtre passe en plein écran et tout ce qui entoure l'aperçu
+    /// devient blanc — l'écran lui-même sert de panneau d'éclairage
+    /// pour le reçu, présenté face à lui (demandé par Grégoire le
+    /// 2026-10-19 : le scan manquait de lumière). Aucune API publique
+    /// ne permet à une app de monter la luminosité système ; le
+    /// blanc plein écran est le levier fiable.
+    @AppStorage("scanLighting") private var scanLighting = true
 
     private var isDone: Bool { scanner.state == .done }
+
+    /// Panneau lumineux actif hors phase figée.
+    private var lightPanelActive: Bool { scanLighting && !isDone }
 
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
                 ZStack {
-                    Color.black
+                    lightPanelActive ? Color.white : Color.black
                     if isDone, let image = scanner.finalImage {
                         Image(image, scale: 1, label: Text("Scan du reçu"))
                             .resizable()
@@ -56,7 +67,7 @@ struct CompositeScanView: View {
                                 Spacer()
                                 ProgressView(value: scanner.progress)
                                     .progressViewStyle(.linear)
-                                    .tint(.yellow)
+                                    .tint(lightPanelActive ? .orange : .yellow)
                                     .padding(.horizontal, 24)
                                     .padding(.bottom, 14)
                             }
@@ -64,6 +75,8 @@ struct CompositeScanView: View {
                     }
                 }
             }
+            .padding(lightPanelActive ? 80 : 0)
+            .background(lightPanelActive ? Color.white : Color.black)
             .frame(minHeight: 220)
 
             Divider()
@@ -107,6 +120,12 @@ struct CompositeScanView: View {
                                 previewMirrored.toggle()
                             }
                             .focusable(false)
+                            Button(scanLighting
+                                   ? "Éclairage : oui" : "Éclairage : non") {
+                                scanLighting.toggle()
+                                if scanLighting { enterFullScreen() }
+                            }
+                            .focusable(false)
                         }
                     }
 
@@ -131,12 +150,15 @@ struct CompositeScanView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .windowBackgroundColor))
+            .background(lightPanelActive
+                        ? Color.white
+                        : Color(nsColor: .windowBackgroundColor))
             .layoutPriority(1)
         }
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
             camera.start(delegate: scanner)
+            if scanLighting { enterFullScreen() }
         }
         .onDisappear { camera.stop() }
         .onChange(of: scanner.state) { _, newState in
@@ -150,5 +172,17 @@ struct CompositeScanView: View {
     private func nextScan() {
         scanner.reset()
         camera.start(delegate: scanner)
+        if scanLighting { enterFullScreen() }
+    }
+
+    /// Passe la fenêtre en plein écran (surface d'éclairage maximale).
+    /// Différé : à onAppear, la fenêtre n'est pas toujours déjà là.
+    private func enterFullScreen() {
+        DispatchQueue.main.async {
+            guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
+                  !window.styleMask.contains(.fullScreen)
+            else { return }
+            window.toggleFullScreen(nil)
+        }
     }
 }
