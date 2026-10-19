@@ -1,0 +1,3 @@
+670:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:442:53: error: value of optional type 'CGPoint?' must be unwrapped to refer to member 'x' of wrapped base type 'CGPoint'
+681:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:443:53: error: value of optional type 'CGPoint?' must be unwrapped to refer to member 'y' of wrapped base type 'CGPoint'
+692:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:444:42: error: cannot convert value of type 'Duration' to expected argument type 'CGFloat'
