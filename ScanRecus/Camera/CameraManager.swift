@@ -141,6 +141,9 @@ final class CameraManager: NSObject, @unchecked Sendable {
         // de calibrage du scanner sont exprimés en pixels et mis à
         // l'échelle en conséquence (voir CompositeScanner.pxScale).
         // Repli en cas de pépin : 720p, comportement d'origine.
+        // (Pas de sessionPreset .inputPriority : il n'existe pas
+        // sur macOS — erreur de compilation vue au CI le
+        // 2026-10-19. Le format actif est posé APRÈS le preset.)
         session.sessionPreset = .hd1280x720
         let fluid = device.formats.filter { format in
             format.videoSupportedFrameRateRanges.contains {
@@ -160,7 +163,6 @@ final class CameraManager: NSObject, @unchecked Sendable {
             .max(by: { pixels($0) < pixels($1) }) {
             do {
                 try device.lockForConfiguration()
-                session.sessionPreset = .inputPriority
                 device.activeFormat = best
                 device.unlockForConfiguration()
             } catch {
