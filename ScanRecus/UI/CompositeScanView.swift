@@ -45,38 +45,53 @@ struct CompositeScanView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { geo in
+            GeometryReader { outer in
                 ZStack {
+                    // Champ d'éclairage blanc (ou fond noir du mode
+                    // figé) sur toute la zone. La fenêtre de visée
+                    // centrale reste modeste — environ la moitié de
+                    // l'écran : assez pour enligner le reçu, et tout
+                    // le reste est de la lumière (précision de
+                    // Grégoire, 2026-10-19). Une fois le scan figé,
+                    // la fenêtre reprend toute la place : le scan
+                    // s'affiche bien gros au centre.
                     lightPanelActive ? Color.white : Color.black
-                    if isDone, let image = scanner.finalImage {
-                        Image(image, scale: 1, label: Text("Scan du reçu"))
-                            .resizable()
-                            .scaledToFit()
-                            .padding(10)
-                    } else {
-                        CameraPreviewView(session: camera.session)
-                            .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
-                                         anchor: .center)
-                        ScanOverlayView(quad: scanner.quad,
-                                        totalBox: nil,
-                                        hoverRect: nil,
-                                        mirrored: previewMirrored,
-                                        size: geo.size)
-                        if scanner.state == .capturing {
-                            VStack {
-                                Spacer()
-                                ProgressView(value: scanner.progress)
-                                    .progressViewStyle(.linear)
-                                    .tint(lightPanelActive ? .orange : .yellow)
-                                    .padding(.horizontal, 24)
-                                    .padding(.bottom, 14)
+                    GeometryReader { geo in
+                        ZStack {
+                            Color.black
+                            if isDone, let image = scanner.finalImage {
+                                Image(image, scale: 1, label: Text("Scan du reçu"))
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding(10)
+                            } else {
+                                CameraPreviewView(session: camera.session)
+                                    .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
+                                                 anchor: .center)
+                                ScanOverlayView(quad: scanner.quad,
+                                                totalBox: nil,
+                                                hoverRect: nil,
+                                                mirrored: previewMirrored,
+                                                size: geo.size)
+                                if scanner.state == .capturing {
+                                    VStack {
+                                        Spacer()
+                                        ProgressView(value: scanner.progress)
+                                            .progressViewStyle(.linear)
+                                            .tint(lightPanelActive ? .orange : .yellow)
+                                            .padding(.horizontal, 24)
+                                            .padding(.bottom, 14)
+                                    }
+                                }
                             }
                         }
                     }
+                    .frame(width: lightPanelActive
+                           ? outer.size.width * 0.52 : outer.size.width,
+                           height: lightPanelActive
+                           ? outer.size.height * 0.62 : outer.size.height)
                 }
             }
-            .padding(lightPanelActive ? 80 : 0)
-            .background(lightPanelActive ? Color.white : Color.black)
             .frame(minHeight: 220)
 
             Divider()
