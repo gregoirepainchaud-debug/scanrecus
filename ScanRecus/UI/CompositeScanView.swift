@@ -14,7 +14,8 @@ import AppKit  // NSApplication, pour le bouton Exit
 /// - CAPTURE (2 s) : le flux reste affiché, une barre de progression
 ///   montre la fenêtre ; à droite, le composite s'assemble en direct
 ///   (tuiles remplies, remplissage du rectangle englobant).
-/// - FIGÉ : le flux caméra COUPE (la session est arrêtée) et le scan
+/// - FIGÉ : le flux caméra COUPE à l'écran (la session reste en
+///   marche, voir CameraManager) et le scan
 ///   redressé, caractères à l'endroit, remplit l'écran sur fond noir.
 ///
 /// Boutons toujours visibles : « Next scan » abandonne le test en
@@ -176,10 +177,11 @@ struct CompositeScanView: View {
             if scanLighting { enterFullScreen() }
         }
         .onDisappear { camera.stop() }
-        .onChange(of: scanner.state) { _, newState in
-            // Le flux caméra coupe quand le scan est figé.
-            if newState == .done { camera.stop() }
-        }
+        // Pas d'arrêt de session quand le scan se fige : la vue
+        // bascule sur l'image finale (le flux « coupe » à l'écran),
+        // mais la session reste en marche — l'arrêter puis la
+        // redémarrer au « Next scan » a causé un plantage (course
+        // avec la reconstruction du calque d'aperçu, 2026-10-19).
     }
 
     /// Abandonne le test en cours (quel que soit l'état) et repart

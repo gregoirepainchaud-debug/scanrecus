@@ -81,7 +81,18 @@ final class CameraManager: NSObject, @unchecked Sendable {
                 if self.session.inputs.isEmpty {
                     try self.configure(delegate: delegate)
                 }
-                self.session.startRunning()
+                // Ne redémarrer que si la session est arrêtée. Le
+                // cycle arrêter/redémarrer entre deux scans a déjà
+                // planté l'app : au « Next scan », la vue reconstruit
+                // son calque d'aperçu pendant que startRunning
+                // énumère les connexions de la session — « Collection
+                // was mutated while being enumerated » (2026-10-19).
+                // La session reste donc en marche d'un scan à
+                // l'autre ; c'est la VUE qui coupe l'affichage du
+                // flux une fois le scan figé.
+                if !self.session.isRunning {
+                    self.session.startRunning()
+                }
                 DispatchQueue.main.async {
                     self.isAuthorized = true
                     self.errorMessage = nil

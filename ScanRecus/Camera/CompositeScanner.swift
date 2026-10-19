@@ -23,7 +23,8 @@ import simd
 ///    Le reçu n'a PAS besoin d'être montré au complet : le composite
 ///    grandit au-delà de la première vue quand on le déplace (pan).
 ///    Ce qui n'est jamais montré n'existe pas dans le scan.
-/// 3. FIGEAGE — à 2 s, le flux caméra coupe (la vue arrête la session)
+/// 3. FIGEAGE — à 2 s, le flux caméra coupe à l'écran (la vue
+///    bascule sur le composite ; la session reste en marche)
 ///    et le composite est redressé (correction de perspective) puis
 ///    tourné pour que les caractères soient à l'endroit (mini-OCR
 ///    d'orientation seulement — aucune extraction à cette étape).
