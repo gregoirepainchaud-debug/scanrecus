@@ -140,6 +140,7 @@ final class CompositeScanner: NSObject,
 
     // Statistiques
     private var framesSeen = 0
+    private var lastDetectedCount = 0
     private var framesFused = 0
     private var framesChained = 0
     private var registrationsFailed = 0
@@ -882,15 +883,24 @@ final class CompositeScanner: NSObject,
         let request = VNDetectRectanglesRequest()
         request.minimumAspectRatio = 0.15
         request.maximumAspectRatio = 1.0
-        request.minimumSize = 0.15
-        request.maximumObservations = 3
-        request.minimumConfidence = 0.4
+        request.minimumSize = 0.10
+        request.maximumObservations = 6
+        request.minimumConfidence = 0.3
+        request.quadratureTolerance = 40
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
                                             options: [:])
         guard (try? handler.perform([request])) != nil else { return nil }
-        let best = request.results?.max {
-            ($0.boundingBox.width * $0.boundingBox.height)
-                < ($1.boundingBox.width * $1.boundingBox.height)
+        let results = request.results ?? []
+        lastDetectedCount = results.count
+        // Choix par AIRE RÉELLE du quadrilatère plutôt que par sa
+        // boîte englobante, parmi davantage de candidats : un petit
+        // objet rectangulaire proche de la caméra — une montre, vécu
+        // le 2026-10-19 — ne doit pas gagner contre le reçu.
+        let best = results.max {
+            abs(shoelace([$0.topLeft, $0.topRight,
+                          $0.bottomRight, $0.bottomLeft]))
+                < abs(shoelace([$1.topLeft, $1.topRight,
+                                $1.bottomRight, $1.bottomLeft]))
         }
         guard let rect = best else { return nil }
         return [rect.topLeft, rect.topRight, rect.bottomRight, rect.bottomLeft]
@@ -967,6 +977,7 @@ final class CompositeScanner: NSObject,
         }
         return "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
             + " (dont chaînées : \(framesChained))\n"
+            + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"
