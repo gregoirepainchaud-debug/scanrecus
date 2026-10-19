@@ -26,7 +26,7 @@ import SwiftData
 /// déplacements inversés — avec une caméra de face, on ne peut pas
 /// avoir les deux (il faudrait une caméra plongeante).
 struct ScanDebugView: View {
-    @StateObject private var camera = CameraManager()
+    @State private var camera = CameraManager()
     @StateObject private var engine = ScanEngine()
     @StateObject private var flow = ScanFlowController()
     @FocusState private var viewFocused: Bool

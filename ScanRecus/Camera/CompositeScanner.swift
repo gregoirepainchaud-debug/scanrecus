@@ -1,8 +1,8 @@
 import AVFoundation
 import Vision
 import CoreImage
-import Combine
 import Foundation
+import Observation
 import simd
 
 // MARK: - Moteur de scan composite (ÉTAPE 1 : le scan seul)
@@ -57,7 +57,8 @@ import simd
 /// Tant que le calibrage n'est pas confirmé, seule la référence
 /// compose le scan — un reçu tenu parfaitement immobile donne donc
 /// un scan à une image, ce qui est le résultat correct de toute façon.
-final class CompositeScanner: NSObject, ObservableObject,
+@Observable
+final class CompositeScanner: NSObject,
                               AVCaptureVideoDataOutputSampleBufferDelegate,
                               @unchecked Sendable {
 
@@ -69,22 +70,22 @@ final class CompositeScanner: NSObject, ObservableObject,
 
     // MARK: Publié (thread principal)
 
-    @Published private(set) var state: State = .searching
-    @Published private(set) var statusText = "Présentez un reçu à la caméra…"
+    private(set) var state: State = .searching
+    private(set) var statusText = "Présentez un reçu à la caméra…"
     /// Quadrilatère courant (coordonnées normalisées Vision, origine
     /// bas-gauche, ordre TL, TR, BR, BL) pour l'overlay.
-    @Published private(set) var quad: [CGPoint]?
+    private(set) var quad: [CGPoint]?
     /// Avancement de la fenêtre de capture (0…1).
-    @Published private(set) var progress: Double = 0
+    private(set) var progress: Double = 0
     /// Remplissage du rectangle englobant du composite (0…100).
-    @Published private(set) var fillPercent: Int = 0
-    @Published private(set) var filledTiles: Int = 0
+    private(set) var fillPercent: Int = 0
+    private(set) var filledTiles: Int = 0
     /// Aperçu vivant du composite pendant la capture.
-    @Published private(set) var livePreview: CGImage?
+    private(set) var livePreview: CGImage?
     /// Le scan final : redressé, caractères à l'endroit.
-    @Published private(set) var finalImage: CGImage?
+    private(set) var finalImage: CGImage?
     /// Statistiques de diagnostic (temps par étape, compteurs).
-    @Published private(set) var statsText = ""
+    private(set) var statsText = ""
 
     // MARK: Réglages
 
@@ -317,7 +318,7 @@ final class CompositeScanner: NSObject, ObservableObject,
         // puis on confirme sur une image ultérieure à déplacement franc.
         guard let locked = recipe else {
             if let w = register(scene: refSmall, template: frameSmall) {
-                calibrate(w: w, frameQuadNorm: quadNorm)
+                _ = calibrate(w: w, frameQuadNorm: quadNorm)
             } else {
                 registrationsFailed += 1
             }

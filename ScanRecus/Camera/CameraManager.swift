@@ -1,5 +1,5 @@
 import AVFoundation
-import Combine
+import Observation
 import SwiftUI
 
 // MARK: - Gestion de la caméra (AVFoundation)
@@ -12,11 +12,12 @@ import SwiftUI
 /// à droite à l'écran) pour un positionnement intuitif. Les images
 /// analysées par l'OCR restent NON miroitée — l'UI inverse donc les
 /// coordonnées X des cadres (voir ScanOverlayView).
-final class CameraManager: NSObject, ObservableObject, @unchecked Sendable {
+@Observable
+final class CameraManager: NSObject, @unchecked Sendable {
 
-    @Published private(set) var isAuthorized = false
-    @Published private(set) var isRunning = false
-    @Published private(set) var errorMessage: String?
+    private(set) var isAuthorized = false
+    private(set) var isRunning = false
+    private(set) var errorMessage: String?
 
     /// La session est thread-safe (documentation Apple) : on peut la lire
     /// depuis le main pour la prévisualisation pendant qu'elle tourne.
@@ -60,9 +61,14 @@ final class CameraManager: NSObject, ObservableObject, @unchecked Sendable {
     // MARK: - Privé
 
     private func publishDenied() {
-        errorMessage = "Accès à la caméra refusé. Ouvrez Réglages Système > " +
-            "Confidentialité et sécurité > Caméra, puis activez ScanReçus."
-        isAuthorized = false
+        // Écriture différée : start() est appelé depuis onAppear,
+        // possiblement pendant une mise à jour de vue SwiftUI.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.errorMessage = "Accès à la caméra refusé. Ouvrez Réglages Système > " +
+                "Confidentialité et sécurité > Caméra, puis activez ScanReçus."
+            self.isAuthorized = false
+        }
     }
 
     private func configureAndStart(
