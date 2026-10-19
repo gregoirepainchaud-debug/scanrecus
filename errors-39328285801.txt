@@ -1,0 +1,1 @@
+525:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift:163:42: error: 'inputPriority' is unavailable in macOS
