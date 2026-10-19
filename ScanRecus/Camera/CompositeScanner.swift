@@ -92,8 +92,9 @@ final class CompositeScanner: NSObject,
     private let processInterval: CFTimeInterval = 0.12  // ~8 images/s max
     private let captureDuration: CFTimeInterval = 2.0
     private let smallWidth: CGFloat = 640               // enregistrement
-    private let stableThreshold: CGFloat = 0.015        // mouvement max (normalisé)
-    private let stableFramesNeeded = 4                  // ~0,5 s à 8 img/s
+    private let stableThreshold: CGFloat = 0.03         // mouvement max (normalisé, quadrilatère lissé)
+    private let stableFramesNeeded = 3                  // ~0,4 s à 8 img/s
+    private let quadSmoothing: CGFloat = 0.4            // lissage exponentiel anti-bruit du détecteur
     private let tileCols = 24
     private let tileRows = 14
     private let sharpRenderScale: CGFloat = 1.0 / 6.0
@@ -104,7 +105,7 @@ final class CompositeScanner: NSObject,
     private var lastProcessStart: CFTimeInterval = 0
 
     private var phase: State = .searching
-    private var prevQuad: [CGPoint]?       // normalisé, [TL, TR, BR, BL]
+    private var smoothedQuad: [CGPoint]?   // quadrilatère lissé (normalisé, [TL, TR, BR, BL])
     private var stableCount = 0
 
     private var captureStart: CFTimeInterval = 0
@@ -161,7 +162,7 @@ final class CompositeScanner: NSObject,
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.phase = .searching
-            self.prevQuad = nil
+            self.smoothedQuad = nil
             self.stableCount = 0
             self.captureStart = 0
             self.refSmall = nil
@@ -251,25 +252,38 @@ final class CompositeScanner: NSObject,
     private func updateStability(quadNorm: [CGPoint]?, frame: CIImage) {
         guard let quadNorm else {
             stableCount = 0
-            prevQuad = nil
+            smoothedQuad = nil
             publish(status: "Présentez un reçu à la caméra…")
             return
         }
-        if let prev = prevQuad {
+        // Lissage exponentiel du quadrilatère suivi : le détecteur
+        // Vision fait trembler les coins d'une image à l'autre, même
+        // reçu immobile, et une main tremble toujours un peu. Avec le
+        // seuil d'origine (0,015, retour à zéro au moindre écart), le
+        // compteur n'arrivait jamais à terme à main levée — constat
+        // de Grégoire, 2026-10-19. Le mouvement est donc mesuré sur
+        // le quadrilatère lissé, et un écart isolé ne coûte qu'un pas.
+        let a = quadSmoothing
+        if let prev = smoothedQuad {
+            let smoothed = (0..<4).map { i in
+                CGPoint(x: prev[i].x + a * (quadNorm[i].x - prev[i].x),
+                        y: prev[i].y + a * (quadNorm[i].y - prev[i].y))
+            }
             let movement = (0..<4).map { i -> CGFloat in
-                let dx = quadNorm[i].x - prev[i].x
-                let dy = quadNorm[i].y - prev[i].y
+                let dx = smoothed[i].x - prev[i].x
+                let dy = smoothed[i].y - prev[i].y
                 return (dx * dx + dy * dy).squareRoot()
             }.max() ?? 1
             if movement < stableThreshold {
                 stableCount += 1
             } else {
-                stableCount = 0
+                stableCount = max(0, stableCount - 1)
             }
+            smoothedQuad = smoothed
         } else {
+            smoothedQuad = quadNorm
             stableCount = 0
         }
-        prevQuad = quadNorm
 
         if stableCount >= stableFramesNeeded {
             startCapture(frame: frame, quadNorm: quadNorm)
