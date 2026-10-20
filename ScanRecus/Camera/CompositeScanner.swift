@@ -96,6 +96,9 @@ final class CompositeScanner: NSObject,
     private(set) var rawFinalImage: CGImage?
     /// Statistiques de diagnostic (temps par étape, compteurs).
     private(set) var statsText = ""
+    /// Lecture du dernier scan figé (OCR + champs extraits) —
+    /// affichage seulement, rien n'est sauvegardé.
+    private(set) var extraction: ScanExtraction?
 
     // MARK: Réglages
 
@@ -222,6 +225,7 @@ final class CompositeScanner: NSObject,
             self.finalImage = nil
             self.rawFinalImage = nil
             self.finishInfo = nil
+            self.extraction = nil
             self.statsText = ""
         }
     }
@@ -1067,6 +1071,12 @@ final class CompositeScanner: NSObject,
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
 
+        // Lecture du scan figé (première brique de l'étape 2,
+        // demandée par Grégoire le 2026-10-19 : « voir les
+        // informations que le programme peut extraire ») : OCR
+        // précis dans les deux sens + champs extraits par
+        // ReceiptParser. Affichage seulement — rien en base.
+        let extraction = finalCG.map { extractFields(from: $0) }
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1076,6 +1086,7 @@ final class CompositeScanner: NSObject,
             self.finalImage = finalCG
             self.rawFinalImage = rawCG
             self.livePreview = finalCG
+            self.extraction = extraction
             self.statsText = stats
         }
     }
@@ -1175,6 +1186,89 @@ final class CompositeScanner: NSObject,
                     "zone de texte seule (\(textBoxes.count) zones)")
         }
         return (composite, "composite entier (aucune localisation)")
+    }
+
+    // MARK: - Lecture du scan (OCR précis + champs, affichage seulement)
+
+    /// Résultat de la lecture d'un scan figé.
+    struct ScanExtraction {
+        var text: String
+        var merchant: String
+        var date: Date?
+        var dateIsDefault: Bool
+        var total: Double?
+        var totalVerified: Bool
+        var readUpsideDown: Bool
+    }
+
+    /// OCR précis sur l'image finale, essayé dans les DEUX sens
+    /// (droit et renversé) : le passage au meilleur score
+    /// (Σ confiance × longueur) gagne. La lecture réussit donc
+    /// même si l'image affichée est restée inversée — remarque de
+    /// Grégoire le 2026-10-19 : « si le programme peut lire
+    /// inversé, bah… » — c'est vrai, et c'est ce qui compte pour
+    /// l'extraction. Lignes triées du haut vers le bas.
+    private func recognizeBestText(cgImage: CGImage)
+    -> (text: String, upsideDown: Bool) {
+        func pass(_ orientation: CGImagePropertyOrientation)
+        -> (text: String, score: Float) {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["fr-FR", "en-US"]
+            request.usesLanguageCorrection = true
+            let handler = VNImageRequestHandler(
+                cgImage: cgImage, orientation: orientation,
+                options: [:])
+            guard (try? handler.perform([request])) != nil
+            else { return ("", -1) }
+            var lines: [(y: CGFloat, x: CGFloat, s: String)] = []
+            var score: Float = 0
+            for obs in request.results ?? [] {
+                guard let candidate = obs.topCandidates(1).first
+                else { continue }
+                score += candidate.confidence
+                    * Float(candidate.string.count)
+                lines.append((obs.boundingBox.maxY,
+                              obs.boundingBox.minX,
+                              candidate.string))
+            }
+            lines.sort {
+                if abs($0.y - $1.y) > 0.01 { return $0.y > $1.y }
+                return $0.x < $1.x
+            }
+            return (lines.map(\.s).joined(separator: "\n"), score)
+        }
+        let up = pass(.up)
+        let down = pass(.down)
+        return down.score > up.score
+            ? (down.text, true) : (up.text, false)
+    }
+
+    /// Lit le scan et en tire les champs affichables. Date non
+    /// trouvée → 1er jour du trimestre précédent (la règle
+    /// métier), signalée comme valeur par défaut. Le total est
+    /// accompagné de sa preuve par addition quand elle existe
+    /// (sous-total + taxes = total) — le vérificateur prévu pour
+    /// l'étape 2, déjà à l'œuvre pour l'affichage.
+    private func extractFields(from cgImage: CGImage)
+    -> ScanExtraction {
+        let (text, upsideDown) = recognizeBestText(cgImage: cgImage)
+        let foundDate = ReceiptParser.parseDate(text)
+        let total = ReceiptParser.parseTotal(text)?.value
+        var verified = false
+        if let total {
+            let amounts = ReceiptParser.allAmounts(text).map(\.value)
+            verified = ReceiptParser.isSumVerified(total: total,
+                                                   amounts: amounts)
+        }
+        return ScanExtraction(
+            text: text,
+            merchant: ReceiptParser.parseMerchant(text) ?? "",
+            date: foundDate ?? QuarterHelper.previousQuarterStart(),
+            dateIsDefault: foundDate == nil,
+            total: total,
+            totalVerified: verified,
+            readUpsideDown: upsideDown)
     }
 
     /// Choisit, parmi 4 rotations, celle où l'OCR reconnaît le vrai

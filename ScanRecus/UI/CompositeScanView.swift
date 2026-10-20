@@ -3,8 +3,9 @@ import AppKit  // NSApplication, pour le bouton Exit
 
 // MARK: - Écran de test du scan composite (ÉTAPE 1)
 
-/// Cet écran ne sert qu'à régler le SCAN (voir CompositeScanner) :
-/// aucune extraction d'information à cette étape, et RIEN n'est écrit
+/// Cet écran sert à régler le SCAN (voir CompositeScanner). Le
+/// scan figé est aussi LU (OCR + champs affichés dans le panneau
+/// « Ce que je lis ») — affichage seulement : RIEN n'est écrit
 /// dans la base de données (aucun accès SwiftData ici).
 ///
 /// Déroulement affiché :
@@ -19,6 +20,8 @@ import AppKit  // NSApplication, pour le bouton Exit
 /// - FIGÉ : le flux caméra COUPE à l'écran (la session reste en
 ///   marche, voir CameraManager) et le scan
 ///   redressé, caractères à l'endroit, remplit l'écran sur fond noir.
+///   Le panneau du bas montre alors ce que le programme LIT du
+///   scan (champs extraits + texte brut), sans rien sauvegarder.
 ///
 /// Boutons toujours visibles : « Next scan » abandonne le test en
 /// cours et repart en recherche (pour enchaîner les scénarios) ;
@@ -136,6 +139,10 @@ struct CompositeScanView: View {
                                 .foregroundColor(.secondary)
                         }
 
+                        if isDone, let ex = scanner.extraction {
+                            extractionPanel(ex)
+                        }
+
                         HStack(spacing: 12) {
                             Button("Next scan") { nextScan() }
                                 .controlSize(.large)
@@ -204,6 +211,76 @@ struct CompositeScanView: View {
         // mais la session reste en marche — l'arrêter puis la
         // redémarrer au « Next scan » a causé un plantage (course
         // avec la reconstruction du calque d'aperçu, 2026-10-19).
+    }
+
+    /// Panneau « Ce que je lis » : les champs extraits du scan
+    /// figé et le texte OCR brut, pour juger sur pièces ce que le
+    /// programme sait lire. Affichage seulement — rien n'est
+    /// sauvegardé à cette étape.
+    @ViewBuilder
+    private func extractionPanel(
+        _ ex: CompositeScanner.ScanExtraction
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ce que je lis")
+                .font(.system(size: 14, weight: .semibold))
+            HStack(alignment: .top, spacing: 22) {
+                fieldRow("Commerce",
+                         ex.merchant.isEmpty ? "—" : ex.merchant)
+                fieldRow("Date", dateText(ex))
+                fieldRow("Total", totalText(ex))
+            }
+            if ex.readUpsideDown {
+                Text("Lu à l'envers : l'image affichée est restée inversée, la lecture s'en est accommodée.")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+            }
+            ScrollView {
+                Text(ex.text.isEmpty
+                     ? "(aucun texte reconnu)" : ex.text)
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 110)
+            .padding(6)
+            .background(Color(nsColor: .textBackgroundColor))
+            .cornerRadius(6)
+        }
+        .padding(.top, 4)
+    }
+
+    private func fieldRow(_ label: String, _ value: String)
+    -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 14, weight: .medium))
+        }
+    }
+
+    private func dateText(_ ex: CompositeScanner.ScanExtraction)
+    -> String {
+        guard let date = ex.date else { return "—" }
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: date)
+            + (ex.dateIsDefault ? " (par défaut)" : "")
+    }
+
+    private func totalText(_ ex: CompositeScanner.ScanExtraction)
+    -> String {
+        guard let total = ex.total else { return "—" }
+        let f = NumberFormatter()
+        f.numberStyle = .currency
+        f.currencyCode = "CAD"
+        let amount = f.string(from: NSNumber(value: total))
+            ?? String(format: "%.2f $", total)
+        return amount
+            + (ex.totalVerified ? "  ✓ vérifié par addition" : "")
     }
 
     /// Abandonne le test en cours (quel que soit l'état) et repart
