@@ -1,0 +1,7 @@
+ScanRecus/Logic/QuarterHelper.swift:61:45: error: cannot find type 'ReceiptItem' in scope
+59 |     /// Années distinctes présentes dans les reçus, en ordre décroissant
+60 |     /// (année courante incluse) — pour le sélecteur du rapport trimestriel.
+61 |     static func distinctYears(in receipts: [ReceiptItem],
+   |                                             `- error: cannot find type 'ReceiptItem' in scope
+62 |                               calendar: Calendar = .current) -> [Int] {
+63 |         var years = Set(receipts.map {
