@@ -106,7 +106,7 @@ final class CompositeScanner: NSObject,
     // Fenêtre de capture : 0,5 s (divisée par deux deux fois à
     // la demande de Grégoire, 2 s → 1 s → 0,5 s, les 2026-10-19/20 :
     // quelques images suffisent quand le reçu est tenu stable).
-    private let captureDuration: CFTimeInterval = 0.5
+    private let captureDuration: CFTimeInterval = 1.6
     private let smallWidth: CGFloat = 640               // enregistrement
     private let stableThreshold: CGFloat = 0.03         // mouvement max (normalisé, quadrilatère lissé)
     private let stableFramesNeeded = 3                  // ~0,4 s à 8 img/s
@@ -175,6 +175,16 @@ final class CompositeScanner: NSObject,
     /// Chemin stable (B1) : somme des vues recalées par le juge
     /// DLT, moyennée à la fin si le calibrage n'a rien fusionné.
     private var stableSum: CIImage?
+    /// NOUVELLE MÉTHODE (2026-10-20, demande de Grégoire) :
+    /// pendant la fenêtre, chaque frame est notée pour la
+    /// netteté de ses caractères ; on ne garde que la
+    /// meilleure, MATÉRIALISÉE (le buffer caméra est recyclé
+    /// dès le retour du délégué). Ni fusion, ni moyenne.
+    private var bestSample: CIImage?
+    private var bestSharpness: Double = -1
+    private var sampledFrames = 0
+    private var sampleScores: [Double] = []
+    private var earlySharpExit = false
     private var stableCount = 0
     /// Rejets du chemin stable, par cause (diagnostic, build 43) :
     /// le build 42 montrait « moyenne stable : 1 vue » sans dire
@@ -227,6 +237,11 @@ final class CompositeScanner: NSObject,
             self.scanTextOrientation = .up
             self.composite = nil
             self.stableSum = nil
+            self.bestSample = nil
+            self.bestSharpness = -1
+            self.sampledFrames = 0
+            self.sampleScores = []
+            self.earlySharpExit = false
             self.stableCount = 0
             self.stableRejectBoxes = 0
             self.stableRejectShift = 0
@@ -314,21 +329,34 @@ final class CompositeScanner: NSObject,
                                  frame: frameFull,
                                  judgeQuad: judgeQuad)
         case .capturing:
+            // NOUVELLE MÉTHODE : échantillonner et noter. La
+            // meilleure frame est copiée tout de suite (le
+            // buffer caméra ne survit pas au retour du
+            // délégué) ; dès qu'une frame est nettement plus
+            // nette que les autres, on la prend et on arrête.
             let elapsed = now - captureStart
-            if elapsed >= captureDuration {
-                finish()
-            } else {
-                let boxes = scanTextOrientation == .up
-                    ? detectTextBoxes(in: pixelBuffer)
-                    : detectTextBoxes(in: frameFull,
-                                      orientation: scanTextOrientation)
-                captureFrame(frameFull: frameFull, quadNorm: judgeQuad,
-                             textBoxes: boxes)
-                publish(progress: elapsed / captureDuration)
-                if now - lastPreviewTime >= 0.35 {
-                    lastPreviewTime = now
-                    publishLivePreview()
+            let boxes = scanTextOrientation == .up
+                ? detectTextBoxes(in: pixelBuffer)
+                : detectTextBoxes(in: frameFull,
+                                  orientation: scanTextOrientation)
+            let score = sharpnessScore(frame: frameFull, boxes: boxes)
+            sampledFrames += 1
+            sampleScores.append(score)
+            if score > bestSharpness {
+                bestSharpness = score
+                if let cg = ciContext.createCGImage(
+                    frameFull, from: frameFull.extent) {
+                    bestSample = CIImage(cgImage: cg)
                 }
+            }
+            publish(progress: elapsed / captureDuration)
+            if now - lastPreviewTime >= 0.35 {
+                lastPreviewTime = now
+                publishLivePreview()
+            }
+            if elapsed >= captureDuration || isClearlySharp(score) {
+                earlySharpExit = elapsed < captureDuration
+                finish()
             }
         case .done:
             break
@@ -448,6 +476,11 @@ final class CompositeScanner: NSObject,
 
         // Chemin stable (B1) : la référence, matérialisée,
         // amorce la somme des vues recalées.
+        bestSample = nil
+        bestSharpness = -1
+        sampledFrames = 0
+        sampleScores = []
+        earlySharpExit = false
         stableSum = nil
         stableCount = 0
         stableRejectBoxes = 0
@@ -460,7 +493,7 @@ final class CompositeScanner: NSObject,
             stableSum = CIImage(cgImage: cg)
             stableCount = 1
         }
-        publish(status: "Scan en cours — bougez lentement pour montrer ce qui compte…")
+        publish(status: "Scan en cours — je cherche l'image la plus nette, tenez le reçu tranquille…")
         publishLivePreview()
     }
 
@@ -1300,38 +1333,25 @@ final class CompositeScanner: NSObject,
         // fusionné des vues ; sinon la moyenne recalée du chemin
         // stable, moins bruitée qu'une image seule ; sinon le
         // composite, qui ne contient que la référence.
-        var source = composite
-        var usedAverage = false
-        var sourceHow = "composite par homographies "
-            + "(\(framesFused) vue(s) fusionnée(s))"
-        if framesFused == 0, stableCount >= 2, let sum = stableSum {
-            usedAverage = true
-            let n = CGFloat(stableCount)
-            source = sum.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 1 / n, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: 1 / n, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: 1 / n, w: 0),
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1 / n),
-            ]).cropped(to: canvasExtent)
-            sourceHow = "moyenne de \(stableCount) images recalées "
-                + "(scène stable : calibrage sans objet, bruit réduit)"
-        } else if framesFused == 0 {
-            sourceHow = "image unique (la référence — aucune fusion "
-                + "ni moyenne possible)"
-        }
-        var (extracted, how) = extractReceipt(from: source)
-        // Filet (choix de Grégoire, 2026-10-20) : si la moyenne
-        // n'a pas localisé le reçu, retenter sur le composite —
-        // qui, sans fusion par homographies, EST l'image de
-        // référence — plutôt que de lire tout le canvas.
-        if usedAverage, how.contains("aucune localisation") {
-            let retry = extractReceipt(from: composite)
-            if !retry.1.contains("aucune localisation") {
-                extracted = retry.0
-                how = retry.1 + " — repli sur la référence "
-                    + "(la moyenne n'avait pas localisé)"
+        // NOUVELLE MÉTHODE (build 48, demande de Grégoire) :
+        // la source est L'IMAGE UNIQUE LA PLUS NETTE des
+        // échantillons — plus de fusion, plus de moyenne, plus
+        // de composite. L'extraction travaille sur elle comme
+        // avant sur le composite : localisation par les bords
+        // blancs du papier, aplatissement par ses coins.
+        guard let sample = bestSample else {
+            DispatchQueue.main.async { [weak self] in
+                self?.statusText = "Aucun échantillon — réessayez."
             }
+            phase = .searching
+            return
         }
+        let sourceHow = "image unique la plus nette (netteté "
+            + String(format: "%.1f", bestSharpness)
+            + ", \(sampledFrames) échantillon(s)"
+            + (earlySharpExit ? ", prise dès qu'elle était nette" : "")
+            + ")"
+        var (extracted, how) = extractReceipt(from: sample)
         let tLoc = CFAbsoluteTimeGetCurrent()
         var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
@@ -1339,6 +1359,16 @@ final class CompositeScanner: NSObject,
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
+        // Redressement fin (nouvelle méthode) : la rotation
+        // exacte qui rend les lignes horizontales — le reçu de
+        // côté et un peu croche demande par exemple 75°, pas
+        // un multiple de 90°.
+        let (deskewedImage, skewAngle) = deskew(image)
+        image = deskewedImage
+        if abs(skewAngle) >= 0.3 * .pi / 180 {
+            how += String(format: " · redressement fin : %+.1f°",
+                          Double(skewAngle) * 180 / .pi)
+        }
         let tOrient = CFAbsoluteTimeGetCurrent()
         // Arbitre d'orientation (demande de Grégoire, 2026-10-20 :
         // le scan final DOIT s'afficher dans un sens qui fait du
@@ -1959,6 +1989,160 @@ final class CompositeScanner: NSObject,
         guard let cg = ciContext.createCGImage(small, from: small.extent)
         else { return nil }
         return CIImage(cgImage: cg)
+    }
+
+    // MARK: - Nouvelle méthode : netteté et redressement fin
+
+    /// Tampon gris 8 bits d'une image réduite, rangée 0 = HAUT
+    /// de l'image : le CGImage est dessiné avec un
+    /// retournement explicite, donc les coordonnées Vision
+    /// (y vers le haut) se convertissent sans ambiguïté.
+    private func grayBuffer(_ image: CIImage, maxWidth: CGFloat,
+                            maxHeight: CGFloat = 100_000)
+    -> (pixels: [UInt8], width: Int, height: Int)? {
+        let normalized = image.transformed(by: CGAffineTransform(
+            translationX: -image.extent.minX,
+            y: -image.extent.minY))
+        guard normalized.extent.width > 0,
+              normalized.extent.height > 0 else { return nil }
+        let k = min(1, maxWidth / normalized.extent.width,
+                    maxHeight / normalized.extent.height)
+        let scaled = normalized.transformed(
+            by: CGAffineTransform(scaleX: k, y: k))
+        let w = max(1, Int(scaled.extent.width.rounded()))
+        let h = max(1, Int(scaled.extent.height.rounded()))
+        guard let cg = ciContext.createCGImage(scaled,
+                                               from: scaled.extent),
+              let ctx = CGContext(
+                data: nil, width: w, height: h, bitsPerComponent: 8,
+                bytesPerRow: w, space: graySpace,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue),
+              let data = ctx.data
+        else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let pixels = [UInt8](UnsafeBufferPointer(
+            start: data.assumingMemoryBound(to: UInt8.self),
+            count: w * h))
+        return (pixels, w, h)
+    }
+
+    /// Netteté d'une frame, mesurée SUR LES CARACTÈRES :
+    /// gradient moyen dans les zones de texte de l'image
+    /// réduite en gris. Flou ou bougé → contours des
+    /// caractères écrasés → gradient faible. Sans zones
+    /// exploitables, toute l'image sert de zone.
+    private func sharpnessScore(frame: CIImage,
+                                boxes: [CGRect]) -> Double {
+        guard let (px, w, h) = grayBuffer(frame,
+                                          maxWidth: smallSize.width),
+              w > 2, h > 2 else { return 0 }
+        var mask = [Bool](repeating: false, count: w * h)
+        var anyMask = false
+        for box in boxes {
+            let x0 = max(0, Int(box.minX * CGFloat(w)) - 2)
+            let x1 = min(w - 1, Int(box.maxX * CGFloat(w)) + 2)
+            let yTop = max(0, Int((1 - box.maxY) * CGFloat(h)) - 2)
+            let yBot = min(h - 1, Int((1 - box.minY) * CGFloat(h)) + 2)
+            guard x1 > x0, yBot > yTop else { continue }
+            for row in yTop...yBot {
+                for col in x0...x1 { mask[row * w + col] = true }
+            }
+            anyMask = true
+        }
+        var sum = 0.0
+        var count = 0
+        for row in 1..<(h - 1) {
+            for col in 1..<(w - 1) {
+                if anyMask && !mask[row * w + col] { continue }
+                let i = row * w + col
+                let gx = Int(px[i + 1]) - Int(px[i - 1])
+                let gy = Int(px[i + w]) - Int(px[i - w])
+                sum += Double(abs(gx) + abs(gy))
+                count += 1
+            }
+        }
+        guard count > 0 else { return 0 }
+        return sum / Double(count)
+    }
+
+    /// Barre de sortie anticipée : une frame nettement plus
+    /// nette que la médiane des échantillons (et au-delà d'un
+    /// plancher absolu provisoire) est prise tout de suite —
+    /// « la minute qu'on a une image sharp, c'est celle-là ».
+    /// Le plancher sera calibré sur les scores réels que les
+    /// statistiques affichent.
+    private func isClearlySharp(_ score: Double) -> Bool {
+        guard sampleScores.count >= 4 else { return false }
+        let sortedScores = sampleScores.sorted()
+        let median = sortedScores[sortedScores.count / 2]
+        return score >= 10 && score >= 1.4 * median
+    }
+
+    /// Redressement fin : cherche (pas de 1°, puis 0,2°) la
+    /// rotation qui maximise la structure du profil de
+    /// projection horizontal — quand les lignes de texte sont
+    /// horizontales, l'obscurité moyenne par rangée alterne
+    /// crêtes (texte) et vallées (blanc) franches. Rend
+    /// l'image tournée, recadrée sur son étendue d'origine,
+    /// et l'angle appliqué (radians ; 0 si rien de concluant).
+    private func deskew(_ image: CIImage) -> (CIImage, CGFloat) {
+        func rotated(_ img: CIImage, _ angle: CGFloat) -> CIImage {
+            let cx = img.extent.midX, cy = img.extent.midY
+            var t = CGAffineTransform(translationX: cx, y: cy)
+            t = t.rotated(by: angle)
+            t = t.translatedBy(x: -cx, y: -cy)
+            let r = img.transformed(by: t)
+            let target = CGRect(
+                x: r.extent.midX - img.extent.width / 2,
+                y: r.extent.midY - img.extent.height / 2,
+                width: img.extent.width, height: img.extent.height)
+            return r.cropped(to: target)
+        }
+        func profileScore(_ img: CIImage) -> Double {
+            guard let (px, w, h) = grayBuffer(img, maxWidth: 480,
+                                              maxHeight: 900),
+                  h > 2 else { return 0 }
+            let x0 = w / 8, x1 = w - w / 8
+            guard x1 > x0 else { return 0 }
+            var prev: Double?
+            var score = 0.0
+            for row in 0..<h {
+                var sum = 0.0
+                for col in x0..<x1 {
+                    sum += Double(255 - px[row * w + col])
+                }
+                let mean = sum / Double(x1 - x0)
+                if let prev {
+                    let d = mean - prev
+                    score += d * d
+                }
+                prev = mean
+            }
+            return score
+        }
+        let deg = CGFloat.pi / 180
+        var bestAngle: CGFloat = 0
+        var bestScore = profileScore(rotated(image, 0))
+        var a: CGFloat = -8 * deg
+        while a <= 8 * deg + 0.001 {
+            if abs(a) > 0.001 {
+                let sc = profileScore(rotated(image, a))
+                if sc > bestScore { bestScore = sc; bestAngle = a }
+            }
+            a += 1 * deg
+        }
+        var b = bestAngle - 1 * deg
+        while b <= bestAngle + 1 * deg + 0.001 {
+            if abs(b - bestAngle) > 0.001 {
+                let sc = profileScore(rotated(image, b))
+                if sc > bestScore { bestScore = sc; bestAngle = b }
+            }
+            b += 0.2 * deg
+        }
+        if abs(bestAngle) < 0.3 * deg { return (image, 0) }
+        return (rotated(image, bestAngle), bestAngle)
     }
 
     // MARK: - Publication
