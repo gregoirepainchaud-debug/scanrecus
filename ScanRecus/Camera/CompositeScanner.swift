@@ -1425,54 +1425,30 @@ final class CompositeScanner: NSObject,
     private let enhanceSaturation: CGFloat = 0.35
     private let enhanceSharpness: CGFloat = 0.35
 
-    /// Rend le scan redressé « propre » comme un scanner de
-    /// documents, pour l'œil ET pour l'OCR de l'étape 2 :
-    /// 1. aplatissement de l'éclairage — division par un fond estimé
-    ///    (version très floue de l'image) : le papier devient blanc
-    ///    même sous une lumière inégale, ombres et vignettage
-    ///    disparaissent ;
-    /// 2. niveaux automatiques par percentiles — le blanc devient
-    ///    vraiment blanc, l'encre vraiment noire ;
+    /// Amélioration TRÈS légère de l'image finale (affichage et
+    /// extraits zoomés ; la lecture OCR, elle, se fait sur
+    /// l'image brute redressée) :
+    /// 1. niveaux automatiques doux par percentiles (5/92) ;
+    /// 2. le résultat est FONDU à 45 % avec l'image d'origine —
+    ///    l'effet de contraste est donc moins que la moitié de
+    ///    l'étirement calculé ;
     /// 3. saturation réduite — presque gris, un soupçon de couleur
-    ///    (tampons, logos) survit ;
-    /// 4. accentuation de la LUMINANCE seulement — caractères plus
-    ///    nets, aucun halo coloré.
+    ///    (tampons, logos) survit.
+    /// Historique : la « division » (aplatissement par un fond
+    /// flou) a été retirée le 2026-10-20 — même seule avec des
+    /// niveaux doux, Grégoire a jugé le contraste « beaucoup
+    /// trop augmenté ». Pas de courbe « encre », pas de netteté
+    /// non plus.
     /// Aucune étape ne déplace un pixel : la géométrie du scan
     /// redressé est intacte (rien n'est « déformé »).
     private func enhanceDocument(_ image: CIImage)
     -> (image: CIImage, summary: String) {
         let extent = image.extent
 
-        // 1. Fond estimé : l'image elle-même, très floue.
-        let background = image.clampedToExtent()
-            .applyingFilter("CIGaussianBlur", parameters: [
-                "inputRadius": max(24, extent.width / 14),
-            ])
-            .cropped(to: extent)
-
-        // 2. Aplatissement par division. La sémantique exacte de
-        // CIDivideBlendMode (qui divise qui) est vérifiée PAR LES
-        // DONNÉES : le bon candidat garde le texte sombre (son
-        // percentile 2 reste bas) ; le candidat inversé blanchit le
-        // texte jusqu'au clip (p2 proche de 1). On garde le plus bas.
-        func divided(_ backgroundImage: CIImage,
-                     _ foreground: CIImage) -> CIImage? {
-            guard let filter = CIFilter(name: "CIDivideBlendMode")
-            else { return nil }
-            filter.setValue(foreground, forKey: kCIInputImageKey)
-            filter.setValue(backgroundImage,
-                            forKey: kCIInputBackgroundImageKey)
-            return filter.outputImage?.cropped(to: extent)
-        }
-        var flat = image
-        if let a = divided(image, background),
-           let b = divided(background, image) {
-            let p2a = grayPercentiles(a, [0.02]).first ?? 1
-            let p2b = grayPercentiles(b, [0.02]).first ?? 1
-            flat = p2a <= p2b ? a : b
-        } else if let a = divided(image, background) {
-            flat = a
-        }
+        // Pas d'aplatissement par division : c'était LUI le gros
+        // du contraste excessif (retiré le 2026-10-20). Les
+        // niveaux s'appliquent directement à l'image redressée.
+        let flat = image
 
         // 3. Niveaux DOUX (« un brin de contraste, juste un
         // peu » — Grégoire, 2026-10-19, 23 h 58, après le test
@@ -1500,16 +1476,30 @@ final class CompositeScanner: NSObject,
             "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
         ]).cropped(to: extent)
 
-        // 4. Saturation réduite. PAS d'accentuation (sharpening) :
-        // retirée dans la version légère — ses halos fusionnaient
-        // les chiffres à l'OCR.
-        let desaturated = leveled.applyingFilter(
+        // 4. Fondu avec l'originale : l'étirement n'est appliqué
+        // qu'à 45 % — « un brin », pour vrai cette fois. (Le
+        // 2026-10-20, Grégoire a jugé la version précédente —
+        // division + niveaux pleins — « beaucoup trop augmentée ».)
+        var blended = leveled
+        if let dissolve = CIFilter(name: "CIDissolveTransition") {
+            dissolve.setValue(image, forKey: kCIInputImageKey)
+            dissolve.setValue(leveled, forKey: kCIInputTargetImageKey)
+            dissolve.setValue(0.45, forKey: kCIInputTimeKey)
+            if let out = dissolve.outputImage {
+                blended = out.cropped(to: extent)
+            }
+        }
+
+        // 5. Saturation réduite. PAS d'accentuation (sharpening) :
+        // retirée depuis la version légère — ses halos
+        // fusionnaient les chiffres à l'OCR.
+        let desaturated = blended.applyingFilter(
             "CIColorControls", parameters: [
                 "inputSaturation": enhanceSaturation,
             ]).cropped(to: extent)
 
         let summary = String(
-            format: "LÉGÈRE : fond aplati (division), niveaux doux noir %.2f / blanc %.2f, saturation 0,35, ni courbe ni netteté",
+            format: "TRÈS LÉGÈRE : niveaux doux noir %.2f / blanc %.2f, fondus à 45 %% avec l'originale, saturation 0,35, ni division ni courbe ni netteté",
             bp, wp)
         return (desaturated, summary)
     }
