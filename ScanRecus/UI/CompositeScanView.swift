@@ -14,7 +14,7 @@ import AppKit  // NSApplication, pour le bouton Exit
 ///   que la scène est stable ~0,5 s, le scan démarre tout seul.
 ///   Aucune boîte de sélection : le reçu est localisé APRÈS la
 ///   capture, dans le composite figé.
-/// - CAPTURE (2 s) : le flux reste affiché, une barre de progression
+/// - CAPTURE (1 s) : le flux reste affiché, une barre de progression
 ///   montre la fenêtre ; à droite, le composite s'assemble en direct
 ///   (tuiles remplies, remplissage du rectangle englobant).
 /// - FIGÉ : le flux caméra COUPE à l'écran (la session reste en
@@ -265,6 +265,7 @@ struct CompositeScanView: View {
     -> String {
         guard let date = ex.date else { return "—" }
         let f = DateFormatter()
+        f.locale = Locale(identifier: "fr-CA")
         f.dateStyle = .medium
         f.timeStyle = .none
         return f.string(from: date)
@@ -293,12 +294,20 @@ struct CompositeScanView: View {
     /// Passe la fenêtre en plein écran (à l'ouverture de l'app —
     /// la grande surface sert aussi le panneau d'éclairage).
     /// Différé : à onAppear, la fenêtre n'est pas toujours déjà là.
-    private func enterFullScreen() {
-        DispatchQueue.main.async {
-            guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
-                  !window.styleMask.contains(.fullScreen)
-            else { return }
-            window.toggleFullScreen(nil)
+    private func enterFullScreen(attempt: Int = 0) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            let window = NSApp.keyWindow ?? NSApp.mainWindow
+                ?? NSApp.windows.first { $0.isVisible }
+            if let window {
+                if !window.styleMask.contains(.fullScreen) {
+                    window.toggleFullScreen(nil)
+                }
+            } else if attempt < 8 {
+                // La fenêtre n'existe pas toujours encore au
+                // onAppear (constaté le 2026-10-19 : plein écran
+                // une fois sur deux) — quelques réessais brefs.
+                enterFullScreen(attempt: attempt + 1)
+            }
         }
     }
 }

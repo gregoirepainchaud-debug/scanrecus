@@ -18,7 +18,7 @@ import simd
 ///    démarre quand l'image ENTIÈRE montre du texte (≥ 5 zones)
 ///    sur une grande surface claire (le papier) ET que la
 ///    disposition du texte est stable ~0,4 s.
-/// 2. CAPTURE — fenêtre fixe de 2 secondes. La première image devient
+/// 2. CAPTURE — fenêtre fixe de 1 seconde. La première image devient
 ///    la référence ; chaque image suivante est enregistrée sur elle
 ///    par HOMOGRAPHIE (le reçu est un plan : la transformation entre
 ///    deux vues est exacte), déformée dans le plan du reçu et fusionnée
@@ -103,7 +103,10 @@ final class CompositeScanner: NSObject,
     // MARK: Réglages
 
     private let processInterval: CFTimeInterval = 0.12  // ~8 images/s max
-    private let captureDuration: CFTimeInterval = 2.0
+    // Fenêtre de capture : 1 s (divisée par deux à la demande
+    // de Grégoire le 2026-10-19 — « long pour rien », et ~8 images
+    // traitées suffisent largement à la fusion).
+    private let captureDuration: CFTimeInterval = 1.0
     private let smallWidth: CGFloat = 640               // enregistrement
     private let stableThreshold: CGFloat = 0.03         // mouvement max (normalisé, quadrilatère lissé)
     private let stableFramesNeeded = 3                  // ~0,4 s à 8 img/s
@@ -1060,27 +1063,26 @@ final class CompositeScanner: NSObject,
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
-        // Amélioration automatique DÉSACTIVÉE (demande de
-        // Grégoire le 2026-10-19, 23 h 41 : « n'applique plus de
-        // contraste et sharpening, voir ce que ça va faire ») :
-        // l'image BRUTE — localisée, redressée, orientée, rien
-        // d'autre — sert à l'affichage ET à la lecture, pour
-        // mesurer si le traitement aidait ou nuisait (soupçon :
-        // les niveaux écrasés et les halos de netteté fusionnent
-        // les chiffres à l'OCR). enhanceDocument reste en place,
-        // prête à rebrancher si le test la réhabilite.
+        // Amélioration automatique LÉGÈRE : le test « image
+        // brute » (2026-10-19, 23 h 41) a donné de bonnes
+        // lectures, et Grégoire a ensuite demandé « un brin de
+        // contraste, juste un peu » (23 h 58) — enhanceDocument
+        // est réglée douce (voir plus bas) et c'est elle qui est
+        // affichée et lue ; la brute reste publiée pour comparer.
         let rawCG = ciContext.createCGImage(image, from: image.extent)
-        let finalCG = rawCG
+        let enhanced = enhanceDocument(image)
+        let finalCG = ciContext.createCGImage(enhanced.image,
+                                              from: enhanced.image.extent)
         finishInfo = "Reçu localisé : \(how)"
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
-            + "\nAmélioration auto : DÉSACTIVÉE (test — image brute)"
+            + "\nAmélioration auto : \(enhanced.summary)"
 
         // Lecture du scan figé (première brique de l'étape 2,
         // demandée par Grégoire le 2026-10-19 : « voir les
         // informations que le programme peut extraire ») : OCR
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
-        let extraction = extractFields(from: image)
+        let extraction = extractFields(from: enhanced.image)
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1382,13 +1384,12 @@ final class CompositeScanner: NSObject,
             flat = a
         }
 
-        // 3. Niveaux « document » : point noir au percentile 1,
-        // point blanc ancré sur le PAPIER (percentile 85 — la
-        // plupart des pixels d'un reçu SONT le papier) : le papier
-        // devient blanc pur, le reste s'assombrit en proportion.
-        // (L'ancien ancrage p2/p99 donnait noir 0,00 / blanc 1,00 —
-        // aucun effet — sur les images éclatées de la caméra.)
-        let levels = grayPercentiles(flat, [0.01, 0.85])
+        // 3. Niveaux DOUX (« un brin de contraste, juste un
+        // peu » — Grégoire, 2026-10-19, 23 h 58, après le test
+        // concluant de l'image brute) : point noir au percentile
+        // 5, point blanc au percentile 92 — un étirement léger,
+        // loin des ancrages agressifs qui écrasaient les blancs.
+        let levels = grayPercentiles(flat, [0.05, 0.92])
         let bp = min(max(levels.first ?? 0, 0), 0.45)
         // Plancher 0,72 : si la région extraite contient peu de
         // papier, le percentile 85 tombe trop bas et tout s'écrase
@@ -1409,38 +1410,18 @@ final class CompositeScanner: NSObject,
             "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
         ]).cropped(to: extent)
 
-        // 3b. Courbe « encre » : les gris foncés glissent vers le
-        // noir (le texte ressort franchement) ; les clairs — le
-        // papier — ne bougent presque pas.
-        if let curve = CIFilter(name: "CIToneCurve") {
-            curve.setValue(leveled, forKey: kCIInputImageKey)
-            curve.setValue(CIVector(x: 0, y: 0), forKey: "inputPoint0")
-            curve.setValue(CIVector(x: 0.25, y: 0.08),
-                           forKey: "inputPoint1")
-            curve.setValue(CIVector(x: 0.5, y: 0.40),
-                           forKey: "inputPoint2")
-            curve.setValue(CIVector(x: 0.75, y: 0.76),
-                           forKey: "inputPoint3")
-            curve.setValue(CIVector(x: 1, y: 1), forKey: "inputPoint4")
-            if let curved = curve.outputImage {
-                leveled = curved.cropped(to: extent)
-            }
-        }
-
-        // 4. Saturation réduite, puis accentuation de la luminance.
+        // 4. Saturation réduite. PAS d'accentuation (sharpening) :
+        // retirée dans la version légère — ses halos fusionnaient
+        // les chiffres à l'OCR.
         let desaturated = leveled.applyingFilter(
             "CIColorControls", parameters: [
                 "inputSaturation": enhanceSaturation,
-            ])
-        let sharpened = desaturated.applyingFilter(
-            "CISharpenLuminance", parameters: [
-                "inputSharpness": enhanceSharpness,
             ]).cropped(to: extent)
 
         let summary = String(
-            format: "fond aplati (division), niveaux noir %.2f / blanc papier %.2f, courbe encre, saturation 0,35, netteté %.2f",
-            bp, wp, enhanceSharpness)
-        return (sharpened, summary)
+            format: "LÉGÈRE : fond aplati (division), niveaux doux noir %.2f / blanc %.2f, saturation 0,35, ni courbe ni netteté",
+            bp, wp)
+        return (desaturated, summary)
     }
 
     /// Percentiles de gris d'une image, calculés sur un rendu réduit

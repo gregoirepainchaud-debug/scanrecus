@@ -274,7 +274,15 @@ enum ReceiptParser {
                let mo = group(m, 2).flatMap(Int.init),
                let d = group(m, 1).flatMap(Int.init) {
                 if y < 100 { y += 2000 }
-                candidates.append((m.range.location, y, mo, d))
+                var dd = d, mm = mo
+                // Format anglophone MM/JJ/AAAA (vu sur un reçu le
+                // 2026-10-19 : « 08/14/26 ») : si le mois lu
+                // « jour d'abord » est impossible (> 12) mais que
+                // l'échange donne une date valide, on échange.
+                // Les dates ambiguës (05/06) restent JJ/MM —
+                // convention québécoise d'abord.
+                if mm > 12, dd <= 12 { swap(&dd, &mm) }
+                candidates.append((m.range.location, y, mm, dd))
             }
         }
         for m in dateNamed.matches(in: text, range: full) {
