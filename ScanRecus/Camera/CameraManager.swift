@@ -205,15 +205,16 @@ final class CameraManager: NSObject, @unchecked Sendable {
         // pour l'OCR (constat de Grégoire, 2026-10-19) ; les seuils
         // de calibrage du scanner sont exprimés en pixels et mis à
         // l'échelle en conséquence (voir CompositeScanner.pxScale).
-        // Le format retenu est MÉMORISÉ ici et appliqué APRÈS le
-        // démarrage de la session (voir applyPreferredFormat).
-        // Le preset DOIT être .inputPriority : avec un preset fixe
-        // (.hd1280x720), la session continuait de livrer du
-        // 1280 × 720 même quand le format du capteur, appliqué
-        // après coup, disait 1760 × 1328 (retest du 2026-10-19,
-        // 22 h 40 — « Caméra : 1280 × 720 » contre « format actif :
-        // 1760 × 1328 »). C'est le format qui gouverne, pas le preset.
-        session.sessionPreset = .inputPriority
+        // Le format retenu est appliqué dès la configuration
+        // (ci-dessous), puis revérifié après le démarrage (voir
+        // applyPreferredFormat). Le preset doit être un preset de
+        // QUALITÉ (.high) : les presets à dimensions fixes
+        // (.hd1280x720) IMPOSENT leur format à la session — les
+        // images livrées restaient en 1280 × 720 même quand le
+        // format du capteur, posé après coup, disait 1760 × 1328
+        // (retest du 2026-10-19, 22 h 40). L'équivalent iOS
+        // (.inputPriority) n'existe pas sur macOS.
+        session.sessionPreset = .high
         captureDevice = device
         let fluid = device.formats.filter { format in
             format.videoSupportedFrameRateRanges.contains {
@@ -244,6 +245,20 @@ final class CameraManager: NSObject, @unchecked Sendable {
         }
         preferredFormat = (landscape.isEmpty ? pool : landscape)
             .max(by: { pixels($0) < pixels($1) })
+        // Application dès la configuration (la session est en
+        // beginConfiguration) : avec le preset de qualité .high,
+        // le format posé ici survit à la mise en route et
+        // gouverne la taille des images livrées.
+        if let format = preferredFormat {
+            do {
+                try device.lockForConfiguration()
+                device.activeFormat = format
+                device.unlockForConfiguration()
+            } catch {
+                // Le diagnostic publié après le démarrage
+                // montrera le format réellement actif.
+            }
+        }
 
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true
