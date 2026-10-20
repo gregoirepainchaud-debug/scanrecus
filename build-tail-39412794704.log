@@ -1,0 +1,14 @@
+ScanRecus/Logic/ReceiptParser.swift:540:16: error: use of local variable 'ymdRanges' before its declaration
+ 538 |             // AAAA-MM-JJ (« 2026-12-28 » lu « 20/12/2028 »)
+ 539 |             // est un artefact, pas un candidat.
+ 540 |             if ymdRanges.contains(where: {
+     |                `- error: use of local variable 'ymdRanges' before its declaration
+ 541 |                 NSIntersectionRange($0, m.range).length > 0
+ 542 |             }) { continue }
+     :
+ 558 |         // Dates nommées mois en tête (« October 5, 2026 ») —
+ 559 |         // invisibles aux autres motifs avant l'audit.
+ 560 |         var ymdRanges: [NSRange] = []
+     |             `- note: 'ymdRanges' declared here
+ 561 |         for m in dateYMD.matches(in: text, range: full) {
+ 562 |             ymdRanges.append(m.range)
