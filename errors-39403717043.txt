@@ -1,0 +1,2 @@
+1:ScanRecus/Logic/QuarterHelper.swift:61:45: error: cannot find type 'ReceiptItem' in scope
+5:   |                                             `- error: cannot find type 'ReceiptItem' in scope
