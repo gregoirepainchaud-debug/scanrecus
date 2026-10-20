@@ -301,8 +301,18 @@ final class CompositeScanner: NSObject,
 
         switch phase {
         case .searching:
-            updateStability(quadNorm: paperOK ? quadNorm : nil,
-                            frame: frameFull)
+            // La stabilité ne compte que pour LE quadrilatère que
+            // la porte a confirmé (à 0,04 près) : si le suivi a
+            // glissé sur un objet voisin entre-temps, on repart à
+            // zéro plutôt que de compléter la stabilité sur le
+            // mauvais objet.
+            var subject: [CGPoint]?
+            if paperOK, let q = quadNorm, let anchor = paperQuad,
+               cornerDistance(q, anchor) < 0.04 {
+                subject = q
+            }
+            updateStability(quadNorm: subject, frame: frameFull,
+                            pixelBuffer: pixelBuffer)
         case .capturing:
             let elapsed = now - captureStart
             if elapsed >= captureDuration {
@@ -376,6 +386,14 @@ final class CompositeScanner: NSObject,
                 trackedQuad = best.quad
                 trackMisses = 0
                 displayQuad = best.quad
+                if bestDist > 0.05 {
+                    // Saut d'objet (du reçu au visage voisin, par
+                    // exemple) : la stabilité accumulée concernait
+                    // l'AUTRE objet — le lissage la laisserait
+                    // glisser en douce d'un objet à l'autre.
+                    smoothedQuad = nil
+                    stableCount = 0
+                }
                 return best.quad
             }
             trackMisses += 1
@@ -521,22 +539,10 @@ final class CompositeScanner: NSObject,
         guard now - lastPaperCheck >= 0.3 else { return }
         lastPaperCheck = now
 
-        let bright = meanBrightness(frame, quad: innerQuad(subject))
-        let boxes = detectTextBoxes(in: pixelBuffer)
-        let xs = subject.map(\.x), ys = subject.map(\.y)
-        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
-        let bbox = CGRect(x: minX, y: minY,
-                          width: (xs.max() ?? 0) - minX,
-                          height: (ys.max() ?? 0) - minY)
-        let inside = boxes.filter {
-            bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
-        }
-        paperTextCount = inside.count
-        let quadArea = max(bbox.width * bbox.height, 0.0001)
-        let bigText = inside.contains {
-            $0.width * $0.height >= 0.25 * quadArea
-        }
-        paperOK = bright >= 0.45 && (inside.count >= 3 || bigText)
+        let evidence = paperEvidence(frame: frame, quad: subject,
+                                     pixelBuffer: pixelBuffer)
+        paperTextCount = evidence.textCount
+        paperOK = evidence.ok
         if paperOK {
             paperFailChecks = 0
         } else {
@@ -554,6 +560,32 @@ final class CompositeScanner: NSObject,
                 paperFailChecks = 0
             }
         }
+    }
+
+    /// Les deux preuves « papier + texte » pour un quadrilatère :
+    /// intérieur clair (fond blanc) et zones de texte de Vision
+    /// dedans (≥ 3, ou une grande couvrant ≥ 25 % de l'objet).
+    /// Utilisé par la porte du suivi ET par la vérification finale
+    /// au départ de la capture : mêmes seuils aux deux endroits.
+    private func paperEvidence(frame: CIImage, quad: [CGPoint],
+                               pixelBuffer: CVPixelBuffer)
+    -> (ok: Bool, textCount: Int) {
+        let bright = meanBrightness(frame, quad: innerQuad(quad))
+        let boxes = detectTextBoxes(in: pixelBuffer)
+        let xs = quad.map(\.x), ys = quad.map(\.y)
+        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
+        let bbox = CGRect(x: minX, y: minY,
+                          width: (xs.max() ?? 0) - minX,
+                          height: (ys.max() ?? 0) - minY)
+        let inside = boxes.filter {
+            bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
+        }
+        let quadArea = max(bbox.width * bbox.height, 0.0001)
+        let bigText = inside.contains {
+            $0.width * $0.height >= 0.25 * quadArea
+        }
+        return (ok: bright >= 0.45 && (inside.count >= 3 || bigText),
+                textCount: inside.count)
     }
 
     /// Le quadrilatère resserré vers son centre (l'intérieur du
@@ -580,7 +612,9 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Phase recherche : stabilité
 
-    private func updateStability(quadNorm: [CGPoint]?, frame: CIImage) {
+    private func updateStability(quadNorm: [CGPoint]?,
+                                 frame: CIImage,
+                                 pixelBuffer: CVPixelBuffer) {
         guard let quadNorm else {
             stableCount = 0
             smoothedQuad = nil
@@ -617,7 +651,8 @@ final class CompositeScanner: NSObject,
         }
 
         if stableCount >= stableFramesNeeded {
-            startCapture(frame: frame, quadNorm: quadNorm)
+            startCapture(frame: frame, quadNorm: quadNorm,
+                         pixelBuffer: pixelBuffer)
         } else if stableCount > 0 {
             publish(status: "Reçu détecté — stabilisez… (\(stableCount)/\(stableFramesNeeded))")
         } else {
@@ -627,7 +662,25 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Démarrage de la capture
 
-    private func startCapture(frame: CIImage, quadNorm: [CGPoint]) {
+    private func startCapture(frame: CIImage, quadNorm: [CGPoint],
+                              pixelBuffer: CVPixelBuffer) {
+        // Vérification finale, sur CETTE image et CE quadrilatère :
+        // sans texte sur fond blanc, pas de référence figée. Un
+        // transfert de suivi (reçu tenu près du visage, casquette
+        // portant du texte) a déjà lancé un « scan » de visage
+        // malgré la porte, le 2026-10-19 : la porte valide un
+        // objet, le suivi peut ensuite glisser sur un autre — ici,
+        // au moment de figer, on revérifie l'objet RÉEL.
+        guard paperEvidence(frame: frame, quad: quadNorm,
+                            pixelBuffer: pixelBuffer).ok else {
+            stableCount = 0
+            smoothedQuad = nil
+            paperOK = false
+            paperQuad = nil
+            lastPaperCheck = 0
+            publish(status: "Fausse alerte — pas de texte sur fond blanc ici : scan annulé.")
+            return
+        }
         phase = .capturing
         captureStart = CFAbsoluteTimeGetCurrent()
         refQuadNorm = quadNorm
@@ -1010,7 +1063,7 @@ final class CompositeScanner: NSObject,
                                           col: col, row: row)
                 let stored = tileSharpness[idx]
                 let shouldUpdate = !tileFilled[idx]
-                    || (sharp > stored * 1.10 && sharp > stored + 2)
+                    || (sharp > stored * 1.20 && sharp > stored + 2)
                 if shouldUpdate {
                     // Le tampon du masque est rangé ligne du haut
                     // d'abord (convention CGImage).
@@ -1135,7 +1188,18 @@ final class CompositeScanner: NSObject,
         // Redressement : le quadrilatère de la référence (coordonnées
         // canvas = coordonnées de l'image de référence) devient un
         // rectangle propre.
-        let corners = refQuad.map { px($0, fullSize) }  // TL, TR, BR, BL
+        // Quadrilatère élargi de 3 % autour de son centre : la
+        // détection rentre souvent le bord du papier de quelques
+        // pour cent (bord mou contre un fond clair), et l'image
+        // finale étant découpée sur ce quadrilatère, la colonne
+        // des montants perdait son dernier chiffre (retest du
+        // 2026-10-19 : tous les totaux tronqués à droite).
+        let rawCorners = refQuad.map { px($0, fullSize) }  // TL, TR, BR, BL
+        let quadCenter = centroid(rawCorners)
+        let corners = rawCorners.map {
+            CGPoint(x: quadCenter.x + ($0.x - quadCenter.x) * 1.03,
+                    y: quadCenter.y + ($0.y - quadCenter.y) * 1.03)
+        }
         var corrected: CIImage?
         if let filter = CIFilter(name: "CIPerspectiveCorrection") {
             filter.setValue(composite, forKey: kCIInputImageKey)
@@ -1218,7 +1282,7 @@ final class CompositeScanner: NSObject,
     /// Constantes de l'amélioration, affichées dans les statistiques
     /// pour pouvoir les régler d'après les retours de terrain.
     private let enhanceSaturation: CGFloat = 0.35
-    private let enhanceSharpness: CGFloat = 0.7
+    private let enhanceSharpness: CGFloat = 0.55
 
     /// Rend le scan redressé « propre » comme un scanner de
     /// documents, pour l'œil ET pour l'OCR de l'étape 2 :
@@ -1270,9 +1334,9 @@ final class CompositeScanner: NSObject,
         }
 
         // 3. Niveaux automatiques : point noir au percentile 2,
-        // point blanc au percentile 98 (bornés pour rester sains),
+        // point blanc au percentile 99 (bornés pour rester sains),
         // appliqués par une matrice de couleur + clamp.
-        let levels = grayPercentiles(flat, [0.02, 0.98])
+        let levels = grayPercentiles(flat, [0.02, 0.99])
         let bp = min(max(levels.first ?? 0, 0), 0.45)
         let wp = min(max(levels.last ?? 1, bp + 0.25), 1)
         let s = 1 / (wp - bp)
@@ -1300,7 +1364,7 @@ final class CompositeScanner: NSObject,
             ]).cropped(to: extent)
 
         let summary = String(
-            format: "fond aplati (division), niveaux noir %.2f / blanc %.2f, saturation 0,35, netteté %.1f",
+            format: "fond aplati (division), niveaux noir %.2f / blanc %.2f, saturation 0,35, netteté %.2f",
             bp, wp, enhanceSharpness)
         return (sharpened, summary)
     }
