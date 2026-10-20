@@ -19,11 +19,22 @@ final class CameraManager: NSObject, @unchecked Sendable {
     private(set) var isRunning = false
     private(set) var errorMessage: String?
 
+    /// Diagnostic matériel (nom de la caméra, format réellement
+    /// actif, meilleur format offert) — pour trancher « le code ou
+    /// la caméra ? » quand la résolution livrée ne suit pas.
+    private(set) var formatInfo: String?
+
     /// La session est thread-safe (documentation Apple) : on peut la lire
     /// depuis le main pour la prévisualisation pendant qu'elle tourne.
     let session = AVCaptureSession()
 
     private let sessionQueue = DispatchQueue(label: "ca.scanrecus.camera")
+
+    private var captureDevice: AVCaptureDevice?
+    /// Format haute résolution retenu à la configuration ; il est
+    /// appliqué APRÈS le démarrage de la session (voir
+    /// applyPreferredFormat), pas pendant la configuration.
+    private var preferredFormat: AVCaptureDevice.Format?
 
     /// Demande l'autorisation si besoin puis démarre la session.
     /// - Parameter delegate: reçoit les images (ScanEngine).
@@ -93,6 +104,12 @@ final class CameraManager: NSObject, @unchecked Sendable {
                 if !self.session.isRunning {
                     self.session.startRunning()
                 }
+                // Le format haute résolution s'applique MAINTENANT
+                // que la session tourne : posé pendant la
+                // configuration, il était écrasé par le preset 720p
+                // à la mise en route (retest du 2026-10-19 : la
+                // caméra livrait toujours du 1280 × 720).
+                self.applyPreferredFormat()
                 DispatchQueue.main.async {
                     self.isAuthorized = true
                     self.errorMessage = nil
@@ -105,6 +122,38 @@ final class CameraManager: NSObject, @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Applique le format haute résolution mémorisé à la
+    /// configuration, maintenant que la session tourne, puis publie
+    /// le diagnostic matériel : nom de la caméra, format réellement
+    /// actif et meilleur format que la caméra offre. Sur la file
+    /// de session.
+    private func applyPreferredFormat() {
+        guard let device = captureDevice else { return }
+        if let format = preferredFormat, device.activeFormat != format {
+            do {
+                try device.lockForConfiguration()
+                device.activeFormat = format
+                device.unlockForConfiguration()
+            } catch {
+                // On continue avec le format du preset ; le
+                // diagnostic ci-dessous montre le format actif réel.
+            }
+        }
+        let active = CMVideoFormatDescriptionGetDimensions(
+            device.activeFormat.formatDescription)
+        let best = device.formats.map {
+            CMVideoFormatDescriptionGetDimensions($0.formatDescription)
+        }.max {
+            Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height)
+        }
+        var info = "\(device.localizedName) • format actif : "
+            + "\(active.width) × \(active.height)"
+        if let best {
+            info += " • meilleur offert : \(best.width) × \(best.height)"
+        }
+        DispatchQueue.main.async { self.formatInfo = info }
     }
 
     private enum SetupError: LocalizedError {
@@ -140,11 +189,12 @@ final class CameraManager: NSObject, @unchecked Sendable {
         // pour l'OCR (constat de Grégoire, 2026-10-19) ; les seuils
         // de calibrage du scanner sont exprimés en pixels et mis à
         // l'échelle en conséquence (voir CompositeScanner.pxScale).
-        // Repli en cas de pépin : 720p, comportement d'origine.
-        // (Pas de sessionPreset .inputPriority : il n'existe pas
-        // sur macOS — erreur de compilation vue au CI le
-        // 2026-10-19. Le format actif est posé APRÈS le preset.)
+        // Le format retenu est MÉMORISÉ ici et appliqué APRÈS le
+        // démarrage de la session (voir applyPreferredFormat) :
+        // posé pendant la configuration, il était écrasé par le
+        // preset 720p à la mise en route (retest du 2026-10-19).
         session.sessionPreset = .hd1280x720
+        captureDevice = device
         let fluid = device.formats.filter { format in
             format.videoSupportedFrameRateRanges.contains {
                 $0.maxFrameRate >= 20
@@ -159,16 +209,8 @@ final class CameraManager: NSObject, @unchecked Sendable {
             CMVideoFormatDescriptionGetDimensions(
                 $0.formatDescription).width <= 2560
         }
-        if let best = (capped.isEmpty ? fluid : capped)
-            .max(by: { pixels($0) < pixels($1) }) {
-            do {
-                try device.lockForConfiguration()
-                device.activeFormat = best
-                device.unlockForConfiguration()
-            } catch {
-                session.sessionPreset = .hd1280x720
-            }
-        }
+        preferredFormat = (capped.isEmpty ? fluid : capped)
+            .max(by: { pixels($0) < pixels($1) })
 
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true

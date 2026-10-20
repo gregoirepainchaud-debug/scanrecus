@@ -117,6 +117,14 @@ final class CompositeScanner: NSObject,
     private var smoothedQuad: [CGPoint]?   // quadrilatère lissé (normalisé, [TL, TR, BR, BL])
     private var stableCount = 0
 
+    // Suivi du reçu parmi les rectangles candidats (voir track()).
+    private var trackedQuad: [CGPoint]?
+    private var trackMisses = 0
+    private var trackDrops = 0
+    private var acquisitionQuad: [CGPoint]?
+    private var acquisitionCount = 0
+    private var displayQuad: [CGPoint]?
+
     private var captureStart: CFTimeInterval = 0
     private var fullSize = CGSize.zero
     private var smallSize = CGSize.zero
@@ -130,6 +138,14 @@ final class CompositeScanner: NSObject,
 
     private var lastSmall: CIImage?        // dernière image acceptée (chaînage)
     private var lastHSmall = matrix_identity_float3x3
+
+    /// Un rectangle candidat du détecteur, avec son score
+    /// d'acquisition (voir candidateScore).
+    private struct QuadCandidate {
+        var quad: [CGPoint]      // [TL, TR, BR, BL], normalisé
+        var confidence: Float
+        var score: Double
+    }
 
     /// Recette de conversion de la matrice Vision, verrouillée par calibrage.
     private struct Recipe {
@@ -168,6 +184,7 @@ final class CompositeScanner: NSObject,
 
     private let ciContext = CIContext()
     private let graySpace = CGColorSpaceCreateDeviceGray()
+    private let rgbSpace = CGColorSpaceCreateDeviceRGB()
 
     // MARK: - Réinitialisation
 
@@ -209,6 +226,12 @@ final class CompositeScanner: NSObject,
             self.finalImage = nil
             self.rawFinalImage = nil
             self.finishInfo = nil
+            self.trackedQuad = nil
+            self.trackMisses = 0
+            self.trackDrops = 0
+            self.acquisitionQuad = nil
+            self.acquisitionCount = 0
+            self.displayQuad = nil
             self.statsText = ""
         }
     }
@@ -229,17 +252,31 @@ final class CompositeScanner: NSObject,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
 
+        let frameSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
+                               height: CVPixelBufferGetHeight(pixelBuffer))
         if fullSize == .zero {
-            fullSize = CGSize(width: CVPixelBufferGetWidth(pixelBuffer),
-                              height: CVPixelBufferGetHeight(pixelBuffer))
-            let k = smallWidth / fullSize.width
-            smallSize = CGSize(width: smallWidth,
-                               height: (fullSize.height * k).rounded())
+            adoptFrameSize(frameSize)
+        } else if frameSize != fullSize {
+            // La taille des images a changé en cours de route : le
+            // format haute résolution de la caméra est appliqué juste
+            // après le démarrage de la session. En recherche, on
+            // réadopte la nouvelle géométrie ; en capture, on ignore
+            // l'image (le canvas ne correspondrait plus).
+            guard phase == .searching else { return }
+            adoptFrameSize(frameSize)
+            smoothedQuad = nil
+            stableCount = 0
+            trackedQuad = nil
+            trackMisses = 0
+            acquisitionQuad = nil
+            acquisitionCount = 0
+            displayQuad = nil
         }
         framesSeen += 1
 
-        let quadNorm = detectQuad(in: pixelBuffer)
         let frameFull = CIImage(cvPixelBuffer: pixelBuffer)
+        let quadNorm = track(candidates: detectQuads(in: pixelBuffer,
+                                                     frame: frameFull))
 
         switch phase {
         case .searching:
@@ -260,7 +297,157 @@ final class CompositeScanner: NSObject,
             break
         }
 
-        publish(quad: quadNorm)
+        // La boîte affichée suit le quadrilatère LISSÉ du suivi
+        // (elle glisse au lieu de sauter d'un objet à l'autre).
+        if phase == .searching {
+            publish(quad: smoothedQuad ?? displayQuad)
+            if quadNorm == nil, displayQuad != nil {
+                publish(status: "Reçu en vue — verrouillage du suivi…")
+            }
+        } else {
+            publish(quad: displayQuad)
+        }
+    }
+
+    // MARK: - Géométrie des images livrées
+
+    /// (Ré)adopte la géométrie des images de la caméra.
+    private func adoptFrameSize(_ size: CGSize) {
+        fullSize = size
+        let k = smallWidth / fullSize.width
+        smallSize = CGSize(width: smallWidth,
+                           height: (fullSize.height * k).rounded())
+    }
+
+    // MARK: - Suivi du candidat reçu
+
+    /// Garde LE quadrilatère du reçu d'une image à l'autre.
+    ///
+    /// Le détecteur voit PLUSIEURS rectangles dans une pièce (rideau,
+    /// porte, lunettes…) : choisir « le plus grand » à chaque image
+    /// faisait sauter la boîte jaune d'un objet à l'autre et la
+    /// stabilité ne se déclenchait jamais (retest de Grégoire,
+    /// 2026-10-19 : 5 rectangles détectés, la boîte sur le rideau).
+    /// Ici : acquisition par SCORE (candidateScore), confirmée sur
+    /// 2 images consécutives, puis suivi du candidat le plus proche
+    /// — avec tolérance de 6 pertes brèves (~0,75 s) avant de lâcher.
+    ///
+    /// Retourne le quadrilatère suivi, nil pendant l'acquisition ;
+    /// `displayQuad` reçoit celui à afficher (suivi, ou candidat en
+    /// cours de verrouillage).
+    private func track(candidates: [QuadCandidate]) -> [CGPoint]? {
+        if let current = trackedQuad {
+            var best: QuadCandidate?
+            var bestDist = CGFloat.greatestFiniteMagnitude
+            for candidate in candidates {
+                let d = cornerDistance(candidate.quad, current)
+                if d < bestDist { bestDist = d; best = candidate }
+            }
+            if let best, bestDist < 0.08 {
+                trackedQuad = best.quad
+                trackMisses = 0
+                displayQuad = best.quad
+                return best.quad
+            }
+            trackMisses += 1
+            if trackMisses <= 6 {
+                displayQuad = current
+                return current
+            }
+            trackedQuad = nil
+            trackDrops += 1
+            acquisitionQuad = nil
+            acquisitionCount = 0
+        }
+        guard let winner = candidates.max(by: { $0.score < $1.score })
+        else {
+            acquisitionQuad = nil
+            acquisitionCount = 0
+            displayQuad = nil
+            return nil
+        }
+        if let pending = acquisitionQuad,
+           cornerDistance(winner.quad, pending) < 0.06 {
+            acquisitionCount += 1
+        } else {
+            acquisitionQuad = winner.quad
+            acquisitionCount = 1
+        }
+        displayQuad = acquisitionQuad
+        guard acquisitionCount >= 2 else { return nil }
+        trackedQuad = winner.quad
+        trackMisses = 0
+        acquisitionQuad = nil
+        acquisitionCount = 0
+        displayQuad = winner.quad
+        return winner.quad
+    }
+
+    /// Distance moyenne entre coins correspondants (coordonnées
+    /// normalisées ; 0 = quadrilatères identiques).
+    private func cornerDistance(_ a: [CGPoint], _ b: [CGPoint]) -> CGFloat {
+        guard a.count == 4, b.count == 4 else { return 1 }
+        var sum: CGFloat = 0
+        for i in 0..<4 {
+            let dx = a[i].x - b[i].x
+            let dy = a[i].y - b[i].y
+            sum += (dx * dx + dy * dy).squareRoot()
+        }
+        return sum / 4
+    }
+
+    /// Score d'acquisition d'un candidat : le papier du reçu est
+    /// l'objet le plus CLAIR de la scène, il est présenté plutôt au
+    /// CENTRE et un reçu est plus HAUT que large. L'aire compte,
+    /// mais ne décide plus seule.
+    private func candidateScore(quad: [CGPoint], confidence: Float,
+                                frame: CIImage) -> Double {
+        let area = abs(shoelace(quad))
+        guard area > 0 else { return 0 }
+        let c = centroid(quad)
+        let dCenter = ((c.x - 0.5) * (c.x - 0.5)
+            + (c.y - 0.5) * (c.y - 0.5)).squareRoot() / 0.7071
+        let centerFactor = 1 - 0.45 * min(1, Double(dCenter) * 1.4)
+        let xs = quad.map(\.x), ys = quad.map(\.y)
+        let w = (xs.max() ?? 0) - (xs.min() ?? 0)
+        let h = (ys.max() ?? 0) - (ys.min() ?? 0)
+        let aspect = h > 0.001 ? w / h : 1
+        let aspectFactor = (aspect >= 0.16 && aspect <= 0.95)
+            ? 1.0 : 0.35
+        let brightFactor = 0.35 + 0.65
+            * Double(meanBrightness(frame, quad: quad))
+        return Double(area) * centerFactor * aspectFactor
+            * brightFactor * (0.7 + 0.3 * Double(confidence))
+    }
+
+    /// Luminosité moyenne (0…1) dans la boîte englobante du
+    /// quadrilatère (CIAreaAverage).
+    private func meanBrightness(_ image: CIImage,
+                                quad: [CGPoint]) -> CGFloat {
+        let xs = quad.map(\.x), ys = quad.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max(),
+              maxX > minX, maxY > minY
+        else { return 0 }
+        let extent = image.extent
+        let rect = CGRect(x: extent.minX + minX * extent.width,
+                          y: extent.minY + minY * extent.height,
+                          width: (maxX - minX) * extent.width,
+                          height: (maxY - minY) * extent.height)
+        guard let filter = CIFilter(name: "CIAreaAverage")
+        else { return 0 }
+        filter.setValue(image, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgRect: rect), forKey: "inputExtent")
+        guard let out = filter.outputImage else { return 0 }
+        var rgba = [UInt8](repeating: 0, count: 4)
+        rgba.withUnsafeMutableBytes { raw in
+            ciContext.render(out, toBitmap: raw.baseAddress!,
+                             rowBytes: 4,
+                             bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
+                             format: .RGBA8, colorSpace: rgbSpace)
+        }
+        return (CGFloat(rgba[0]) + CGFloat(rgba[1]) + CGFloat(rgba[2]))
+            / (3 * 255)
     }
 
     // MARK: - Phase recherche : stabilité
@@ -1024,10 +1211,13 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Détection du quadrilatère
 
-    /// Le plus grand rectangle plausible = le reçu (même approche que
-    /// ScanEngine, seuils élargis : vues partielles et reçu plus petit
-    /// dans le champ sont acceptés — la stabilité filtre le bruit).
-    private func detectQuad(in pixelBuffer: CVPixelBuffer) -> [CGPoint]? {
+    /// Tous les rectangles candidats du détecteur, chacun avec son
+    /// score d'acquisition (voir candidateScore) ; le SUIVI (track)
+    /// choisit lequel est le reçu et le garde d'une image à l'autre.
+    /// Seuils élargis : vues partielles et reçu plus petit dans le
+    /// champ sont acceptés — le score et le suivi filtrent le bruit.
+    private func detectQuads(in pixelBuffer: CVPixelBuffer,
+                             frame: CIImage) -> [QuadCandidate] {
         let request = VNDetectRectanglesRequest()
         request.minimumAspectRatio = 0.15
         request.maximumAspectRatio = 1.0
@@ -1037,21 +1227,19 @@ final class CompositeScanner: NSObject,
         request.quadratureTolerance = 40
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
                                             options: [:])
-        guard (try? handler.perform([request])) != nil else { return nil }
+        guard (try? handler.perform([request])) != nil else { return [] }
         let results = request.results ?? []
         lastDetectedCount = results.count
-        // Choix par AIRE RÉELLE du quadrilatère plutôt que par sa
-        // boîte englobante, parmi davantage de candidats : un petit
-        // objet rectangulaire proche de la caméra — une montre, vécu
-        // le 2026-10-19 — ne doit pas gagner contre le reçu.
-        let best = results.max {
-            abs(shoelace([$0.topLeft, $0.topRight,
-                          $0.bottomRight, $0.bottomLeft]))
-                < abs(shoelace([$1.topLeft, $1.topRight,
-                                $1.bottomRight, $1.bottomLeft]))
+        return results.map { rect in
+            let quad = [rect.topLeft, rect.topRight,
+                        rect.bottomRight, rect.bottomLeft]
+            return QuadCandidate(quad: quad,
+                                 confidence: rect.confidence,
+                                 score: candidateScore(
+                                    quad: quad,
+                                    confidence: rect.confidence,
+                                    frame: frame))
         }
-        guard let rect = best else { return nil }
-        return [rect.topLeft, rect.topRight, rect.bottomRight, rect.bottomLeft]
     }
 
     /// Un quadrilatère « complet » : assez grand et ne touchant pas les
@@ -1131,6 +1319,7 @@ final class CompositeScanner: NSObject,
         text += "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
             + " (dont chaînées : \(framesChained))\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
+            + "Suivi du reçu : \(trackedQuad != nil ? "verrouillé" : (acquisitionQuad != nil ? "en acquisition" : "aucun"))  •  pertes du suivi : \(trackDrops)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"

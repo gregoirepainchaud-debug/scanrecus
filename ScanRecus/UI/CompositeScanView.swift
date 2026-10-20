@@ -30,9 +30,9 @@ struct CompositeScanView: View {
     /// Ne concerne que l'aperçu pendant la recherche/capture — le scan
     /// final est toujours affiché à l'endroit.
     @AppStorage("previewMirrored") private var previewMirrored = true
-    /// Éclairage de scan : pendant la recherche et la capture, la
-    /// fenêtre passe en plein écran et tout ce qui entoure l'aperçu
-    /// devient blanc — l'écran lui-même sert de panneau d'éclairage
+    /// Éclairage de scan : pendant la recherche et la capture, tout
+    /// ce qui entoure l'aperçu devient blanc — l'écran lui-même sert
+    /// de panneau d'éclairage
     /// pour le reçu, présenté face à lui (demandé par Grégoire le
     /// 2026-10-19 : le scan manquait de lumière). Aucune API publique
     /// ne permet à une app de monter la luminosité système ; le
@@ -128,6 +128,12 @@ struct CompositeScanView: View {
                             .font(.system(size: 11.5, design: .monospaced))
                             .foregroundColor(.secondary)
 
+                        if let info = camera.formatInfo {
+                            Text(info)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+
                         HStack(spacing: 12) {
                             Button("Next scan") { nextScan() }
                                 .controlSize(.large)
@@ -144,7 +150,6 @@ struct CompositeScanView: View {
                             Button(scanLighting
                                    ? "Éclairage : oui" : "Éclairage : non") {
                                 scanLighting.toggle()
-                                if scanLighting { enterFullScreen() }
                             }
                             .focusable(false)
                             if isDone, scanner.rawFinalImage != nil {
@@ -186,7 +191,10 @@ struct CompositeScanView: View {
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
             camera.start(delegate: scanner)
-            if scanLighting { enterFullScreen() }
+            // Plein écran dès l'ouverture, toujours (demandé par
+            // Grégoire le 2026-10-19) — indépendant du panneau
+            // d'éclairage, qui ne contrôle que le champ blanc.
+            enterFullScreen()
         }
         .onDisappear { camera.stop() }
         // Pas d'arrêt de session quand le scan se fige : la vue
@@ -201,10 +209,10 @@ struct CompositeScanView: View {
     private func nextScan() {
         scanner.reset()
         camera.start(delegate: scanner)
-        if scanLighting { enterFullScreen() }
     }
 
-    /// Passe la fenêtre en plein écran (surface d'éclairage maximale).
+    /// Passe la fenêtre en plein écran (à l'ouverture de l'app —
+    /// la grande surface sert aussi le panneau d'éclairage).
     /// Différé : à onAppear, la fenêtre n'est pas toujours déjà là.
     private func enterFullScreen() {
         DispatchQueue.main.async {
