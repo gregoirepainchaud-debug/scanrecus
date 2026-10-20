@@ -1348,8 +1348,15 @@ final class CompositeScanner: NSObject,
             let box = lines[lineIndex].box
             if !boxes.contains(box) { boxes.append(box) }
         }
-        let merchant = ReceiptParser.parseMerchant(text) ?? ""
-        if !merchant.isEmpty {
+        let directoryHit = ReceiptParser.parseMerchantMatch(text)
+        let merchant = directoryHit?.name
+            ?? ReceiptParser.parseMerchant(text) ?? ""
+        if let directoryHit {
+            // Le nom canonique n'est pas le préfixe de la ligne
+            // brute (« CANAC » vs « C A N A C ») : l'index de
+            // ligne du parseur fait foi pour le carré jaune.
+            addBox(lineIndex: directoryHit.lineIndex)
+        } else if !merchant.isEmpty {
             addBox(lineIndex: lines.firstIndex {
                 $0.text.trimmingCharacters(in: .whitespaces)
                     .hasPrefix(merchant)

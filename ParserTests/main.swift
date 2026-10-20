@@ -81,9 +81,8 @@ check(ReceiptParser.parseMerchant(postesCanada)?
         .contains("PHARMACIE") == true,
       "Postes Canada : commerce doit contenir PHARMACIE")
 
-// — 2. CANAC : enseigne en lettres espacées (le parseur retourne
-// la ligne telle quelle ; la canonisation « Canac » viendra de
-// l'apprentissage de l'étape 2). Date JJ/MM/AAAA.
+// — 2. CANAC : enseigne en lettres espacées — le répertoire
+// la canonise (« C A N A C » → « CANAC »). Date JJ/MM/AAAA.
 let canac = """
 C A N A C
 123 RUE DES FORGES
@@ -97,8 +96,8 @@ TOTAL 57,49
 """
 expectTotal(canac, 57.49, verified: true, "CANAC")
 expectDate(canac, 2026, 8, 14, "CANAC")
-check(ReceiptParser.parseMerchant(canac) == "C A N A C",
-      "CANAC : commerce attendu « C A N A C », obtenu "
+check(ReceiptParser.parseMerchant(canac) == "CANAC",
+      "CANAC : commerce attendu « CANAC », obtenu "
       + "\(ReceiptParser.parseMerchant(canac) ?? "nil")")
 
 // — 3. Épicerie : sommes pièges (4 + 6 = 10, un prix d'article).
@@ -197,6 +196,67 @@ TVQ 3,33
 TOTAL 38,32
 """
 expectTotal(arrondi, 38.32, verified: true, "Arrondi ±1 cent")
+
+// — 11. Répertoire d'entreprises (intégré le 2026-10-20,
+// validé par Grégoire) : le nom canonique gagne contre les
+// bouts de phrases du reçu, attrape l'enseigne mal lue, et
+// fait retomber les variantes sur la bannière de base.
+func expectMerchant(_ text: String, _ expected: String?,
+                    line: Int?, _ label: String) {
+    let m = ReceiptParser.parseMerchant(text)
+    check(m == expected,
+          "\(label) : commerce attendu \(expected ?? "nil"), "
+          + "obtenu \(m ?? "nil")")
+    if let line {
+        let hit = ReceiptParser.parseMerchantMatch(text)
+        check(hit?.lineIndex == line,
+              "\(label) : ligne du commerce attendue \(line), "
+              + "obtenue \(hit?.lineIndex ?? -1)")
+    }
+}
+
+let fragment = """
+MERCI DE VOTRE VISITE
+WITHIN 30 DAYS OF PURCHASE
+TIM HORTONS
+123 RUE PRINCIPALE
+TOTAL 5,75
+"""
+expectMerchant(fragment, "Tim Hortons", line: 2,
+               "Répertoire/fragment")
+
+let metroPlus = """
+METRO PLUS
+456 RUE ST-JEAN
+TOTAL 20,00
+"""
+expectMerchant(metroPlus, "Metro", line: 0, "Répertoire/Metro Plus")
+
+let petro = """
+PETRO CANADA
+TOTAL 40,00
+"""
+expectMerchant(petro, "Petro-Canada", line: 0, "Répertoire/Petro")
+
+let malLu = """
+CANA C DRUMMONDVILLE
+TOTAL 57,49
+"""
+expectMerchant(malLu, "CANAC", line: 0, "Répertoire/mal lu")
+
+let navigateur = """
+NAVIGATEUR GPS INCLUS
+SHELL
+TOTAL 30,00
+"""
+expectMerchant(navigateur, "Shell", line: 1, "Répertoire/IGA piège")
+
+let inconnu = """
+BOULANGERIE CHEZ PIT
+TOTAL 8,50
+"""
+expectMerchant(inconnu, "BOULANGERIE CHEZ PIT", line: nil,
+               "Répertoire/inconnu (repli)")
 
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,

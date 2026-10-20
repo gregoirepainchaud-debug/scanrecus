@@ -490,11 +490,485 @@ enum ReceiptParser {
         return nil
     }
 
+    // MARK: Répertoire d'entreprises
+
+    /// Répertoire d'amorçage des commerces québécois — validé
+    /// par Grégoire le 2026-10-20 (document source :
+    /// noms-entreprises-quebec.md). Forme canonique « enseigne
+    /// seulement » — son principe : la bannière de base suffit
+    /// (« Metro », pas « Metro Plus »), la correspondance
+    /// ci-dessous attrape les variantes sur les reçus.
+    static let merchantDirectoryText = """
+    IGA
+    Metro
+    Super C
+    Provigo
+    Maxi
+    Loblaws
+    Marché Richelieu
+    Marché Tradition
+    Bonichoix
+    Marché Ami
+    Adonis
+    Kim Phat
+    Marchés Tau
+    Avril Supermarché Santé
+    Rachel Béry
+    Fruiterie 440
+    Walmart
+    Costco
+    Tigre Géant
+    Aubut
+    Euromarché
+    Fermes Lufa
+    Shell
+    Petro-Canada
+    Petro-Pass
+    Ultramar
+    Esso
+    Irving
+    Couche-Tard
+    Provi-Soir
+    Boni-Soir
+    Voisin
+    Beau-Soir
+    Crevier
+    Sonic
+    Harnois
+    Pétro-T
+    Marché Express
+    On the Run
+    Dépanneur 7 Jours
+    Pétroles Bélisle
+    MacEwen Petroleum
+    McDonald's
+    Tim Hortons
+    PFK
+    KFC
+    Burger King
+    Wendy's
+    A&W
+    Harvey's
+    Subway
+    Pizza Hut
+    Domino's
+    Pizza Salvatore
+    Boston Pizza
+    St-Hubert
+    Scores
+    Benny&Co.
+    Poulet Rouge
+    Thaï Express
+    Sushi Shop
+    Mikes
+    Pacini
+    La Cage
+    Bâton Rouge
+    Valentine
+    Lafleur
+    La Belle Province
+    Dic Ann's
+    Dairy Queen
+    Five Guys
+    Popeyes
+    Taco Bell
+    Boustan
+    Amir
+    Basha
+    Chez Ashton
+    Starbucks
+    Second Cup
+    Café Dépôt
+    Van Houtte
+    Presse Café
+    Columbus Café & Co
+    Café Morgane
+    Cora
+    Ben & Florentine
+    Allô mon Coco
+    Eggsquis
+    Tutti Frutti
+    Normandin
+    Casa Grecque
+    Giorgio Ristorante
+    Buffet des Continents
+    Le Keg
+    Gibbys
+    Moishes
+    Schwartz's
+    St-Viateur Bagel
+    Fairmount Bagel
+    La Banquise
+    Poutineville
+    Au Pied de Cochon
+    Joe Beef
+    Damas
+    Le Serpent
+    Wilensky's
+    Les 3 Brasseurs
+    East Side Mario's
+    Le Cosmos
+    Shaker
+    Archibald
+    La Korrigane
+    Le Bureau de Poste
+    Chez Boulay
+    Le Saint-Amour
+    Battuto
+    Albacore
+    Nina Pizza Napolitaine
+    No 900
+    Dixie Lee
+    Jean Coutu
+    Pharmaprix
+    Uniprix
+    Familiprix
+    Brunet
+    Proxim
+    Accès Pharma
+    Nautilus Plus
+    Énergie Cardio
+    Éconofitness
+    CANAC
+    RONA
+    Réno-Dépôt
+    BMR
+    Patrick Morin
+    Home Depot
+    Home Hardware
+    Potvin & Bouchard
+    Laferté
+    Castle
+    Timber Mart
+    Fenplast
+    Vaillancourt
+    Lou-Tec
+    Simplex
+    MSP Musique
+    Denis Musique
+    Long & McQuade
+    Steve's Music
+    Archambault
+    Twigg Musique
+    Musique Gagné
+    Italmelodie
+    La Zone Musicale
+    Studio Economik
+    Moog Audio
+    Drum Bazar
+    Musique Max
+    La Boîte à Musique
+    Pianos Bolduc
+    Piano Expert
+    Pianos André Bolduc
+    Pianos Esmonde White
+    Pianovertu
+    Maison Adam
+    Fillion Électronique
+    Radio St-Hubert
+    Layton Audio
+    Centre Hi-Fi
+    Yamaha Canada Musique
+    Roland Canada
+    Erikson Music
+    SFM
+    Jules Saint-Michel
+    Schonau & Tardif
+    Archeterie Morency
+    Bureau en Gros
+    Best Buy
+    La Source
+    Apple
+    DeSerres
+    Michaels
+    Renaud-Bray
+    Librairie Pantoute
+    Librairie St-Jean-Baptiste
+    Librairie Gallimard
+    Librairie Drawn & Quarterly
+    Coopsco
+    Buropro Citation
+    Hamster
+    Indigo
+    Toys R Us
+    Club Jouet
+    Benjo
+    Imaginaire
+    Le Valet d'Coeur
+    Randolph
+    Ameublements Tanguay
+    Brault & Martineau
+    Meubles RD
+    Germain Larivière
+    Structube
+    IKEA
+    Bouclair
+    Stokes
+    Linen Chest
+    Corbeil Électroménagers
+    Léon
+    The Brick
+    Dormez-vous
+    Matelas Dauphin
+    Jysk
+    Arthur Quentin
+    Dante
+    Ares Cuisine
+    Mobilia
+    Must Société
+    Simons
+    La Baie d'Hudson
+    Winners
+    Marshalls
+    HomeSense
+    L'Aubainerie
+    Hart
+    Penningtons
+    Reitmans
+    RW&CO
+    Laura
+    Ardene
+    Garage
+    Dynamite
+    Sports Experts
+    Atmosphere
+    SAIL
+    La Cordée
+    Altitude Sports
+    Décathlon
+    MEC
+    L'Équipeur
+    Yellow
+    Chaussures Pop
+    Aldo
+    Browns
+    NAPA
+    Point S
+    OK Pneus
+    Midas
+    Monsieur Muffler
+    VitroPlus
+    Lebeau
+    Fix Auto
+    ProColor
+    Canadian Tire
+    Robert Bernard
+    U-Haul
+    Discount Location d'Autos
+    Enterprise
+    Budget
+    Avis
+    Hertz
+    Sauvageau
+    Communauto
+    Globe Location d'Autos
+    Postes Canada
+    Purolator
+    FedEx
+    UPS
+    DHL
+    Intelcom
+    Nationex
+    SAQ
+    SQDC
+    Mondou
+    Chico
+    Safari
+    Global Pitou Minou et Compagnons
+    Pattes et Griffes
+    Université Laval
+    Best Western
+    Holiday Inn
+    Comfort Inn
+    Quality Inn
+    Days Inn
+    Super 8
+    Travelodge
+    Hampton Inn
+    Hilton
+    Marriott
+    Château Frontenac
+    Le Germain
+    Auberge Saint-Antoine
+    Motel Adam
+    Hôtels Gouverneur
+    Le Dauphin
+    Première Moisson
+    Au Pain Doré
+    Boulangerie Ange
+    Arhoma
+    Mamie Clafoutis
+    Fromagerie Hamel
+    Fromagerie Atwater
+    Pâtisserie Rhubarbe
+    Boulangerie Guillaume
+    Le Paltoquet
+    Chocolats Favoris
+    Chocolato
+    VIA Rail
+    Air Canada
+    WestJet
+    Porter Airlines
+    Orléans Express
+    RTC
+    Société de Transport de Montréal
+    Exo
+    Uber
+    Taxis Coop Québec
+    Traverse Québec-Lévis
+    Copilote+
+    SPAQ
+    Impark
+    Stationnement de Montréal
+    ParkLink
+    Park'N Fly
+    """
+
+    /// Entrées pré-normalisées : (nom canonique, mots, collé).
+    private static let merchantEntries:
+        [(name: String, tokens: [String], joined: String)] = {
+        merchantDirectoryText
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .map { name in
+                let key = merchantMatchKey(name)
+                return (name, key.tokens, key.joined)
+            }
+    }()
+
+    /// Clé de correspondance : majuscules, sans accents, tout ce
+    /// qui n'est pas lettre ou chiffre devient une espace.
+    /// « Petro-Canada » → mots [PETRO, CANADA], collé
+    /// « PETROCANADA » ; « C A N A C » → collé « CANAC ».
+    static func merchantMatchKey(_ s: String)
+    -> (tokens: [String], joined: String) {
+        let folded = removeAccents(s).uppercased()
+        var cleaned = ""
+        for ch in folded {
+            if ch.isLetter || ch.isNumber { cleaned.append(ch) }
+            else { cleaned.append(" ") }
+        }
+        let tokens = cleaned.split(separator: " ").map(String.init)
+        return (tokens, tokens.joined())
+    }
+
+    /// Distance de Levenshtein (correspondance approchée).
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let ac = Array(a), bc = Array(b)
+        if ac.isEmpty { return bc.count }
+        if bc.isEmpty { return ac.count }
+        var prev = Array(0...bc.count)
+        var cur = [Int](repeating: 0, count: bc.count + 1)
+        for i in 1...ac.count {
+            cur[0] = i
+            for j in 1...bc.count {
+                let cost = ac[i - 1] == bc[j - 1] ? 0 : 1
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                             prev[j - 1] + cost)
+            }
+            swap(&prev, &cur)
+        }
+        return prev[bc.count]
+    }
+
+    /// La ligne contient-elle la séquence de mots, contiguë ?
+    private static func containsTokens(_ line: [String],
+                                       _ needle: [String]) -> Bool {
+        guard !needle.isEmpty, needle.count <= line.count
+        else { return false }
+        for start in 0...(line.count - needle.count) {
+            if Array(line[start..<(start + needle.count)]) == needle {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Correspondance APPROCHÉE d'une entrée sur les mots d'une
+    /// ligne : nom d'un mot de 5 lettres et plus lu de travers
+    /// (« CANAG » pour CANAC, distance 1 ; 7 lettres et plus,
+    /// distance 2), ou nom de deux mots comparé collé, paire de
+    /// mots voisins par paire (« TIM HORTON » → Tim Hortons).
+    private static func fuzzyMatch(
+        lineTokens: [String],
+        entry: (tokens: [String], joined: String)) -> Bool {
+        if entry.tokens.count == 1 {
+            let name = entry.joined
+            guard name.count >= 5 else { return false }
+            let allowed = name.count >= 7 ? 2 : 1
+            for token in lineTokens {
+                if abs(token.count - name.count) <= allowed,
+                   editDistance(token, name) <= allowed {
+                    return true
+                }
+            }
+        } else if entry.tokens.count == 2, entry.joined.count >= 8 {
+            guard lineTokens.count >= 2 else { return false }
+            for k in 0..<(lineTokens.count - 1) {
+                let pair = lineTokens[k] + lineTokens[k + 1]
+                if abs(pair.count - entry.joined.count) <= 2,
+                   editDistance(pair, entry.joined) <= 2 {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Cherche un commerce du RÉPERTOIRE dans le haut du reçu
+    /// (16 premières lignes) — c'est lui qui élimine les « noms »
+    /// absurdes de l'ancienne heuristique : les bouts de phrases
+    /// du reçu (« within 30 days of purchase »…) ne figurent
+    /// dans aucun répertoire. Trois voies, de la plus sûre à la
+    /// plus tolérante : forme collée égale ou contenue (noms de
+    /// 6 lettres et plus), séquence de mots contiguë, puis
+    /// distance d'édition. Retourne le nom CANONIQUE et
+    /// l'index de la ligne source (pour le carré jaune — le nom
+    /// canonique n'est pas le préfixe de la ligne brute,
+    /// ex. « C A N A C »).
+    static func parseMerchantMatch(_ text: String)
+    -> (name: String, lineIndex: Int)? {
+        guard !text.isEmpty else { return nil }
+        let lines = text.components(separatedBy: .newlines)
+        var best: (name: String, lineIndex: Int, score: Int)?
+        for (i, raw) in lines.enumerated() where i < 16 {
+            let line = raw.trimmingCharacters(
+                in: .whitespacesAndNewlines)
+            guard line.filter({ $0.isLetter }).count >= 3
+            else { continue }
+            let key = merchantMatchKey(line)
+            guard !key.tokens.isEmpty else { continue }
+            for entry in merchantEntries {
+                let exact = key.joined == entry.joined
+                    || (entry.joined.count >= 6
+                        && key.joined.contains(entry.joined))
+                    || containsTokens(key.tokens, entry.tokens)
+                let fuzzy = !exact && fuzzyMatch(
+                    lineTokens: key.tokens,
+                    entry: (entry.tokens, entry.joined))
+                guard exact || fuzzy else { continue }
+                // Exact d'abord, puis ligne haute, puis nom
+                // long (plus spécifique).
+                let score = (fuzzy ? 0 : 10_000) - i * 100
+                    + entry.joined.count
+                if best == nil || score > best!.score {
+                    best = (entry.name, i, score)
+                }
+            }
+        }
+        return best.map { ($0.name, $0.lineIndex) }
+    }
+
     // MARK: Commerce
 
-    /// Première ligne non vide significative dans le tiers supérieur :
+    /// Le commerce : d'abord le RÉPERTOIRE (nom canonique,
+    /// ex. « C A N A C » → « CANAC », « METRO PLUS » →
+    /// « Metro »). À défaut, l'ancienne heuristique : première
+    /// ligne non vide significative dans le tiers supérieur —
     /// au moins 3 lettres, pas un montant, pas une simple date.
     static func parseMerchant(_ text: String) -> String? {
+        if let hit = parseMerchantMatch(text) { return hit.name }
         guard !text.isEmpty else { return nil }
         let lines = text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
