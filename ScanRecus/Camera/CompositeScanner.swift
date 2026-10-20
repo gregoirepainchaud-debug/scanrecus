@@ -176,6 +176,15 @@ final class CompositeScanner: NSObject,
     /// DLT, moyennée à la fin si le calibrage n'a rien fusionné.
     private var stableSum: CIImage?
     private var stableCount = 0
+    /// Rejets du chemin stable, par cause (diagnostic, build 43) :
+    /// le build 42 montrait « moyenne stable : 1 vue » sans dire
+    /// quelle garde avait tout bloqué.
+    private var stableRejectQuad = 0
+    private var stableRejectShift = 0
+    private var stableRejectDLT = 0
+    private var stableRejectValidate = 0
+    private var stableRejectWarp = 0
+    private var stableMaxShift: CGFloat = 0
     private var framesChained = 0
     private var registrationsFailed = 0
     private var validationsFailed = 0
@@ -208,6 +217,12 @@ final class CompositeScanner: NSObject,
             self.composite = nil
             self.stableSum = nil
             self.stableCount = 0
+            self.stableRejectQuad = 0
+            self.stableRejectShift = 0
+            self.stableRejectDLT = 0
+            self.stableRejectValidate = 0
+            self.stableRejectWarp = 0
+            self.stableMaxShift = 0
             self.tileSharpness = []
             self.tileFilled = []
             self.lastSmall = nil
@@ -414,6 +429,12 @@ final class CompositeScanner: NSObject,
         // amorce la somme des vues recalées.
         stableSum = nil
         stableCount = 0
+        stableRejectQuad = 0
+        stableRejectShift = 0
+        stableRejectDLT = 0
+        stableRejectValidate = 0
+        stableRejectWarp = 0
+        stableMaxShift = 0
         if let cg = ciContext.createCGImage(frame, from: frame.extent) {
             stableSum = CIImage(cgImage: cg)
             stableCount = 1
@@ -595,7 +616,8 @@ final class CompositeScanner: NSObject,
         // peut en revanche être recalée par le juge DLT et
         // moyennée : si c'est fait, inutile de tenter le reste.
         if (recipe == nil || !recipeConfirmed),
-           accumulateIfStable(frameFull: frameFull, quadNorm: quadNorm) {
+           accumulateIfStable(frameFull: frameFull, quadNorm: quadNorm,
+                              maxShift: recipe == nil ? 0.12 : 0.07) {
             return
         }
 
@@ -932,29 +954,42 @@ final class CompositeScanner: NSObject,
     /// et les coins ne peuvent pas s'être permutés entre deux
     /// vues quasi identiques.
     private func accumulateIfStable(frameFull: CIImage,
-                                    quadNorm: [CGPoint]?) -> Bool {
+                                    quadNorm: [CGPoint]?,
+                                    maxShift: CGFloat) -> Bool {
         guard let refQuad = refQuadNorm, let frameQuad = quadNorm,
               abs(shoelace(refQuad)) > 0.008,
               abs(shoelace(frameQuad)) > 0.008
-        else { return false }
+        else { stableRejectQuad += 1; return false }
         let cRef = centroid(refQuad), cNew = centroid(frameQuad)
         let shift = ((cNew.x - cRef.x) * (cNew.x - cRef.x)
             + (cNew.y - cRef.y) * (cNew.y - cRef.y)).squareRoot()
-        guard shift < 0.07 else { return false }
+        stableMaxShift = max(stableMaxShift, shift)
+        // Plafond : 0,07 quand une recette verrouillée attend sa
+        // confirmation (les frames franches lui appartiennent) ;
+        // 0,12 sinon — la validation géométrique et la
+        // correspondance des coins entre vues proches restent
+        // les vraies gardes, et le calibrage n'utilise de toute
+        // façon que les frames que l'enregistrement Vision
+        // réussit, rarissimes sur cette scène (build 42 : 3
+        // échecs sur 3).
+        guard shift < maxShift
+        else { stableRejectShift += 1; return false }
         let src = frameQuad.map { px($0, smallSize) }
         let dst = refQuad.map { px($0, smallSize) }
-        guard let hSmall = solveHomography(from: src, to: dst),
-              validate(hSmall: hSmall, frameQuadNorm: quadNorm),
-              let warped = warpToCanvas(frameFull,
+        guard let hSmall = solveHomography(from: src, to: dst)
+        else { stableRejectDLT += 1; return false }
+        guard validate(hSmall: hSmall, frameQuadNorm: quadNorm)
+        else { stableRejectValidate += 1; return false }
+        guard let warped = warpToCanvas(frameFull,
                                         hFull: toFullRes(hSmall))
-        else { return false }
+        else { stableRejectWarp += 1; return false }
         if let sum = stableSum {
             let added = sum.applyingFilter(
                 "CIAdditionCompositing",
                 parameters: [kCIInputBackgroundImageKey: warped])
             guard let cg = ciContext.createCGImage(added,
                                                    from: canvasExtent)
-            else { return false }
+            else { stableRejectWarp += 1; return false }
             // Matérialiser, comme le composite : sinon le graphe
             // CI grandit à chaque frame ajoutée.
             stableSum = CIImage(cgImage: cg).transformed(by:
@@ -1397,7 +1432,8 @@ final class CompositeScanner: NSObject,
     private func recognizeBestText(image: CIImage)
     -> RecognitionOutcome {
         func pass(_ candidateImage: CIImage)
-        -> (lines: [RecognizedLine], score: Float, amounts: Int) {
+        -> (lines: [RecognizedLine], score: Float, amounts: Int,
+            proven: Bool) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["fr-FR", "en-US"]
@@ -1405,7 +1441,7 @@ final class CompositeScanner: NSObject,
             let handler = VNImageRequestHandler(
                 ciImage: candidateImage, options: [:])
             guard (try? handler.perform([request])) != nil
-            else { return ([], -1, 0) }
+            else { return ([], -1, 0, false) }
             var lines: [RecognizedLine] = []
             var score: Float = 0
             for obs in request.results ?? [] {
@@ -1427,25 +1463,39 @@ final class CompositeScanner: NSObject,
             // lisibles ; lu à l'envers, presque aucun — c'est le
             // critère qui départage les deux sens.
             let amounts = ReceiptParser.allAmounts(text).count
-            return (lines, Float(amounts) * 1000 + score, amounts)
+            // La preuve d'addition (sous-total + TPS + TVQ =
+            // total) est le signal le plus fort des deux sens :
+            // un texte renversé produit des « montants » par
+            // hallucination de chiffres (build 42 : 10 contre 10,
+            // score même supérieur), pas une addition de taxes
+            // cohérente.
+            let proven = ReceiptParser.parseTotalVerified(text) != nil
+            return (lines, Float(amounts) * 1000 + score, amounts,
+                    proven)
         }
         let up = pass(image)
         let down = pass(image.oriented(.down))
-        // Marge exigée (audit du 2026-10-20) : retourner à
-        // tort un scan droit coûte plus cher que l'inverse.
-        // Le sens renversé doit gagner sur le NOMBRE DE
-        // MONTANTS, ou, à montants égaux, sur le score avec
-        // une marge nette — plus jamais au point près.
+        // Ordre des critères (build 43) : 1) la PREUVE
+        // d'addition — un seul sens peut l'avoir ; 2) le nombre
+        // de montants ; 3) le score, avec la marge exigée par
+        // l'audit du 2026-10-20 (retourner à tort un scan droit
+        // coûte plus cher que l'inverse — plus jamais de
+        // décision au point près).
         let flipped: Bool
-        if down.amounts != up.amounts {
+        if down.proven != up.proven {
+            flipped = down.proven
+        } else if down.amounts != up.amounts {
             flipped = down.amounts > up.amounts
         } else {
             flipped = down.score > up.score * 1.2
         }
         let winner = flipped ? down : up
-        lastArbiterSummary = "droit : \(up.amounts) montants, "
-            + "score \(Int(up.score)) · renversé : "
-            + "\(down.amounts) montants, score \(Int(down.score))"
+        lastArbiterSummary = "droit : \(up.amounts) montants"
+            + (up.proven ? " + preuve" : "")
+            + ", score \(Int(up.score)) · renversé : "
+            + "\(down.amounts) montants"
+            + (down.proven ? " + preuve" : "")
+            + ", score \(Int(down.score))"
             + " → \(flipped ? "renversé" : "droit")"
         return RecognitionOutcome(
             lines: winner.lines,
@@ -1790,6 +1840,12 @@ final class CompositeScanner: NSObject,
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"
+            + "Chemin stable — rejets : quad \(stableRejectQuad)"
+            + " · déplacement \(stableRejectShift)"
+            + String(format: " (max %.3f)", stableMaxShift)
+            + " · DLT \(stableRejectDLT)"
+            + " · validation \(stableRejectValidate)"
+            + " · warp \(stableRejectWarp)\n"
             + String(format: "Enregistrement : %.0f ms/img  •  fusion : %.0f ms/img",
                      regMs, fuseMs)
         if let finishInfo {
