@@ -200,6 +200,28 @@ enum ReceiptParser {
         return out
     }
 
+    /// Montants « espacés » que l'OCR produit parfois (« 24, 84 »,
+    /// « 24 ,84 ») et que le motif strict de allAmounts rate.
+    /// Réservés à la preuve d'addition : un faux positif éventuel
+    /// doit quand même compléter une somme exacte pour nuire —
+    /// risque quasi nul, robustesse réelle.
+    static func spacedAmounts(_ text: String)
+    -> [(value: Double, lineIndex: Int)] {
+        let re = try! NSRegularExpression(
+            pattern: #"\d{1,6},\s\d{2}|\d{1,6}\s,\d{2}"#)
+        var out: [(value: Double, lineIndex: Int)] = []
+        let lines = text.components(separatedBy: .newlines)
+        for (index, line) in lines.enumerated() {
+            for m in re.matches(in: line, range: line.nsRange) {
+                if let v = parseAmount((line as NSString)
+                    .substring(with: m.range)) {
+                    out.append((v, index))
+                }
+            }
+        }
+        return out
+    }
+
     /// Le total par la PREUVE D'ADDITION — doctrine de Grégoire
     /// (2026-10-20) : « on force l'addition des taxes pour trouver
     /// le total… des fois l'info est mal extraite, l'addition des
@@ -215,7 +237,7 @@ enum ReceiptParser {
     static func parseTotalVerified(_ text: String)
     -> (value: Double, lineIndex: Int,
         parts: [(value: Double, lineIndex: Int)])? {
-        let amounts = allAmounts(text)
+        let amounts = (allAmounts(text) + spacedAmounts(text))
             .filter { $0.value > 0 && $0.value < 100_000 }
         guard amounts.count >= 3 else { return nil }
         let lines = text.components(separatedBy: .newlines)
@@ -247,7 +269,7 @@ enum ReceiptParser {
                 for idx in byCents[c] ?? [] {
                     let line = amounts[idx].lineIndex
                     if !excluded.contains(idx),
-                       line < aboveLine, line >= minLine {
+                       line <= aboveLine, line >= minLine {
                         return idx
                     }
                 }
@@ -271,6 +293,15 @@ enum ReceiptParser {
                 where: { isSubLine(amounts[$0].lineIndex) }) {
                 score += 40
             }
+            // À preuve égale, le total qui siège sur la vraie
+            // ligne « TOTAL » bat celui de la ligne « DÉBIT »
+            // (même montant, juste en dessous — constaté au test
+            // du 2026-10-20 : la boîte entourait DÉBIT).
+            let totalFolded = folded(amounts[totalIdx].lineIndex)
+            if totalFolded.contains("total"),
+               !isSubLine(amounts[totalIdx].lineIndex) {
+                score += 30
+            }
             if best == nil || score > best!.score {
                 best = Solution(totalIdx: totalIdx,
                                 partIdxs: partIdxs, score: score)
@@ -284,7 +315,7 @@ enum ReceiptParser {
             let minLine = total.lineIndex - 10
             for i in amounts.indices {
                 let a = amounts[i]
-                guard a.lineIndex < total.lineIndex,
+                guard a.lineIndex <= total.lineIndex,
                       a.lineIndex >= minLine,
                       a.value < total.value else { continue }
                 let rest = totalCents - Int((a.value * 100).rounded())
@@ -298,7 +329,7 @@ enum ReceiptParser {
                 // Somme de 3 parties : a + b + autre = total.
                 for j in amounts.indices where j != i {
                     let b = amounts[j]
-                    guard b.lineIndex < total.lineIndex,
+                    guard b.lineIndex <= total.lineIndex,
                           b.lineIndex >= minLine,
                           b.value < total.value else { continue }
                     let rest2 = rest - Int((b.value * 100).rounded())
