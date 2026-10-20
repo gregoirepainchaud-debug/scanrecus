@@ -43,11 +43,6 @@ struct CompositeScanView: View {
     /// ne permet à une app de monter la luminosité système ; le
     /// blanc plein écran est le levier fiable.
     @AppStorage("scanLighting") private var scanLighting = true
-    // Réglages de lecture pour l'OCR (curseurs plus bas) :
-    // persistés ; le scanner relit les mêmes clés à chaque scan.
-    @AppStorage("ocrContrast") private var ocrContrast = 1.0
-    @AppStorage("ocrSharpness") private var ocrSharpness = 0.0
-    @AppStorage("ocrExposure") private var ocrExposure = 0.0
     /// En mode figé : afficher le scan AMÉLIORÉ (par défaut) ou
     /// l'original brut, pour comparer l'effet de l'amélioration.
     @State private var showEnhanced = true
@@ -181,8 +176,6 @@ struct CompositeScanView: View {
                                 .focusable(false)
                             }
                         }
-
-                        readingSliders
                     }
 
                     // Le composite en train de s'assembler (capture) —
@@ -232,50 +225,6 @@ struct CompositeScanView: View {
     /// programme sait lire. Affichage seulement — rien n'est
     /// sauvegardé à cette étape.
     @ViewBuilder
-    /// Curseurs des réglages de lecture (demande de Grégoire,
-    /// 2026-10-20) : contraste, netteté, exposition appliqués à
-    /// l'image soumise à l'OCR — pas à l'affichage. Il trouve
-    /// SES valeurs à l'usage ; chacune est affichée à côté de
-    /// son curseur, et le récapitulatif du scan les répète.
-    private var readingSliders: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                Text("Réglages de lecture (pour l'OCR)")
-                    .font(.system(size: 13, weight: .medium))
-                Spacer()
-                Button("Défauts") {
-                    ocrContrast = 1.0
-                    ocrSharpness = 0.0
-                    ocrExposure = 0.0
-                }
-                .controlSize(.small)
-                .focusable(false)
-            }
-            sliderRow("Contraste", value: $ocrContrast,
-                      range: 0.6...1.8)
-            sliderRow("Netteté", value: $ocrSharpness,
-                      range: 0.0...2.0)
-            sliderRow("Exposition (EV)", value: $ocrExposure,
-                      range: -1.0...1.0)
-        }
-        .padding(.top, 4)
-    }
-
-    private func sliderRow(_ label: String,
-                           value: Binding<Double>,
-                           range: ClosedRange<Double>) -> some View {
-        HStack(spacing: 10) {
-            Text(label)
-                .font(.system(size: 12.5))
-                .frame(width: 118, alignment: .leading)
-            Slider(value: value, in: range, step: 0.05)
-                .frame(maxWidth: 240)
-            Text(String(format: "%+.2f", value.wrappedValue))
-                .font(.system(size: 12.5, design: .monospaced))
-                .frame(width: 52, alignment: .trailing)
-        }
-    }
-
     private func extractionPanel(
         _ ex: CompositeScanner.ScanExtraction
     ) -> some View {

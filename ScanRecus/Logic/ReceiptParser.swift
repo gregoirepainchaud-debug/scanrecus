@@ -100,7 +100,12 @@ enum ReceiptParser {
 
     private static let amountRegex: NSRegularExpression = {
         // 12,34 | 12.34 | $12.34 | 1 234,56 $ | 1,234.56 …
-        try! NSRegularExpression(pattern: #"\$?\s*\d[\d\s.,]*[.,]\d{2}\b"#)
+        // Les espaces/points/virgules internes ne sont admis que
+        // comme groupes de milliers (3 chiffres) : la classe
+        // large d'avant avalait « QTÉ 2 24,84 » en un seul
+        // « montant » de 224,84 (audit du 2026-10-20).
+        try! NSRegularExpression(
+            pattern: #"\$?\s*(?:\d{1,3}(?:[ .,\u00A0]\d{3})+|\d+)[.,]\d{2}\b"#)
     }()
 
     /// Le total : d'abord la ligne contenant « total »/« montant »/
@@ -113,6 +118,34 @@ enum ReceiptParser {
         // La preuve d'addition d'abord (voir parseTotalVerified) :
         // elle prime sur la ligne à mot-clé.
         if let verified = parseTotalVerified(text) {
+            // Veto de la ligne TOTAL (audit du 2026-10-20) : une
+            // « preuve » dont aucune partie n'est un impôt ni un
+            // sous-total peut être fabriquée par le reçu
+            // (articles qui s'additionnent par hasard) ; si une
+            // vraie ligne TOTAL porte un AUTRE montant, c'est
+            // elle qui a raison.
+            if !verified.structured {
+                let receiptLines = text.components(
+                    separatedBy: .newlines)
+                let veto = totalCandidates(text)
+                    .filter { candidate in
+                        guard abs(candidate.value - verified.value)
+                                > 0.005,
+                              receiptLines.indices.contains(
+                                candidate.lineIndex)
+                        else { return false }
+                        let f = removeAccents(
+                            receiptLines[candidate.lineIndex])
+                            .lowercased()
+                        return f.contains("total")
+                            && !f.contains("sous-total")
+                            && !f.contains("sous total")
+                            && !f.contains("subtotal")
+                            && !f.contains("economis")
+                    }
+                    .max(by: { $0.lineIndex < $1.lineIndex })
+                if let veto { return veto }
+            }
             return (verified.value, verified.lineIndex)
         }
         if let best = totalCandidates(text)
@@ -147,7 +180,9 @@ enum ReceiptParser {
         for (i, line) in lines.enumerated() {
             let folded = removeAccents(line).lowercased()
             if folded.contains("sous-total") || folded.contains("sous total")
-                || folded.contains("subtotal") {
+                || folded.contains("subtotal")
+                || folded.contains("economis")
+                || folded.contains("taxable") {
                 continue
             }
             guard totalKeywords.firstMatch(in: folded,
@@ -156,7 +191,8 @@ enum ReceiptParser {
             var foundOnLine = false
             for match in amountRegex.matches(in: line, range: line.nsRange) {
                 if let r = Range(match.range, in: line),
-                   let v = parseAmount(String(line[r])) {
+                   let v = parseAmount(String(line[r])),
+                   v > 0, v < 100_000 {
                     out.append((v, i))
                     foundOnLine = true
                 }
@@ -176,7 +212,8 @@ enum ReceiptParser {
                    let match = amountRegex.firstMatch(
                     in: next, range: next.nsRange),
                    let r = Range(match.range, in: next),
-                   let v = parseAmount(String(next[r])) {
+                   let v = parseAmount(String(next[r])),
+                   v > 0, v < 100_000 {
                     out.append((v, i))
                 }
             }
@@ -213,8 +250,21 @@ enum ReceiptParser {
         let lines = text.components(separatedBy: .newlines)
         for (index, line) in lines.enumerated() {
             for m in re.matches(in: line, range: line.nsRange) {
-                if let v = parseAmount((line as NSString)
-                    .substring(with: m.range)) {
+                // Garde anti-fantôme (audit du 2026-10-20) : si
+                // le motif tombe sur la queue d'un plus grand
+                // nombre (« 2 450, 75 » → « 450, 75 »), ce n'est
+                // pas un montant espacé, c'est un millier coupé.
+                let ns = line as NSString
+                let start = m.range.location
+                if start >= 1 {
+                    let p1 = ns.character(at: start - 1)
+                    if p1 >= 48, p1 <= 57 { continue }
+                    if p1 == 32, start >= 2 {
+                        let p2 = ns.character(at: start - 2)
+                        if p2 >= 48, p2 <= 57 { continue }
+                    }
+                }
+                if let v = parseAmount(ns.substring(with: m.range)) {
                     out.append((v, index))
                 }
             }
@@ -236,7 +286,8 @@ enum ReceiptParser {
     /// total, sa ligne et ses parties (avec leurs lignes).
     static func parseTotalVerified(_ text: String)
     -> (value: Double, lineIndex: Int,
-        parts: [(value: Double, lineIndex: Int)])? {
+        parts: [(value: Double, lineIndex: Int)],
+        structured: Bool)? {
         let amounts = (allAmounts(text) + spacedAmounts(text))
             .filter { $0.value > 0 && $0.value < 100_000 }
         guard amounts.count >= 3 else { return nil }
@@ -256,6 +307,26 @@ enum ReceiptParser {
             return f.contains("sous-total") || f.contains("sous total")
                 || f.contains("subtotal")
         }
+        // Lignes de PAIEMENT (audit du 2026-10-20) : la somme
+        // tendue et la monnaie rendue ne sont pas des montants
+        // d'achat — « ARGENT 20,00 » se « prouvait » tout seul
+        // (10 + 10) et doublait le total. Elles sont exclues
+        // du bassin des parties, et une ligne de tendu ne peut
+        // pas être le total cherché.
+        let paymentRe = try! NSRegularExpression(
+            pattern: #"\b(argent|monnaie|remis|rendu|change|comptant|cash|tender)\b"#)
+        let partBlockRe = try! NSRegularExpression(
+            pattern: #"\b(argent|monnaie|remis|rendu|change|comptant|cash|tender|carte|visa|mastercard|amex|interac|debit|paye|rabais|remise|escompte|coupon)\b"#)
+        func isPaymentLine(_ i: Int) -> Bool {
+            let f = folded(i)
+            return paymentRe.firstMatch(in: f, range: f.nsRange)
+                != nil
+        }
+        func isPartBlockedLine(_ i: Int) -> Bool {
+            let f = folded(i)
+            return partBlockRe.firstMatch(in: f, range: f.nsRange)
+                != nil
+        }
         // Montants indexés par valeur en cents (recherche rapide,
         // ± 1 cent de tolérance au moment de la recherche).
         var byCents: [Int: [Int]] = [:]
@@ -269,7 +340,8 @@ enum ReceiptParser {
                 for idx in byCents[c] ?? [] {
                     let line = amounts[idx].lineIndex
                     if !excluded.contains(idx),
-                       line <= aboveLine, line >= minLine {
+                       line <= aboveLine, line >= minLine,
+                       !isPartBlockedLine(line) {
                         return idx
                     }
                 }
@@ -330,14 +402,17 @@ enum ReceiptParser {
         for ti in amounts.indices {
             let total = amounts[ti]
             guard !isTaxLine(total.lineIndex),
-                  !isSubLine(total.lineIndex) else { continue }
+                  !isSubLine(total.lineIndex),
+                  !isPaymentLine(total.lineIndex) else { continue }
             let totalCents = Int((total.value * 100).rounded())
             let minLine = total.lineIndex - 10
             for i in amounts.indices {
                 let a = amounts[i]
                 guard a.lineIndex <= total.lineIndex,
                       a.lineIndex >= minLine,
-                      a.value < total.value else { continue }
+                      a.value < total.value,
+                      !isPartBlockedLine(a.lineIndex)
+                else { continue }
                 let rest = totalCents - Int((a.value * 100).rounded())
                 // Somme de 2 parties : a + autre = total.
                 if let j = findAmount(cents: rest, notIn: [ti, i],
@@ -351,7 +426,9 @@ enum ReceiptParser {
                     let b = amounts[j]
                     guard b.lineIndex <= total.lineIndex,
                           b.lineIndex >= minLine,
-                          b.value < total.value else { continue }
+                          b.value < total.value,
+                          !isPartBlockedLine(b.lineIndex)
+                    else { continue }
                     let rest2 = rest - Int((b.value * 100).rounded())
                     if rest2 > 0,
                        let k = findAmount(cents: rest2,
@@ -369,7 +446,14 @@ enum ReceiptParser {
             .map { amounts[$0] }
             .sorted { $0.lineIndex < $1.lineIndex }
         let total = amounts[best.totalIdx]
-        return (total.value, total.lineIndex, parts)
+        // « Structurée » = au moins une partie est un impôt ou
+        // un sous-total : la somme a la forme d'un vrai bloc
+        // fiscal. Sinon, elle reste suspecte (veto possible
+        // dans parseTotal).
+        let structured = parts.contains {
+            isTaxLine($0.lineIndex) || isSubLine($0.lineIndex)
+        }
+        return (total.value, total.lineIndex, parts, structured)
     }
 
     /// Preuve par addition : vrai si `total` est la somme de 2 ou 3
@@ -419,6 +503,9 @@ enum ReceiptParser {
         pattern: #"(?<!\d)(\d{4})[/\-.](\d{1,2})[/\-.](\d{1,2})(?!\d)"#)
     private static let dateDMY = try! NSRegularExpression(
         pattern: #"(?<!\d)(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})(?!\d)"#)
+    private static let dateNamedFirst = try! NSRegularExpression(
+        pattern: #"(?<!\d)([A-Za-zéèêûâîôàç]+)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?!\d)"#,
+        options: .caseInsensitive)
     private static let dateNamed = try! NSRegularExpression(
         pattern: #"(?<!\d)(\d{1,2})[\s/\-.]+([A-Za-zéèêûâîôàç]+)[\s/\-.]+(\d{4})(?!\d)"#,
         options: .caseInsensitive)
@@ -447,6 +534,12 @@ enum ReceiptParser {
             }
         }
         for m in dateDMY.matches(in: text, range: full) {
+            // Un fragment JJ/MM À L'INTÉRIEUR d'une date
+            // AAAA-MM-JJ (« 2026-12-28 » lu « 20/12/2028 »)
+            // est un artefact, pas un candidat.
+            if ymdRanges.contains(where: {
+                NSIntersectionRange($0, m.range).length > 0
+            }) { continue }
             if var y = group(m, 3).flatMap(Int.init),
                let mo = group(m, 2).flatMap(Int.init),
                let d = group(m, 1).flatMap(Int.init) {
@@ -462,6 +555,21 @@ enum ReceiptParser {
                 candidates.append((m.range.location, y, mm, dd))
             }
         }
+        // Dates nommées mois en tête (« October 5, 2026 ») —
+        // invisibles aux autres motifs avant l'audit.
+        var ymdRanges: [NSRange] = []
+        for m in dateYMD.matches(in: text, range: full) {
+            ymdRanges.append(m.range)
+        }
+        for m in dateNamedFirst.matches(in: text, range: full) {
+            if let rawMonth = group(m, 1),
+               let mo = monthNumbers[removeAccents(rawMonth)
+                .lowercased()],
+               let d = group(m, 2).flatMap(Int.init),
+               let y = group(m, 3).flatMap(Int.init) {
+                candidates.append((m.range.location, y, mo, d))
+            }
+        }
         for m in dateNamed.matches(in: text, range: full) {
             if let d = group(m, 1).flatMap(Int.init),
                let rawMonth = group(m, 2),
@@ -471,7 +579,46 @@ enum ReceiptParser {
             }
         }
         candidates.sort { $0.0 < $1.0 }
-        for (_, y, mo, d) in candidates {
+        // Fourchettes promotionnelles (audit du 2026-10-20) :
+        // deux candidats sur la MÊME ligne, à 1–45 jours
+        // d'écart (« OFFRE VALIDE DU 2026-12-28 AU 2027-01-03 »),
+        // sont les bornes d'un intervalle, pas la transaction.
+        // Ils passent APRÈS les candidats ordinaires, mais
+        // restent utilisables s'il n'y a rien d'autre.
+        func lineIndex(of pos: Int) -> Int {
+            (text as NSString).substring(to: pos)
+                .components(separatedBy: "\n").count - 1
+        }
+        var bounds = Set<Int>()
+        for a in candidates.indices {
+            for b in candidates.indices where b > a {
+                guard lineIndex(of: candidates[a].0)
+                        == lineIndex(of: candidates[b].0)
+                else { continue }
+                var da = DateComponents()
+                da.year = candidates[a].1
+                da.month = candidates[a].2
+                da.day = candidates[a].3
+                var db = DateComponents()
+                db.year = candidates[b].1
+                db.month = candidates[b].2
+                db.day = candidates[b].3
+                guard let dateA = calendar.date(from: da),
+                      let dateB = calendar.date(from: db)
+                else { continue }
+                let gap = abs(dateA.timeIntervalSince(dateB))
+                if gap >= 86_400, gap <= 45 * 86_400 {
+                    bounds.insert(a)
+                    bounds.insert(b)
+                }
+            }
+        }
+        let ordered = candidates.indices.sorted {
+            (bounds.contains($0) ? 1 : 0, candidates[$0].0)
+                < (bounds.contains($1) ? 1 : 0, candidates[$1].0)
+        }
+        for ci in ordered {
+            let (_, y, mo, d) = candidates[ci]
             guard (2000...maxYear).contains(y), (1...12).contains(mo)
             else { continue }
             var comps = DateComponents()
@@ -872,6 +1019,39 @@ enum ReceiptParser {
         return prev[bc.count]
     }
 
+    /// Mots du répertoire qui sont AUSSI des mots de la langue
+    /// courante : en correspondance exacte d'un seul mot, ils
+    /// n'attrapent que sur une ligne courte (≤ 3 mots) — une
+    /// notice (« AVIS : LES PRIX PEUVENT CHANGER… ») n'est pas
+    /// une enseigne. (Audit du 2026-10-20.)
+    private static let genericMerchantWords: Set<String> =
+        ["AVIS", "BUDGET", "GARAGE", "VOISIN", "SOURCE"]
+
+    /// La ligne se termine-t-elle par la séquence de mots ?
+    private static func endsWithTokens(_ line: [String],
+                                       _ needle: [String]) -> Bool {
+        guard !needle.isEmpty, needle.count <= line.count
+        else { return false }
+        return Array(line.suffix(needle.count)) == needle
+    }
+
+    /// Le nom (un seul mot) se reconstitue-t-il en collant 2 ou
+    /// 3 mots voisins de la ligne ? (« CANA C » → CANAC — les
+    /// enseignes espacées ou coupées par l'OCR.)
+    private static func concatMatch(tokens: [String],
+                                    joined: String) -> Bool {
+        guard tokens.count >= 2 else { return false }
+        for start in tokens.indices {
+            var acc = ""
+            for k in start..<min(start + 3, tokens.count) {
+                acc += tokens[k]
+                if acc == joined { return true }
+                if acc.count > joined.count { break }
+            }
+        }
+        return false
+    }
+
     /// La ligne contient-elle la séquence de mots, contiguë ?
     private static func containsTokens(_ line: [String],
                                        _ needle: [String]) -> Bool {
@@ -895,15 +1075,17 @@ enum ReceiptParser {
         entry: (tokens: [String], joined: String)) -> Bool {
         if entry.tokens.count == 1 {
             let name = entry.joined
-            guard name.count >= 5 else { return false }
-            let allowed = name.count >= 7 ? 2 : 1
+            // Plancher relevé (audit du 2026-10-20) : à 5
+            // lettres et distance 1, « DATE » devenait « Dante ».
+            guard name.count >= 7 else { return false }
+            let allowed = name.count >= 9 ? 2 : 1
             for token in lineTokens {
                 if abs(token.count - name.count) <= allowed,
                    editDistance(token, name) <= allowed {
                     return true
                 }
             }
-        } else if entry.tokens.count == 2, entry.joined.count >= 8 {
+        } else if entry.tokens.count == 2, entry.joined.count >= 9 {
             guard lineTokens.count >= 2 else { return false }
             for k in 0..<(lineTokens.count - 1) {
                 let pair = lineTokens[k] + lineTokens[k + 1]
@@ -935,16 +1117,45 @@ enum ReceiptParser {
         for (i, raw) in lines.enumerated() where i < 16 {
             let line = raw.trimmingCharacters(
                 in: .whitespacesAndNewlines)
-            guard line.filter({ $0.isLetter }).count >= 3
-            else { continue }
+            let letterCount = line.filter({ $0.isLetter }).count
+            guard letterCount >= 2 else { continue }
+            // Ligne de 2 lettres (« A&W ») : seule l'égalité
+            // complète de la forme collée compte.
+            let exactOnly = letterCount == 2
             let key = merchantMatchKey(line)
             guard !key.tokens.isEmpty else { continue }
             for entry in merchantEntries {
-                let exact = key.joined == entry.joined
+                var exact = key.joined == entry.joined
                     || (entry.joined.count >= 6
                         && key.joined.contains(entry.joined))
-                    || containsTokens(key.tokens, entry.tokens)
-                let fuzzy = !exact && fuzzyMatch(
+                if !exact, entry.tokens.count == 1,
+                   entry.joined.count >= 4 {
+                    exact = concatMatch(tokens: key.tokens,
+                                        joined: entry.joined)
+                }
+                if !exact {
+                    // Une entrée qui finit par un nombre
+                    // (« No 900 », « Fruiterie 440 ») ne matche
+                    // qu'en FIN de ligne : « NO 900 BOUL HAMEL »
+                    // est une adresse, pas la pizzeria.
+                    if entry.tokens.last?
+                        .allSatisfy({ $0.isNumber }) == true {
+                        exact = endsWithTokens(key.tokens,
+                                               entry.tokens)
+                    } else {
+                        exact = containsTokens(key.tokens,
+                                               entry.tokens)
+                    }
+                }
+                if exact, entry.tokens.count == 1,
+                   genericMerchantWords.contains(entry.joined),
+                   key.tokens.count > 3 {
+                    exact = false
+                }
+                if exactOnly {
+                    exact = key.joined == entry.joined
+                }
+                let fuzzy = !exact && !exactOnly && fuzzyMatch(
                     lineTokens: key.tokens,
                     entry: (entry.tokens, entry.joined))
                 guard exact || fuzzy else { continue }
@@ -980,6 +1191,16 @@ enum ReceiptParser {
                 continue
             }
             if parseDate(line) != nil { continue }  // juste une date
+            // Ni une adresse (la ligne commence par un numéro
+            // civique ou un téléphone) ni une formule d'accueil :
+            // ce n'est pas une enseigne. (Audit du 2026-10-20.)
+            if line.first?.isNumber == true { continue }
+            let foldedLine = removeAccents(line).lowercased()
+            if foldedLine.hasPrefix("bienvenue")
+                || foldedLine.hasPrefix("welcome")
+                || foldedLine.hasPrefix("bonjour") {
+                continue
+            }
             return String(line.prefix(80))
         }
         return nil

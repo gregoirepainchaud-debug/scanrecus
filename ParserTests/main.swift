@@ -258,6 +258,232 @@ TOTAL 8,50
 expectMerchant(inconnu, "BOULANGERIE CHEZ PIT", line: nil,
                "Répertoire/inconnu (repli)")
 
+// — 12. Durcissement post-audit (2026-10-20) : les reçus des
+// trois rapports critiques deviennent des contrats.
+
+// É1 — Lignes de paiement : la somme tendue ne doit pas se
+// « prouver » elle-même (10 + 10 = l'ARGENT de 20,00).
+let paiement = """
+DÉPANNEUR CHEZ RAYMOND
+ARTICLE 10,00
+TOTAL 10,00
+ARGENT 20,00
+MONNAIE 10,00
+"""
+expectTotal(paiement, 10.00, verified: false, "Audit/ARGENT")
+
+// Une partie ARGENT seule ne doit pas fabriquer une preuve.
+let argentPart = """
+ARTICLE 30,00
+ARGENT 22,89
+TOTAL 52,89
+"""
+expectTotal(argentPart, 52.89, verified: false, "Audit/ARGENT part")
+
+// É2 — Épicerie détaxée : la « preuve » 4,50+3,50+5,00 = 13,00
+// (trois articles, aucune structure fiscale) doit être vétée
+// par la vraie ligne TOTAL.
+let detaxe = """
+METRO
+LAIT 4,50
+PAIN 3,50
+OEUFS 5,00
+FROMAGE 13,00
+TOTAL 26,00
+"""
+if let proof = ReceiptParser.parseTotalVerified(detaxe) {
+    check(abs(proof.value - 13.00) < 0.001 && !proof.structured,
+          "Audit/détaxé : la fausse preuve doit exister mais "
+          + "être non structurée, obtenue \(proof.value)")
+} else {
+    check(false, "Audit/détaxé : une fausse preuve était attendue")
+}
+let detaxeTotal = ReceiptParser.parseTotal(detaxe)
+check(detaxeTotal != nil
+      && abs(detaxeTotal!.value - 26.00) < 0.001,
+      "Audit/détaxé : veto TOTAL attendu 26,00, obtenu "
+      + "\(detaxeTotal?.value ?? -1)")
+
+// É3 — Quantité × prix : « 2 24,84 » ne fusionne plus, le
+// vrai prix survit et la preuve se fait dessus.
+let quantite = """
+DÉPANNEUR CHEZ RAYMOND
+BIÈRE QTÉ 2 24,84
+TPS 1,24
+TVQ 2,48
+28,56
+"""
+expectTotal(quantite, 28.56, verified: true, "Audit/QTÉ")
+check(ReceiptParser.allAmounts(quantite)
+        .contains { abs($0.value - 24.84) < 0.001 },
+      "Audit/QTÉ : 24,84 doit exister comme montant")
+check(!ReceiptParser.allAmounts(quantite)
+        .contains { abs($0.value - 224.84) < 0.001 },
+      "Audit/QTÉ : 224,84 ne doit pas exister")
+
+// Le monstre du 2026-10-19, en régression : plafonné partout.
+let monstre = """
+KIOSQUE
+TOTAL 2 008 102,00
+"""
+check(ReceiptParser.parseTotal(monstre) == nil,
+      "Audit/monstre : rien ne doit sortir d'un montant ≥ 100 000")
+
+// M4 — Consigne : 4 parties exigées, repli mot-clé propre.
+let consigne = """
+DÉPANNEUR
+BIÈRE 10,00
+CONSIGNE 0,60
+TPS 0,53
+TVQ 1,06
+TOTAL 12,19
+"""
+expectTotal(consigne, 12.19, verified: false, "Audit/consigne")
+
+// M5 — « TOTAL ÉCONOMISÉ » (ligne la plus basse) ne doit pas
+// gagner contre le vrai total quand la preuve est cassée.
+let economise = """
+PROVIGO
+SOUS-TOTAL 46,00
+TPS 2,80
+TVQ 4,59
+TOTAL 52,89
+DÉBIT 52,89
+TOTAL ÉCONOMISÉ 6,50
+"""
+expectTotal(economise, 52.89, verified: false, "Audit/économisé")
+
+// M7 — Montant espacé dans un millier : pas de fantôme, et
+// le total groupé se lit par le mot-clé.
+let milliers = """
+BOUCHERIE
+ARTICLE A 100,00
+GROS ARTICLE 2 450, 75
+ARTICLE B 550,75
+ARTICLE C 25,00
+TOTAL 3 126,50
+"""
+check(!ReceiptParser.spacedAmounts(milliers)
+        .contains { abs($0.value - 450.75) < 0.001 },
+      "Audit/milliers : 450,75 fantôme ne doit pas exister")
+expectTotal(milliers, 3126.50, verified: false, "Audit/milliers")
+let grosMontant = ReceiptParser.allAmounts("TOTAL 1 234,56")
+check(grosMontant.count == 1
+      && abs(grosMontant[0].value - 1234.56) < 0.001,
+      "Audit/milliers : « 1 234,56 » doit donner 1234,56")
+
+// É4 — Un bordereau qui commence par DATE ne devient plus
+// « Dante » (plancher du flou relevé).
+let bordereau = """
+DATE 2026-10-19
+HEURE 14:19
+TERMINAL 123456
+TOTAL 42,00
+"""
+check(ReceiptParser.parseMerchantMatch(bordereau) == nil,
+      "Audit/DATE : aucun match du répertoire attendu")
+check(ReceiptParser.parseMerchant(bordereau) != "Dante",
+      "Audit/DATE : le commerce ne doit pas être Dante")
+
+// É5 — Adresse « No 900 » et notice « AVIS » ne rebaptisent
+// plus un commerce non listé.
+let adresse900 = """
+BOULANGERIE DU COIN
+NO 900 BOUL HAMEL
+TOTAL 9,00
+"""
+check(ReceiptParser.parseMerchantMatch(adresse900) == nil,
+      "Audit/No 900 : l'adresse ne doit pas matcher la pizzeria")
+let noticeAvis = """
+BOUCHERIE LEBLANC
+AVIS : LES PRIX PEUVENT CHANGER SANS PRÉAVIS
+TOTAL 9,00
+"""
+check(ReceiptParser.parseMerchantMatch(noticeAvis) == nil,
+      "Audit/AVIS : la notice ne doit pas matcher la location")
+
+// F5 — « A&W » nu (2 lettres) doit matcher son entrée.
+let aw = """
+A&W
+TOTAL 9,99
+"""
+check(ReceiptParser.parseMerchant(aw) == "A&W",
+      "Audit/A&W : l'enseigne de 2 lettres doit matcher")
+
+// M1 — Fourchette promotionnelle : la transaction gagne
+// contre les bornes « valide du … au … » sur la même ligne.
+let promo = """
+MAXI
+OFFRE VALIDE DU 2026-12-28 AU 2027-01-03
+2027-01-02 10:15
+TOTAL 26,00
+"""
+expectDate(promo, 2027, 1, 2, "Audit/promo")
+
+// M2 — Date nommée mois en tête ; JJ/MM épinglé ; 30 février
+// rejeté au profit du candidat suivant.
+expectDate("STORE\nOctober 5, 2026\nTOTAL 9,99",
+           2026, 10, 5, "Audit/mois en tête")
+expectDate("REÇU\n05/06/2026\nTOTAL 9,99",
+           2026, 6, 5, "Audit/JJ-MM épinglé")
+expectDate("REÇU\n30/02/2026\n15/03/2026\nTOTAL 9,99",
+           2026, 3, 15, "Audit/30 février")
+expectDate("REÇU\n2026-12-28\nTOTAL 9,99",
+           2026, 12, 28, "Audit/date AAAA seule")
+
+// — 13. QuarterHelper : il décide de la date de tout reçu
+// sans date et du seuil de purge — il avait ZÉRO test.
+var utcCal = Calendar(identifier: .gregorian)
+utcCal.timeZone = TimeZone(identifier: "UTC")!
+
+func expectPrevQuarter(_ y: Int, _ m: Int, _ d: Int,
+                       _ ey: Int, _ em: Int, _ label: String) {
+    let ref = utcCal.date(from: DateComponents(
+        year: y, month: m, day: d, hour: 12))!
+    let got = QuarterHelper.previousQuarterStart(
+        from: ref, calendar: utcCal)
+    var ok = false
+    if let got {
+        let c = utcCal.dateComponents([.year, .month, .day],
+                                      from: got)
+        ok = c.year == ey && c.month == em && c.day == 1
+    }
+    check(ok, "\(label) : attendu \(ey)-\(em)-01")
+}
+expectPrevQuarter(2026, 10, 6, 2026, 7, "QH/T4→T3")
+expectPrevQuarter(2027, 1, 15, 2026, 10, "QH/janvier→octobre")
+expectPrevQuarter(2026, 4, 1, 2026, 1, "QH/T2→T1")
+expectPrevQuarter(2026, 2, 28, 2025, 10, "QH/T1→T4 année -1")
+if let b = QuarterHelper.quarterBounds(year: 2026, quarter: 4,
+                                       calendar: utcCal) {
+    let s = utcCal.dateComponents([.year, .month, .day],
+                                  from: b.start)
+    let e = utcCal.dateComponents(
+        [.year, .month, .day, .hour, .minute, .second],
+        from: b.end)
+    check(s.year == 2026 && s.month == 10 && s.day == 1
+          && e.year == 2026 && e.month == 12 && e.day == 31
+          && e.hour == 23 && e.minute == 59 && e.second == 59,
+          "QH/bornes T4 2026")
+} else {
+    check(false, "QH/bornes T4 2026 : nil inattendu")
+}
+check(QuarterHelper.quarterBounds(year: 2026, quarter: 5,
+                                  calendar: utcCal) == nil,
+      "QH/bornes : trimestre 5 rejeté")
+let refDate = utcCal.date(from: DateComponents(
+    year: 2026, month: 10, day: 20, hour: 12))!
+check(QuarterHelper.currentQuarter(calendar: utcCal,
+                                   date: refDate) == 4,
+      "QH/trimestre courant")
+let cutoffC = utcCal.dateComponents(
+    [.year, .month, .day],
+    from: QuarterHelper.tenYearsCutoff(from: refDate,
+                                       calendar: utcCal))
+check(cutoffC.year == 2016 && cutoffC.month == 10
+      && cutoffC.day == 20,
+      "QH/seuil 10 ans")
+
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,
       "allAmounts : un montant dans « TOTAL 24,84 »")

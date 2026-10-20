@@ -166,6 +166,7 @@ final class CompositeScanner: NSObject,
     /// Informations du figeage (taille du scan final + résumé de
     /// l'amélioration), ajoutées aux statistiques par buildStats().
     private var finishInfo: String?
+    private var lastArbiterSummary = ""
 
     // Statistiques
     private var framesSeen = 0
@@ -1063,25 +1064,24 @@ final class CompositeScanner: NSObject,
         // une image fixe, propre, déjà fusionnée, où la détection
         // est bien plus fiable que sur le flux vivant — puis
         // redressé. Pendant le scan, aucune boîte n'a rien décidé.
+        let t0 = CFAbsoluteTimeGetCurrent()
         let (extracted, how) = extractReceipt(from: composite)
+        let tLoc = CFAbsoluteTimeGetCurrent()
         var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
         image = image.transformed(by: CGAffineTransform(
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
+        let tOrient = CFAbsoluteTimeGetCurrent()
         // Arbitre d'orientation (demande de Grégoire, 2026-10-20 :
         // le scan final DOIT s'afficher dans un sens qui fait du
         // sens à l'œil humain) : la lecture précise dans les deux
         // sens — celle qui sert à l'extraction — décide aussi de
         // l'affichage. Si le texte se lit mieux à l'envers, on
         // retourne l'image pour de vrai avant tout le reste.
-        // Réglages de lecture de Grégoire (curseurs de la vue,
-        // persistés) : appliqués à l'image SOUMISE À L'OCR,
-        // jamais à l'affichage.
-        let reading = readingSettings()
-        let outcome = recognizeBestText(
-            image: applyReadingAdjustments(image, reading))
+        let outcome = recognizeBestText(image: image)
+        let tRead = CFAbsoluteTimeGetCurrent()
         if outcome.upsideDown {
             image = image.oriented(.down)
         }
@@ -1095,10 +1095,16 @@ final class CompositeScanner: NSObject,
         let enhanced = enhanceDocument(image)
         let finalCG = ciContext.createCGImage(enhanced.image,
                                               from: enhanced.image.extent)
+        let tEnh = CFAbsoluteTimeGetCurrent()
+        let timing = "localisation \(String(format: "%.2f", tLoc - t0)) s"
+            + " · orientation \(String(format: "%.2f", tOrient - tLoc)) s"
+            + " · lecture \(String(format: "%.2f", tRead - tOrient)) s"
+            + " · amélioration \(String(format: "%.2f", tEnh - tRead)) s"
         finishInfo = "Reçu localisé : \(how)"
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
-            + "\nRéglages de lecture : \(readingSummary(reading))"
+            + "\nAnalyse : \(timing)"
+            + "\nOrientation : \(lastArbiterSummary)"
 
         // Lecture du scan figé (première brique de l'étape 2,
         // demandée par Grégoire le 2026-10-19 : « voir les
@@ -1282,7 +1288,7 @@ final class CompositeScanner: NSObject,
     private func recognizeBestText(image: CIImage)
     -> RecognitionOutcome {
         func pass(_ candidateImage: CIImage)
-        -> (lines: [RecognizedLine], score: Float) {
+        -> (lines: [RecognizedLine], score: Float, amounts: Int) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["fr-FR", "en-US"]
@@ -1290,7 +1296,7 @@ final class CompositeScanner: NSObject,
             let handler = VNImageRequestHandler(
                 ciImage: candidateImage, options: [:])
             guard (try? handler.perform([request])) != nil
-            else { return ([], -1) }
+            else { return ([], -1, 0) }
             var lines: [RecognizedLine] = []
             var score: Float = 0
             for obs in request.results ?? [] {
@@ -1312,15 +1318,30 @@ final class CompositeScanner: NSObject,
             // lisibles ; lu à l'envers, presque aucun — c'est le
             // critère qui départage les deux sens.
             let amounts = ReceiptParser.allAmounts(text).count
-            return (lines, Float(amounts) * 1000 + score)
+            return (lines, Float(amounts) * 1000 + score, amounts)
         }
         let up = pass(image)
         let down = pass(image.oriented(.down))
-        let winner = down.score > up.score ? down : up
+        // Marge exigée (audit du 2026-10-20) : retourner à
+        // tort un scan droit coûte plus cher que l'inverse.
+        // Le sens renversé doit gagner sur le NOMBRE DE
+        // MONTANTS, ou, à montants égaux, sur le score avec
+        // une marge nette — plus jamais au point près.
+        let flipped: Bool
+        if down.amounts != up.amounts {
+            flipped = down.amounts > up.amounts
+        } else {
+            flipped = down.score > up.score * 1.2
+        }
+        let winner = flipped ? down : up
+        lastArbiterSummary = "droit : \(up.amounts) montants, "
+            + "score \(Int(up.score)) · renversé : "
+            + "\(down.amounts) montants, score \(Int(down.score))"
+            + " → \(flipped ? "renversé" : "droit")"
         return RecognitionOutcome(
             lines: winner.lines,
             text: winner.lines.map(\.text).joined(separator: "\n"),
-            upsideDown: down.score > up.score)
+            upsideDown: flipped)
     }
 
     /// Lit le scan et en tire les champs affichables. Date non
@@ -1344,9 +1365,10 @@ final class CompositeScanner: NSObject,
         let totalLine = verifiedHit?.lineIndex ?? plainHit?.lineIndex
 
         // Carrés jaunes (demande de Grégoire, 2026-10-20) : les
-        // boîtes des lignes d'où viennent les réponses — commerce,
-        // date, total et les parties de sa preuve — pour que le
-        // vérificateur voie d'un coup d'œil si c'est n'importe quoi.
+        // boîtes des lignes d'où viennent les TROIS réponses —
+        // commerce, date, total. PAS les parties de la preuve :
+        // il a demandé 3 boîtes, pas 6 ; les parties restent
+        // nommées dans le texte « ✓ preuve : … » du panneau.
         var boxes: [CGRect] = []
         func addBox(lineIndex: Int?) {
             guard let lineIndex, lines.indices.contains(lineIndex)
@@ -1374,9 +1396,6 @@ final class CompositeScanner: NSObject,
             })
         }
         addBox(lineIndex: totalLine)
-        for part in verifiedHit?.parts ?? [] {
-            addBox(lineIndex: part.lineIndex)
-        }
 
         return ScanExtraction(
             text: text,
@@ -1459,65 +1478,6 @@ final class CompositeScanner: NSObject,
     /// non plus.
     /// Aucune étape ne déplace un pixel : la géométrie du scan
     /// redressé est intacte (rien n'est « déformé »).
-    /// Réglages de lecture (demande de Grégoire, 2026-10-20) :
-    /// contraste, netteté, exposition qu'il choisit lui-même
-    /// avec les curseurs de la vue pour l'image soumise à
-    /// l'OCR. Neutres par défaut (1 / 0 / 0) : comportement
-    /// actuel inchangé tant qu'il n'y touche pas. (Son « ISO » :
-    /// l'ISO capteur d'une caméra FaceTime ne se règle pas à
-    /// la main sous AVFoundation — l'exposition en EV est
-    /// l'équivalent qui agit réellement sur la lecture.)
-    struct ReadingSettings {
-        var contrast: Double = 1.0
-        var sharpness: Double = 0.0
-        var exposure: Double = 0.0
-    }
-
-    private func readingSettings() -> ReadingSettings {
-        let d = UserDefaults.standard
-        return ReadingSettings(
-            contrast: d.object(forKey: "ocrContrast") as? Double
-                ?? 1.0,
-            sharpness: d.object(forKey: "ocrSharpness") as? Double
-                ?? 0.0,
-            exposure: d.object(forKey: "ocrExposure") as? Double
-                ?? 0.0)
-    }
-
-    private func readingSummary(_ s: ReadingSettings) -> String {
-        "contraste \(String(format: "%.2f", s.contrast))"
-        + " · netteté \(String(format: "%.2f", s.sharpness))"
-        + " · exposition \(String(format: "%+.2f", s.exposure)) EV"
-    }
-
-    /// Applique les réglages à l'image de LECTURE — mêmes
-    /// dimensions, seuls les pixels changent : les boîtes OCR
-    /// restent valides. Ordre : exposition, contraste, netteté.
-    private func applyReadingAdjustments(
-        _ image: CIImage, _ s: ReadingSettings) -> CIImage {
-        guard s.contrast != 1.0 || s.sharpness != 0.0
-                || s.exposure != 0.0 else { return image }
-        var out = image
-        if s.exposure != 0.0 {
-            out = out.applyingFilter(
-                "CIExposureAdjust",
-                parameters: ["inputEV": s.exposure])
-        }
-        if s.contrast != 1.0 {
-            out = out.applyingFilter(
-                "CIColorControls",
-                parameters: ["inputContrast": s.contrast,
-                             "inputBrightness": 0.0,
-                             "inputSaturation": 1.0])
-        }
-        if s.sharpness != 0.0 {
-            out = out.applyingFilter(
-                "CISharpenLuminance",
-                parameters: ["inputSharpness": s.sharpness])
-        }
-        return out.cropped(to: image.extent)
-    }
-
     private func enhanceDocument(_ image: CIImage)
     -> (image: CIImage, summary: String) {
         let extent = image.extent
