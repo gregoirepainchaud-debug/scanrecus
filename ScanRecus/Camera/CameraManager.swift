@@ -7,7 +7,7 @@ import SwiftUI
 /// Possède la session de capture, gère l'autorisation macOS
 /// et expose la prévisualisation vidéo pour SwiftUI.
 ///
-/// Le délégué (ScanEngine) reçoit les images brutes ; la prévisualisation
+/// Le délégué (CompositeScanner) reçoit les images brutes ; la prévisualisation
 /// est en mode MIROIR (comme un vrai miroir : le reçu déplacé à droite va
 /// à droite à l'écran) pour un positionnement intuitif. Les images
 /// analysées par l'OCR restent NON miroitée — l'UI inverse donc les
@@ -38,7 +38,7 @@ final class CameraManager: NSObject, @unchecked Sendable {
     private var preferredFormat: AVCaptureDevice.Format?
 
     /// Demande l'autorisation si besoin puis démarre la session.
-    /// - Parameter delegate: reçoit les images (ScanEngine).
+    /// - Parameter delegate: reçoit les images (CompositeScanner).
     ///   L'appelant doit le retenir (le output ne le retient pas).
     func start(delegate: AVCaptureVideoDataOutputSampleBufferDelegate) {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -310,7 +310,7 @@ final class PreviewHostView: NSView {
         let layer = AVCaptureVideoPreviewLayer(session: session)
         layer.videoGravity = .resizeAspectFill
         // Pas de retournement ici : le miroir est appliqué par la vue
-        // SwiftUI (scaleEffect dans ScanDebugView, plan C) — les réglages
+        // SwiftUI (scaleEffect dans CompositeScanView) — les réglages
         // AVFoundation (connexion, transformation du calque) n'ont eu
         // aucun effet observable sur ce Mac.
         return layer

@@ -231,103 +231,84 @@ final class MerchantAlias {
 
 // MARK: - Persistance
 
-/// Conteneur SwiftData unique.
+/// Schéma versionné V1 (lot 3, 2026-10-20) : les modèles actuels,
+/// figés sous ce numéro. Tout changement futur de modèle passe
+/// par une V2 et une étape de migration dans le plan ci-dessous —
+/// jamais par une modification silencieuse de V1.
+enum SchemaV1: VersionedSchema {
+    static var versionIdentifier: Schema.Version = Schema.Version(1, 0, 0)
+
+    static var models: [any PersistentModel.Type] {
+        [Company.self, Category.self, ReceiptItem.self,
+         MerchantRule.self, MerchantAlias.self]
+    }
+}
+
+enum ScanRecusMigrationPlan: SchemaMigrationPlan {
+    static var schemas: [any VersionedSchema.Type] {
+        [SchemaV1.self]
+    }
+
+    static var stages: [MigrationStage] { [] }
+}
+
+/// Conteneur SwiftData unique, LOCAL (lot 3, 2026-10-20).
+///
+/// Avant : la base vivait dans le dossier « ScanReçus » du Google
+/// Drive synchronisé de l'utilisateur (décision « pour l'instant »
+/// du 2026-10-18), avec repli SILENCIEUX sur l'emplacement par
+/// défaut quand ça échouait. Un fichier SQLite/WAL n'a rien à
+/// faire dans un dossier synchronisé (corruption possible,
+/// copies conflictuelles), et un repli muet rendait l'emplacement
+/// réel inconnaissable. La base vit maintenant dans Application
+/// Support, hors de toute synchronisation. Si elle ne peut pas
+/// s'y ouvrir, l'échec est DIT dans `status` et le repli est en
+/// mémoire seulement : l'app peut scanner, mais `isAvailable`
+/// reste faux — rien ne doit annoncer « ✓ Enregistré » tant
+/// qu'il l'est (l'ancien code faisait `try? save()` puis
+/// annonçait le succès sans condition).
 enum Persistence {
-    /// Nom comparé sans accents ni casse (le « ê » de « ScanReçus » peut
-    /// être codé de plusieurs façons sur le disque).
-    private static func folded(_ s: String) -> String {
-        s.folding(options: .diacriticInsensitive,
-                  locale: Locale(identifier: "fr"))
-            .lowercased()
-            .trimmingCharacters(in: .whitespaces)
-    }
+    /// État de la base, en mots — à lire avant tout message de
+    /// confirmation d'enregistrement (étape 2).
+    private(set) static var status = "non initialisée"
+    /// Emplacement réel du fichier de base (sur disque local).
+    private(set) static var storeURL: URL?
+    /// Vrai seulement si la vraie base, sur disque, est ouverte.
+    private(set) static var isAvailable = false
 
-    /// Cherche le dossier « ScanReçus » à la racine du Google Drive
-    /// local EN LISANT LES NOMS RÉELS sur le disque (plutôt qu'en
-    /// construisant le chemin de toutes pièces) : insensible aux
-    /// accents, à la casse et à la normalisation Unicode.
-    private static func driveFolderURL() -> URL? {
-        let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser
-        var roots: [URL] = []
-        // Emplacement moderne : ~/Library/CloudStorage/GoogleDrive-<compte>/
-        let cloud = home.appendingPathComponent("Library/CloudStorage")
-        if let accounts = try? fm.contentsOfDirectory(
-            at: cloud, includingPropertiesForKeys: nil) {
-            roots += accounts.filter {
-                $0.lastPathComponent.hasPrefix("GoogleDrive")
-            }
-        }
-        // Ancien emplacement (Backup & Sync) : ~/Google Drive/
-        roots.append(home.appendingPathComponent("Google Drive"))
-
-        for root in roots {
-            // Niveau 1 : la racine elle-même, ou « Mon Drive »/« My Drive ».
-            var bases: [URL] = [root]
-            if let children = try? fm.contentsOfDirectory(
-                at: root, includingPropertiesForKeys: nil) {
-                bases += children.filter {
-                    let name = folded($0.lastPathComponent)
-                    return name == "mon drive" || name == "my drive"
-                }
-            }
-            for base in bases {
-                guard let children = try? fm.contentsOfDirectory(
-                    at: base, includingPropertiesForKeys: nil)
-                else { continue }
-                guard let match = children.first(where: {
-                    folded($0.lastPathComponent) == "scanrecus"
-                }) else { continue }
-                var isDir: ObjCBool = false
-                if fm.fileExists(atPath: match.path, isDirectory: &isDir),
-                   isDir.boolValue {
-                    return match
-                }
-            }
-        }
-        return nil
-    }
-
-    private static var _driveStatus = "non tenté"
-
-    /// Ce que la recherche du dossier Drive a donné (affiché à l'écran).
-    static var driveStatus: String {
-        _ = shared  // force l'initialisation (et donc la recherche)
-        return _driveStatus
-    }
-
-    /// Base entreposée dans le dossier « ScanReçus » à la racine du
-    /// Google Drive de l'utilisateur (décision du 2026-10-18, « pour
-    /// l'instant »). Repli silencieux sur l'emplacement par défaut
-    /// (Application Support) si le Drive est introuvable ou si la base
-    /// ne peut pas s'y ouvrir — l'app ne doit jamais planter pour ça.
     static let shared: ModelContainer = {
-        let schema = Schema([
-            Company.self,
-            Category.self,
-            ReceiptItem.self,
-            MerchantRule.self,
-            MerchantAlias.self,
-        ])
-        if let folder = driveFolderURL() {
-            let url = folder.appendingPathComponent("ScanRecus.sqlite")
-            let configuration = ModelConfiguration(schema: schema, url: url)
+        let schema = Schema(versionedSchema: SchemaV1.self)
+        let fm = FileManager.default
+        let folder = fm.urls(for: .applicationSupportDirectory,
+                             in: .userDomainMask)[0]
+            .appendingPathComponent("ScanRecus", isDirectory: true)
+        do {
+            try fm.createDirectory(at: folder,
+                                   withIntermediateDirectories: true)
+        } catch {
+            status = "BASE INDISPONIBLE — dossier local impossible "
+                + "à créer (\(error.localizedDescription))"
+        }
+        let url = folder.appendingPathComponent("ScanRecus.sqlite")
+        storeURL = url
+        let configuration = ModelConfiguration(schema: schema, url: url)
+        do {
+            let container = try ModelContainer(
+                for: schema, migrationPlan: ScanRecusMigrationPlan.self,
+                configurations: [configuration])
+            status = "base locale ouverte : \(url.path)"
+            isAvailable = true
+            return container
+        } catch {
+            status = "BASE INDISPONIBLE — la base locale n'a pas pu "
+                + "s'ouvrir (\(error.localizedDescription)) ; "
+                + "repli en mémoire, rien ne sera sauvegardé"
+            let memory = ModelConfiguration(
+                schema: schema, isStoredInMemoryOnly: true)
             if let container = try? ModelContainer(
-                for: schema, configurations: [configuration]) {
-                _driveStatus = "dossier trouvé, base ouverte dans le Drive"
+                for: schema, configurations: [memory]) {
                 return container
             }
-            _driveStatus = "dossier trouvé (\(folder.path)) " +
-                "mais la base n'a pas pu s'ouvrir là-bas"
-        } else {
-            _driveStatus = "dossier « ScanReçus » introuvable sur ce Mac"
-        }
-        let configuration = ModelConfiguration(
-            schema: schema, isStoredInMemoryOnly: false)
-        do {
-            return try ModelContainer(for: schema,
-                                      configurations: [configuration])
-        } catch {
             fatalError("Impossible de créer la base SwiftData : \(error)")
         }
     }()
