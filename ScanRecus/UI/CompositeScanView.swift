@@ -134,21 +134,7 @@ struct CompositeScanView: View {
                         Text(scanner.statusText)
                             .font(.system(size: 16, weight: .medium))
 
-                        if scanner.state == .capturing || isDone {
-                            Text("Tuiles remplies : \(scanner.filledTiles)  •  remplissage du rectangle : \(scanner.fillPercent) %")
-                                .font(.system(size: 13.5))
-                                .foregroundColor(.secondary)
-                        }
-
-                        Text(scanner.statsText)
-                            .font(.system(size: 11.5, design: .monospaced))
-                            .foregroundColor(.secondary)
-
-                        if let info = camera.formatInfo {
-                            Text(info)
-                                .font(.system(size: 11.5, design: .monospaced))
-                                .foregroundColor(.secondary)
-                        }
+                        journalRow
 
                         if isDone, let ex = scanner.extraction {
                             extractionPanel(ex)
@@ -229,6 +215,38 @@ struct CompositeScanView: View {
     /// programme sait lire. Affichage seulement — rien n'est
     /// sauvegardé à cette étape.
     @ViewBuilder
+    /// Dossier du journal des scans (même clé UserDefaults
+    /// que CompositeScanner.journalFolderKey) : les données de
+    /// contrôle n'encombrent plus l'écran, elles s'accumulent
+    /// dans scanrecus-journal.txt, sur Drive idéalement.
+    @AppStorage("journalFolderPath") private var journalFolderPath = ""
+
+    private var journalRow: some View {
+        HStack(spacing: 8) {
+            Text(journalFolderPath.isEmpty
+                 ? "Journal des scans : dossier automatique (Drive si détecté)"
+                 : "Journal des scans : \(journalFolderPath)")
+                .font(.system(size: 11.5))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button("Choisir le dossier…") { chooseJournalFolder() }
+                .controlSize(.small)
+        }
+    }
+
+    private func chooseJournalFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choisir"
+        panel.message = "Dossier où s'accumulera le journal des scans (scanrecus-journal.txt) — idéalement un dossier Google Drive."
+        if panel.runModal() == .OK, let url = panel.url {
+            journalFolderPath = url.path
+        }
+    }
+
     private func extractionPanel(
         _ ex: CompositeScanner.ScanExtraction
     ) -> some View {

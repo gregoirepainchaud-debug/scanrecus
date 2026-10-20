@@ -1429,6 +1429,7 @@ final class CompositeScanner: NSObject,
             }
         }
         let stats = buildStats()
+        appendToJournal(stats: stats, extraction: extraction)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.state = .done
@@ -2143,6 +2144,112 @@ final class CompositeScanner: NSObject,
         }
         if abs(bestAngle) < 0.3 * deg { return (image, 0) }
         return (rotated(image, bestAngle), bestAngle)
+    }
+
+    // MARK: - Journal des scans (données de contrôle sur Drive)
+
+    /// Clé UserDefaults du dossier du journal choisi dans la
+    /// vue (même chaîne que le @AppStorage de la vue).
+    static let journalFolderKey = "journalFolderPath"
+
+    /// Fichier journal : le dossier choisi par Grégoire, sinon
+    /// le dossier Google Drive monté par Drive pour
+    /// ordinateur (~/Library/CloudStorage/GoogleDrive-*),
+    /// sinon l'ancien ~/Google Drive, sinon Application
+    /// Support. Nom fixe : scanrecus-journal.txt.
+    private func journalFileURL() -> URL {
+        let fm = FileManager.default
+        let name = "scanrecus-journal.txt"
+        if let chosen = UserDefaults.standard.string(
+            forKey: Self.journalFolderKey), !chosen.isEmpty {
+            return URL(fileURLWithPath: chosen)
+                .appendingPathComponent(name)
+        }
+        let cloud = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/CloudStorage")
+        if let entries = try? fm.contentsOfDirectory(
+            at: cloud, includingPropertiesForKeys: nil) {
+            for entry in entries
+            where entry.lastPathComponent.hasPrefix("GoogleDrive") {
+                let drive = entry.appendingPathComponent("My Drive")
+                if fm.fileExists(atPath: drive.path) {
+                    return drive.appendingPathComponent(name)
+                }
+            }
+        }
+        let legacy = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Google Drive")
+        if fm.fileExists(atPath: legacy.path) {
+            return legacy.appendingPathComponent(name)
+        }
+        let support = fm.urls(for: .applicationSupportDirectory,
+                              in: .userDomainMask)[0]
+            .appendingPathComponent("ScanRecus", isDirectory: true)
+        return support.appendingPathComponent(name)
+    }
+
+    /// Ajoute le compte rendu complet d'un scan au journal
+    /// (demande de Grégoire, 2026-10-20 : les données de
+    /// contrôle quittent l'écran et s'accumulent dans un
+    /// fichier Drive que Muse lit au besoin pour analyser).
+    /// Texte seulement, aucune image. Écriture silencieuse en
+    /// cas d'échec : le journal ne bloque jamais un scan.
+    private func appendToJournal(stats: String,
+                                 extraction: ScanExtraction) {
+        let url = journalFileURL()
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        df.locale = Locale(identifier: "fr_CA")
+        var entry = "\n\n===== SCAN \(df.string(from: Date())) · "
+            + "\(BuildInfo.stamp) =====\n"
+        entry += stats
+        if !stats.hasSuffix("\n") { entry += "\n" }
+        entry += "--- Extraction ---\n"
+        entry += "Commerce : \(extraction.merchant.isEmpty ? "—" : extraction.merchant)\n"
+        let dfd = DateFormatter()
+        dfd.dateFormat = "yyyy-MM-dd"
+        if let d = extraction.date {
+            entry += "Date : \(dfd.string(from: d))"
+                + (extraction.dateIsDefault ? " (par défaut)" : "")
+                + "\n"
+        } else {
+            entry += "Date : —\n"
+        }
+        if let t = extraction.total {
+            entry += String(format: "Total : %.2f", t)
+            if extraction.totalVerified {
+                let parts = extraction.totalParts
+                    .map { String(format: "%.2f", $0) }
+                    .joined(separator: " + ")
+                entry += " (prouvé : \(parts))"
+            }
+            entry += "\n"
+        } else {
+            entry += "Total : —\n"
+        }
+        entry += "--- Texte OCR ---\n"
+        entry += extraction.text.isEmpty
+            ? "(aucun texte reconnu)" : extraction.text
+        entry += "\n"
+        do {
+            let fm = FileManager.default
+            try fm.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            if fm.fileExists(atPath: url.path),
+               let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(entry.utf8))
+            } else {
+                let header = "# Journal ScanReçus — données de "
+                    + "contrôle des scans, pour analyse par Muse.\n"
+                try (header + entry).write(to: url, atomically: true,
+                                           encoding: .utf8)
+            }
+        } catch {
+            // Silencieux par design (voir ci-dessus).
+        }
     }
 
     // MARK: - Publication
