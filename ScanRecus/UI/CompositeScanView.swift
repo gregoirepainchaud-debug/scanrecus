@@ -127,6 +127,10 @@ struct CompositeScanView: View {
 
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 8) {
+                        Text("ScanReçus — \(BuildInfo.stamp)")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundColor(.secondary)
+
                         Text(scanner.statusText)
                             .font(.system(size: 16, weight: .medium))
 

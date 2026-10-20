@@ -1783,7 +1783,8 @@ final class CompositeScanner: NSObject,
                            fullSize.width, fullSize.height)
         }
         text += "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
-            + " (dont chaînées : \(framesChained))\n"
+            + " (dont chaînées : \(framesChained))"
+            + "  •  moyenne stable : \(stableCount) vue(s)\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
             + "Zones de texte (dernière image) : \(lastTextCount)  •  stabilité scène : \(sceneStableCount)/\(stableFramesNeeded)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
