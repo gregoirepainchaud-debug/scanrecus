@@ -1226,8 +1226,8 @@ final class CompositeScanner: NSObject,
         let outcome = recognizeBestText(
             image: sharpenForReading(image))
         let tRead = CFAbsoluteTimeGetCurrent()
-        if outcome.upsideDown {
-            image = image.oriented(.down)
+        if outcome.correction != .up {
+            image = image.oriented(outcome.correction)
         }
         // Amélioration automatique LÉGÈRE : le test « image
         // brute » (2026-10-19, 23 h 41) a donné de bonnes
@@ -1417,6 +1417,10 @@ final class CompositeScanner: NSObject,
         var lines: [RecognizedLine]
         var text: String
         var upsideDown: Bool
+        /// Orientation à appliquer à l'image pour la mettre
+        /// dans le sens gagnant (.up = aucun changement) —
+        /// couvre aussi le secours perpendiculaire (build 44).
+        var correction: CGImagePropertyOrientation
     }
 
     /// OCR précis sur l'image finale, essayé dans les DEUX sens
@@ -1473,6 +1477,16 @@ final class CompositeScanner: NSObject,
             return (lines, Float(amounts) * 1000 + score, amounts,
                     proven)
         }
+        /// Les critères de l'arbitre, dans l'ordre : preuve
+        /// d'addition, nombre de montants, score.
+        func isBetter(_ a: (lines: [RecognizedLine], score: Float,
+                            amounts: Int, proven: Bool),
+                      than b: (lines: [RecognizedLine], score: Float,
+                               amounts: Int, proven: Bool)) -> Bool {
+            if a.proven != b.proven { return a.proven }
+            if a.amounts != b.amounts { return a.amounts > b.amounts }
+            return a.score > b.score
+        }
         let up = pass(image)
         let down = pass(image.oriented(.down))
         // Ordre des critères (build 43) : 1) la PREUVE
@@ -1489,18 +1503,52 @@ final class CompositeScanner: NSObject,
         } else {
             flipped = down.score > up.score * 1.2
         }
-        let winner = flipped ? down : up
+        var winner = flipped ? down : up
+        var correction: CGImagePropertyOrientation =
+            flipped ? .down : .up
+        var rescueNote = ""
+        // Secours perpendiculaire (build 44) : si le meilleur
+        // des deux sens n'a ni preuve ni montants, le juge
+        // amont a pu choisir la mauvaise PAIRE d'orientations
+        // (90°) — les deux sens comparés sont alors faux tous
+        // les deux, et aucun retournement de 180° ne peut
+        // rattraper ça : c'est le cas des scans « à l'envers »
+        // récurrents de Grégoire, pleins d'erreurs de lecture.
+        // On lit alors les deux sens perpendiculaires, et le
+        // meilleur des quatre gagne, mêmes critères.
+        if !winner.proven, winner.amounts < 2 {
+            let sideA = pass(image.oriented(.left))
+            let sideB = pass(image.oriented(.right))
+            var bestResult = sideA
+            var bestOrientation: CGImagePropertyOrientation = .left
+            if isBetter(sideB, than: bestResult) {
+                bestResult = sideB
+                bestOrientation = .right
+            }
+            if isBetter(bestResult, than: winner) {
+                winner = bestResult
+                correction = bestOrientation
+                rescueNote = " · secours perpendiculaire : "
+                    + "\(winner.amounts) montants"
+                    + (winner.proven ? " + preuve" : "")
+            } else {
+                rescueNote = " · perpendiculaires écartés"
+            }
+        }
         lastArbiterSummary = "droit : \(up.amounts) montants"
             + (up.proven ? " + preuve" : "")
             + ", score \(Int(up.score)) · renversé : "
             + "\(down.amounts) montants"
             + (down.proven ? " + preuve" : "")
             + ", score \(Int(down.score))"
-            + " → \(flipped ? "renversé" : "droit")"
+            + rescueNote
+            + " → \(correction == .down ? "renversé"
+                    : correction == .up ? "droit" : "pivoté")"
         return RecognitionOutcome(
             lines: winner.lines,
             text: winner.lines.map(\.text).joined(separator: "\n"),
-            upsideDown: flipped)
+            upsideDown: correction == .down,
+            correction: correction)
     }
 
     /// Lit le scan et en tire les champs affichables. Date non
