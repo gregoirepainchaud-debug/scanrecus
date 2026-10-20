@@ -1076,7 +1076,7 @@ final class CompositeScanner: NSObject,
         // informations que le programme peut extraire ») : OCR
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
-        let extraction = finalCG.map { extractFields(from: $0) }
+        let extraction = extractFields(from: enhanced.image)
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1202,44 +1202,49 @@ final class CompositeScanner: NSObject,
     }
 
     /// OCR précis sur l'image finale, essayé dans les DEUX sens
-    /// (droit et renversé) : le passage au meilleur score
-    /// (Σ confiance × longueur) gagne. La lecture réussit donc
-    /// même si l'image affichée est restée inversée — remarque de
-    /// Grégoire le 2026-10-19 : « si le programme peut lire
-    /// inversé, bah… » — c'est vrai, et c'est ce qui compte pour
-    /// l'extraction. Lignes triées du haut vers le bas.
-    private func recognizeBestText(cgImage: CGImage)
+    /// (droit et renversé) : chaque passage OCRise une image
+    /// RÉELLEMENT pivotée (aucune ambiguïté sur les coordonnées
+    /// des lignes), triées du haut vers le bas, et le sens retenu
+    /// est celui qui « ressemble le plus à un reçu » : nombre de
+    /// montants lisibles d'abord, score OCR ensuite. La première
+    /// version (orientation confiée à Vision + score de confiance)
+    /// a lu un reçu À REBOURS quand le scan restait inversé :
+    /// commerce = ligne du bas, total aberrant, date par défaut
+    /// (retest du 2026-10-19, 23 h 37).
+    private func recognizeBestText(image: CIImage)
     -> (text: String, upsideDown: Bool) {
-        func pass(_ orientation: CGImagePropertyOrientation)
+        func pass(_ candidateImage: CIImage)
         -> (text: String, score: Float) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["fr-FR", "en-US"]
             request.usesLanguageCorrection = true
             let handler = VNImageRequestHandler(
-                cgImage: cgImage, orientation: orientation,
-                options: [:])
+                ciImage: candidateImage, options: [:])
             guard (try? handler.perform([request])) != nil
             else { return ("", -1) }
             var lines: [(y: CGFloat, x: CGFloat, s: String)] = []
             var score: Float = 0
             for obs in request.results ?? [] {
-                guard let candidate = obs.topCandidates(1).first
+                guard let top = obs.topCandidates(1).first
                 else { continue }
-                score += candidate.confidence
-                    * Float(candidate.string.count)
+                score += top.confidence * Float(top.string.count)
                 lines.append((obs.boundingBox.maxY,
-                              obs.boundingBox.minX,
-                              candidate.string))
+                              obs.boundingBox.minX, top.string))
             }
             lines.sort {
                 if abs($0.y - $1.y) > 0.01 { return $0.y > $1.y }
                 return $0.x < $1.x
             }
-            return (lines.map(\.s).joined(separator: "\n"), score)
+            let text = lines.map(\.s).joined(separator: "\n")
+            // Un reçu lu à l'endroit contient plusieurs montants
+            // lisibles ; lu à l'envers, presque aucun — c'est le
+            // critère qui départage les deux sens.
+            let amounts = ReceiptParser.allAmounts(text).count
+            return (text, Float(amounts) * 1000 + score)
         }
-        let up = pass(.up)
-        let down = pass(.down)
+        let up = pass(image)
+        let down = pass(image.oriented(.down))
         return down.score > up.score
             ? (down.text, true) : (up.text, false)
     }
@@ -1250,9 +1255,9 @@ final class CompositeScanner: NSObject,
     /// accompagné de sa preuve par addition quand elle existe
     /// (sous-total + taxes = total) — le vérificateur prévu pour
     /// l'étape 2, déjà à l'œuvre pour l'affichage.
-    private func extractFields(from cgImage: CGImage)
+    private func extractFields(from image: CIImage)
     -> ScanExtraction {
-        let (text, upsideDown) = recognizeBestText(cgImage: cgImage)
+        let (text, upsideDown) = recognizeBestText(image: image)
         let foundDate = ReceiptParser.parseDate(text)
         let total = ReceiptParser.parseTotal(text)?.value
         var verified = false

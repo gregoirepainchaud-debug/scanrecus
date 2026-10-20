@@ -118,6 +118,12 @@ enum ReceiptParser {
         for match in amountRegex.matches(in: text, range: text.nsRange) {
             if let r = Range(match.range, in: text),
                let v = parseAmount(String(text[r])),
+               // Garde-fou : l'OCR fusionne parfois plusieurs
+               // nombres en un monstre (vu au retest du 2026-10-19 :
+               // un « total » de 2 008 102,00 $). Au-delà de
+               // 100 000 $, ce n'est pas un montant de reçu — la
+               // voie normale reste la ligne à mot-clé.
+               v < 100_000,
                best == nil || v > best! {
                 best = v
             }
@@ -132,7 +138,8 @@ enum ReceiptParser {
     -> [(value: Double, lineIndex: Int)] {
         guard !text.isEmpty else { return [] }
         var out: [(value: Double, lineIndex: Int)] = []
-        for (i, line) in text.components(separatedBy: .newlines).enumerated() {
+        let lines = text.components(separatedBy: .newlines)
+        for (i, line) in lines.enumerated() {
             let folded = removeAccents(line).lowercased()
             if folded.contains("sous-total") || folded.contains("sous total")
                 || folded.contains("subtotal") {
@@ -141,9 +148,30 @@ enum ReceiptParser {
             guard totalKeywords.firstMatch(in: folded,
                                            range: folded.nsRange) != nil
             else { continue }
+            var foundOnLine = false
             for match in amountRegex.matches(in: line, range: line.nsRange) {
                 if let r = Range(match.range, in: line),
                    let v = parseAmount(String(line[r])) {
+                    out.append((v, i))
+                    foundOnLine = true
+                }
+            }
+            // L'OCR sépare souvent le mot-clé de son montant
+            // (« TOTAL » seul sur sa ligne, le montant lu à la
+            // ligne suivante — sur le papier, l'écart est grand) :
+            // le montant de la ligne suivante immédiate compte
+            // alors, sauf si elle porte son propre mot-clé.
+            if !foundOnLine, i + 1 < lines.count {
+                let next = lines[i + 1]
+                let foldedNext = removeAccents(next).lowercased()
+                if !foldedNext.contains("sous-total"),
+                   !foldedNext.contains("subtotal"),
+                   totalKeywords.firstMatch(
+                    in: foldedNext, range: foldedNext.nsRange) == nil,
+                   let match = amountRegex.firstMatch(
+                    in: next, range: next.nsRange),
+                   let r = Range(match.range, in: next),
+                   let v = parseAmount(String(next[r])) {
                     out.append((v, i))
                 }
             }
