@@ -1,0 +1,12 @@
+223:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:22: error: cannot find ')' to match opening '(' in string interpolation
+225:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:15: error: unterminated string literal
+227:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1546:63: error: unterminated string literal
+229:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:22: error: cannot find ')' to match opening '(' in string interpolation
+231:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:15: error: unterminated string literal
+233:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1546:63: error: unterminated string literal
+235:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:22: error: Cannot find ')' to match opening '(' in string interpolation
+237:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:15: error: Unterminated string literal
+239:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1546:63: error: Unterminated string literal
+245:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:22: error: Cannot find ')' to match opening '(' in string interpolation
+247:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1545:15: error: Unterminated string literal
+249:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1546:63: error: Unterminated string literal
