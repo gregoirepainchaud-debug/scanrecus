@@ -179,12 +179,15 @@ final class CompositeScanner: NSObject,
     /// Rejets du chemin stable, par cause (diagnostic, build 43) :
     /// le build 42 montrait « moyenne stable : 1 vue » sans dire
     /// quelle garde avait tout bloqué.
-    private var stableRejectQuad = 0
+    private var stableRejectBoxes = 0
     private var stableRejectShift = 0
-    private var stableRejectDLT = 0
+    private var stableRejectFit = 0
     private var stableRejectValidate = 0
     private var stableRejectWarp = 0
-    private var stableMaxShift: CGFloat = 0
+    private var stableMaxDisp: CGFloat = 0
+    /// Boîtes de texte de l'image de référence (solution 2) :
+    /// les correspondances du chemin stable.
+    private var refTextBoxes: [CGRect] = []
     private var framesChained = 0
     private var registrationsFailed = 0
     private var validationsFailed = 0
@@ -214,15 +217,16 @@ final class CompositeScanner: NSObject,
             self.captureStart = 0
             self.refSmall = nil
             self.refQuadNorm = nil
+            self.refTextBoxes = []
             self.composite = nil
             self.stableSum = nil
             self.stableCount = 0
-            self.stableRejectQuad = 0
+            self.stableRejectBoxes = 0
             self.stableRejectShift = 0
-            self.stableRejectDLT = 0
+            self.stableRejectFit = 0
             self.stableRejectValidate = 0
             self.stableRejectWarp = 0
-            self.stableMaxShift = 0
+            self.stableMaxDisp = 0
             self.tileSharpness = []
             self.tileFilled = []
             self.lastSmall = nil
@@ -307,7 +311,8 @@ final class CompositeScanner: NSObject,
             if elapsed >= captureDuration {
                 finish()
             } else {
-                captureFrame(frameFull: frameFull, quadNorm: judgeQuad)
+                captureFrame(frameFull: frameFull, quadNorm: judgeQuad,
+                             textBoxes: detectTextBoxes(in: pixelBuffer))
                 publish(progress: elapsed / captureDuration)
                 if now - lastPreviewTime >= 0.35 {
                     lastPreviewTime = now
@@ -389,7 +394,8 @@ final class CompositeScanner: NSObject,
         }
 
         if sceneStableCount >= stableFramesNeeded {
-            startCapture(frame: frame, judgeQuad: judgeQuad)
+            startCapture(frame: frame, judgeQuad: judgeQuad,
+                         textBoxes: boxes)
         } else if !evidence {
             publish(status: boxes.isEmpty
                     ? "Présentez un reçu à la caméra…"
@@ -403,10 +409,12 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Démarrage de la capture
 
-    private func startCapture(frame: CIImage, judgeQuad: [CGPoint]?) {
+    private func startCapture(frame: CIImage, judgeQuad: [CGPoint]?,
+                              textBoxes: [CGRect]) {
         phase = .capturing
         captureStart = CFAbsoluteTimeGetCurrent()
         refQuadNorm = judgeQuad
+        refTextBoxes = textBoxes
         refSmall = materializedSmall(frame)
         lastSmall = refSmall
         lastHSmall = matrix_identity_float3x3
@@ -429,12 +437,12 @@ final class CompositeScanner: NSObject,
         // amorce la somme des vues recalées.
         stableSum = nil
         stableCount = 0
-        stableRejectQuad = 0
+        stableRejectBoxes = 0
         stableRejectShift = 0
-        stableRejectDLT = 0
+        stableRejectFit = 0
         stableRejectValidate = 0
         stableRejectWarp = 0
-        stableMaxShift = 0
+        stableMaxDisp = 0
         if let cg = ciContext.createCGImage(frame, from: frame.extent) {
             stableSum = CIImage(cgImage: cg)
             stableCount = 1
@@ -602,7 +610,8 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Capture : enregistrement + fusion
 
-    private func captureFrame(frameFull: CIImage, quadNorm: [CGPoint]?) {
+    private func captureFrame(frameFull: CIImage, quadNorm: [CGPoint]?,
+                              textBoxes: [CGRect]) {
         guard let refSmall else { return }
         let frameSmall = smallImage(frameFull)
 
@@ -613,10 +622,11 @@ final class CompositeScanner: NSObject,
         // jetée, et le cas nominal « je tiens le reçu tranquille »
         // finissait à zéro fusion (constat de Grégoire : 19
         // images traitées, stabilité 3/3, aucun composite). Elle
-        // peut en revanche être recalée par le juge DLT et
-        // moyennée : si c'est fait, inutile de tenter le reste.
+        // peut en revanche être recalée par les boîtes de
+        // texte appariées (solution 2) et moyennée : si c'est
+        // fait, inutile de tenter le reste.
         if (recipe == nil || !recipeConfirmed),
-           accumulateIfStable(frameFull: frameFull, quadNorm: quadNorm,
+           accumulateIfStable(frameFull: frameFull, textBoxes: textBoxes,
                               maxShift: recipe == nil ? 0.12 : 0.07) {
             return
         }
@@ -941,47 +951,71 @@ final class CompositeScanner: NSObject,
         return warp.outputImage?.cropped(to: canvasExtent)
     }
 
-    /// Chemin stable (B1) : recale une frame quasi immobile sur
-    /// la référence et l'ajoute à la somme qui sera moyennée.
-    /// Le warp vient du juge DLT — les coins du même rectangle
-    /// physique dans les deux vues, exactement l'homographie
-    /// que le calibrage prend pour vérité terrain — construit à
-    /// échelle réduite, passé par la validation habituelle, puis
-    /// déformé dans le canvas. Réservé aux déplacements < 0,07 :
-    /// là où la convention Vision est indécidable (une matrice
-    /// quasi identité est compatible avec presque toutes les
-    /// interprétations), mais où le warp est presque l'identité
-    /// et les coins ne peuvent pas s'être permutés entre deux
-    /// vues quasi identiques.
+    /// Chemin stable : recale une frame quasi immobile sur la
+    /// référence et l'ajoute à la somme qui sera moyennée.
+    ///
+    /// SOLUTION 2 (choix de Grégoire, 2026-10-20) : le warp
+    /// n'est plus construit sur les coins du rectangle juge —
+    /// au build 45, la moyenne est sortie FANTÔME : l'apparie-
+    /// ment des coins peut sauter d'un cran quand le reçu est
+    /// tenu en diagonale, et la validation ne le voyait pas,
+    /// son juge étant bâti du même appariement. Le warp est
+    /// maintenant ajusté aux moindres carrés sur les CENTRES
+    /// DES BOÎTES DE TEXTE appariées entre la frame et la
+    /// référence — des dizaines de correspondances qui suivent
+    /// le reçu lui-même, comme le test de stabilité du
+    /// déclencheur. Gardes : assez d'appariements (≥ 6),
+    /// déplacement moyen faible, résidu d'ajustement ≤ 2 px
+    /// (échelle réduite), validation géométrique (sans la
+    /// confrontation au juge, dont on se méfie ici).
     private func accumulateIfStable(frameFull: CIImage,
-                                    quadNorm: [CGPoint]?,
+                                    textBoxes: [CGRect],
                                     maxShift: CGFloat) -> Bool {
-        guard let refQuad = refQuadNorm, let frameQuad = quadNorm,
-              abs(shoelace(refQuad)) > 0.008,
-              abs(shoelace(frameQuad)) > 0.008
-        else { stableRejectQuad += 1; return false }
-        let cRef = centroid(refQuad), cNew = centroid(frameQuad)
-        let shift = ((cNew.x - cRef.x) * (cNew.x - cRef.x)
-            + (cNew.y - cRef.y) * (cNew.y - cRef.y)).squareRoot()
-        stableMaxShift = max(stableMaxShift, shift)
-        // Plafond : 0,07 quand une recette verrouillée attend sa
-        // confirmation (les frames franches lui appartiennent) ;
-        // 0,12 sinon — la validation géométrique et la
-        // correspondance des coins entre vues proches restent
-        // les vraies gardes, et le calibrage n'utilise de toute
-        // façon que les frames que l'enregistrement Vision
-        // réussit, rarissimes sur cette scène (build 42 : 3
-        // échecs sur 3).
-        guard shift < maxShift
+        let refBoxes = refTextBoxes
+        guard refBoxes.count >= 5, textBoxes.count >= 5
+        else { stableRejectBoxes += 1; return false }
+        // Appariement glouton au plus proche, rayon 0,06 —
+        // chaque boîte de la référence ne sert qu'une fois.
+        var usedRef = Set<Int>()
+        var srcPts: [CGPoint] = []
+        var dstPts: [CGPoint] = []
+        var dispSum: CGFloat = 0
+        for box in textBoxes {
+            let c = CGPoint(x: box.midX, y: box.midY)
+            var bestIdx: Int?
+            var bestD = CGFloat.greatestFiniteMagnitude
+            for (i, rb) in refBoxes.enumerated()
+            where !usedRef.contains(i) {
+                let dx = c.x - rb.midX, dy = c.y - rb.midY
+                let d = (dx * dx + dy * dy).squareRoot()
+                if d < bestD { bestD = d; bestIdx = i }
+            }
+            if let i = bestIdx, bestD < 0.06 {
+                usedRef.insert(i)
+                srcPts.append(px(c, smallSize))
+                dstPts.append(px(CGPoint(x: refBoxes[i].midX,
+                                         y: refBoxes[i].midY),
+                                 smallSize))
+                dispSum += bestD
+            }
+        }
+        guard srcPts.count >= 6
+        else { stableRejectBoxes += 1; return false }
+        let meanDisp = dispSum / CGFloat(srcPts.count)
+        stableMaxDisp = max(stableMaxDisp, meanDisp)
+        // Plafond du déplacement moyen : 0,07 quand une recette
+        // verrouillée attend sa confirmation (les frames
+        // franches lui appartiennent) ; 0,12 sinon.
+        guard meanDisp < maxShift
         else { stableRejectShift += 1; return false }
-        let src = frameQuad.map { px($0, smallSize) }
-        let dst = refQuad.map { px($0, smallSize) }
-        guard let hSmall = solveHomography(from: src, to: dst)
-        else { stableRejectDLT += 1; return false }
-        guard validate(hSmall: hSmall, frameQuadNorm: quadNorm)
+        guard let fit = solveHomographyFromPairs(src: srcPts,
+                                                 dst: dstPts),
+              fit.rms <= 2.0
+        else { stableRejectFit += 1; return false }
+        guard validate(hSmall: fit.h, frameQuadNorm: nil)
         else { stableRejectValidate += 1; return false }
         guard let warped = warpToCanvas(frameFull,
-                                        hFull: toFullRes(hSmall))
+                                        hFull: toFullRes(fit.h))
         else { stableRejectWarp += 1; return false }
         if let sum = stableSum {
             let added = sum.applyingFilter(
@@ -1192,9 +1226,11 @@ final class CompositeScanner: NSObject,
         // stable, moins bruitée qu'une image seule ; sinon le
         // composite, qui ne contient que la référence.
         var source = composite
+        var usedAverage = false
         var sourceHow = "composite par homographies "
             + "(\(framesFused) vue(s) fusionnée(s))"
         if framesFused == 0, stableCount >= 2, let sum = stableSum {
+            usedAverage = true
             let n = CGFloat(stableCount)
             source = sum.applyingFilter("CIColorMatrix", parameters: [
                 "inputRVector": CIVector(x: 1 / n, y: 0, z: 0, w: 0),
@@ -1208,7 +1244,19 @@ final class CompositeScanner: NSObject,
             sourceHow = "image unique (la référence — aucune fusion "
                 + "ni moyenne possible)"
         }
-        let (extracted, how) = extractReceipt(from: source)
+        var (extracted, how) = extractReceipt(from: source)
+        // Filet (choix de Grégoire, 2026-10-20) : si la moyenne
+        // n'a pas localisé le reçu, retenter sur le composite —
+        // qui, sans fusion par homographies, EST l'image de
+        // référence — plutôt que de lire tout le canvas.
+        if usedAverage, how.contains("aucune localisation") {
+            let retry = extractReceipt(from: composite)
+            if !retry.1.contains("aucune localisation") {
+                extracted = retry.0
+                how = retry.1 + " — repli sur la référence "
+                    + "(la moyenne n'avait pas localisé)"
+            }
+        }
         let tLoc = CFAbsoluteTimeGetCurrent()
         var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
@@ -1881,18 +1929,18 @@ final class CompositeScanner: NSObject,
             text += String(format: "Caméra : %.0f × %.0f\n",
                            fullSize.width, fullSize.height)
         }
-        text += "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
+        text += "Images traitées : \(framesSeen)  •  fusionnées par homographies : \(framesFused)"
             + " (dont chaînées : \(framesChained))"
-            + "  •  moyenne stable : \(stableCount) vue(s)\n"
+            + "  •  vues moyennées (stable) : \(stableCount)\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
             + "Zones de texte (dernière image) : \(lastTextCount)  •  stabilité scène : \(sceneStableCount)/\(stableFramesNeeded)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"
-            + "Chemin stable — rejets : quad \(stableRejectQuad)"
+            + "Chemin stable — rejets : boîtes \(stableRejectBoxes)"
             + " · déplacement \(stableRejectShift)"
-            + String(format: " (max %.3f)", stableMaxShift)
-            + " · DLT \(stableRejectDLT)"
+            + String(format: " (moy. max %.3f)", stableMaxDisp)
+            + " · ajustement \(stableRejectFit)"
             + " · validation \(stableRejectValidate)"
             + " · warp \(stableRejectWarp)\n"
             + String(format: "Enregistrement : %.0f ms/img  •  fusion : %.0f ms/img",
@@ -1972,5 +2020,89 @@ final class CompositeScanner: NSObject,
             SIMD3<Float>(Float(h[0]), Float(h[3]), Float(h[6])),
             SIMD3<Float>(Float(h[1]), Float(h[4]), Float(h[7])),
             SIMD3<Float>(Float(h[2]), Float(h[5]), Float(1)))
+    }
+
+    /// Homographie aux moindres carrés sur N correspondances
+    /// (solution 2 du chemin stable) : mêmes équations que le
+    /// DLT à 4 points, résolues par les équations normales
+    /// (AᵀA h = Aᵀb, h33 = 1). Élagage unique : si le résidu
+    /// est élevé et qu'il reste assez de points, on retire les
+    /// correspondances au-delà de 2× le résidu et on réajuste.
+    /// Rend l'homographie et son résidu RMS, dans l'espace des
+    /// points fournis (pixels réduits pour le chemin stable).
+    private func solveHomographyFromPairs(src: [CGPoint],
+                                          dst: [CGPoint])
+    -> (h: matrix_float3x3, rms: CGFloat)? {
+        guard src.count == dst.count, src.count >= 4 else { return nil }
+        func fit(_ pairs: [(CGPoint, CGPoint)]) -> matrix_float3x3? {
+            var m = [[Double]](repeating: [Double](repeating: 0, count: 8),
+                               count: 8)
+            var c = [Double](repeating: 0, count: 8)
+            for (ptS, ptD) in pairs {
+                let x = Double(ptS.x), y = Double(ptS.y)
+                let u = Double(ptD.x), v = Double(ptD.y)
+                let rows: [([Double], Double)] = [
+                    ([-x, -y, -1, 0, 0, 0, u * x, u * y], -u),
+                    ([0, 0, 0, -x, -y, -1, v * x, v * y], -v),
+                ]
+                for (row, rhs) in rows {
+                    for i in 0..<8 {
+                        c[i] += row[i] * rhs
+                        for j in 0..<8 { m[i][j] += row[i] * row[j] }
+                    }
+                }
+            }
+            var a = (0..<8).map { m[$0] + [c[$0]] }
+            let n = 8
+            for col in 0..<n {
+                var pivot = col
+                for r in col..<n where abs(a[r][col]) > abs(a[pivot][col]) {
+                    pivot = r
+                }
+                guard abs(a[pivot][col]) > 1e-9 else { return nil }
+                if pivot != col { a.swapAt(pivot, col) }
+                let div = a[col][col]
+                for j in col...n { a[col][j] /= div }
+                for r in 0..<n where r != col {
+                    let f = a[r][col]
+                    if f != 0 {
+                        for j in col...n { a[r][j] -= f * a[col][j] }
+                    }
+                }
+            }
+            let hv = (0..<n).map { a[$0][n] }
+            return matrix_float3x3(
+                SIMD3<Float>(Float(hv[0]), Float(hv[3]), Float(hv[6])),
+                SIMD3<Float>(Float(hv[1]), Float(hv[4]), Float(hv[7])),
+                SIMD3<Float>(Float(hv[2]), Float(hv[5]), Float(1)))
+        }
+        func rms(_ h: matrix_float3x3,
+                 _ pairs: [(CGPoint, CGPoint)]) -> CGFloat? {
+            var sumSq: CGFloat = 0
+            for (ptS, ptD) in pairs {
+                guard let projected = applyH(h, ptS) else { return nil }
+                let dx = projected.x - ptD.x, dy = projected.y - ptD.y
+                sumSq += dx * dx + dy * dy
+            }
+            return (sumSq / CGFloat(pairs.count)).squareRoot()
+        }
+        var pairs = Array(zip(src, dst))
+        guard var h = fit(pairs), var r = rms(h, pairs)
+        else { return nil }
+        if r > 1.0, pairs.count > 8 {
+            let kept = pairs.filter { pair in
+                guard let projected = applyH(h, pair.0) else { return false }
+                let dx = projected.x - pair.1.x
+                let dy = projected.y - pair.1.y
+                return (dx * dx + dy * dy).squareRoot() <= max(2 * r, 1.5)
+            }
+            if kept.count >= 6, kept.count < pairs.count,
+               let h2 = fit(kept), let r2 = rms(h2, kept) {
+                pairs = kept
+                h = h2
+                r = r2
+            }
+        }
+        return (h, r)
     }
 }
