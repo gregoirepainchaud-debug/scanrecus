@@ -125,6 +125,15 @@ final class CompositeScanner: NSObject,
     private var acquisitionCount = 0
     private var displayQuad: [CGPoint]?
 
+    // Porte « papier + texte » : aucun scan ne démarre tant que
+    // l'objet suivi n'a pas montré du texte sur fond blanc
+    // (voir updatePaperGate).
+    private var paperOK = false
+    private var paperTextCount = 0
+    private var paperQuad: [CGPoint]?
+    private var lastPaperCheck: CFTimeInterval = 0
+    private var paperFailChecks = 0
+
     private var captureStart: CFTimeInterval = 0
     private var fullSize = CGSize.zero
     private var smallSize = CGSize.zero
@@ -232,6 +241,11 @@ final class CompositeScanner: NSObject,
             self.acquisitionQuad = nil
             self.acquisitionCount = 0
             self.displayQuad = nil
+            self.paperOK = false
+            self.paperTextCount = 0
+            self.paperQuad = nil
+            self.lastPaperCheck = 0
+            self.paperFailChecks = 0
             self.statsText = ""
         }
     }
@@ -278,9 +292,17 @@ final class CompositeScanner: NSObject,
         let quadNorm = track(candidates: detectQuads(in: pixelBuffer,
                                                      frame: frameFull))
 
+        // Porte « papier + texte » : le déclenchement du scan exige
+        // du texte sur fond blanc dans l'objet suivi.
+        if phase == .searching {
+            updatePaperGate(subject: displayQuad, frame: frameFull,
+                            pixelBuffer: pixelBuffer, now: now)
+        }
+
         switch phase {
         case .searching:
-            updateStability(quadNorm: quadNorm, frame: frameFull)
+            updateStability(quadNorm: paperOK ? quadNorm : nil,
+                            frame: frameFull)
         case .capturing:
             let elapsed = now - captureStart
             if elapsed >= captureDuration {
@@ -300,9 +322,16 @@ final class CompositeScanner: NSObject,
         // La boîte affichée suit le quadrilatère LISSÉ du suivi
         // (elle glisse au lieu de sauter d'un objet à l'autre).
         if phase == .searching {
-            publish(quad: smoothedQuad ?? displayQuad)
-            if quadNorm == nil, displayQuad != nil {
-                publish(status: "Reçu en vue — verrouillage du suivi…")
+            // La boîte n'apparaît que si la porte « papier + texte »
+            // est passée (demande de Grégoire, 2026-10-19 : détecter
+            // le texte sur fond blanc AVANT de cerner l'objet).
+            publish(quad: paperOK ? (smoothedQuad ?? displayQuad) : nil)
+            if !paperOK {
+                if displayQuad != nil {
+                    publish(status: "Objet en vue — je cherche du texte sur fond blanc avant de le cerner…")
+                }
+            } else if quadNorm == nil, displayQuad != nil {
+                publish(status: "Reçu confirmé — verrouillage du suivi…")
             }
         } else {
             publish(quad: displayQuad)
@@ -358,6 +387,9 @@ final class CompositeScanner: NSObject,
             trackDrops += 1
             acquisitionQuad = nil
             acquisitionCount = 0
+            paperOK = false
+            paperQuad = nil
+            paperFailChecks = 0
         }
         guard let winner = candidates.max(by: { $0.score < $1.score })
         else {
@@ -380,6 +412,10 @@ final class CompositeScanner: NSObject,
         acquisitionQuad = nil
         acquisitionCount = 0
         displayQuad = winner.quad
+        paperOK = false
+        paperQuad = nil
+        paperFailChecks = 0
+        lastPaperCheck = 0
         return winner.quad
     }
 
@@ -448,6 +484,98 @@ final class CompositeScanner: NSObject,
         }
         return (CGFloat(rgba[0]) + CGFloat(rgba[1]) + CGFloat(rgba[2]))
             / (3 * 255)
+    }
+
+    // MARK: - Porte « papier + texte »
+
+    /// Vérifie que l'objet suivi est bien un papier portant du
+    /// texte, AVANT que le scan puisse démarrer (demande de
+    /// Grégoire, 2026-10-19 : son visage et le plafond se sont fait
+    /// « scanner » — un rectangle stable ne suffit pas).
+    /// Deux preuves, contrôlées au plus toutes les 0,3 s :
+    /// (a) l'intérieur de l'objet est CLAIR (fond blanc) ;
+    /// (b) le détecteur de texte de Vision y trouve des zones de
+    /// texte (≥ 3, ou une grande zone couvrant ≥ 25 % de l'objet).
+    /// Un objet suivi qui échoue 4 contrôles de suite est
+    /// abandonné : ce n'est pas un reçu, le suivi doit se libérer
+    /// pour le vrai.
+    private func updatePaperGate(subject: [CGPoint]?, frame: CIImage,
+                                 pixelBuffer: CVPixelBuffer,
+                                 now: CFTimeInterval) {
+        guard let subject else {
+            paperOK = false
+            paperTextCount = 0
+            paperQuad = nil
+            paperFailChecks = 0
+            return
+        }
+        // Nouvel objet (ou objet qui a beaucoup bougé) : repartir
+        // à zéro et contrôler tout de suite.
+        if let checked = paperQuad,
+           cornerDistance(subject, checked) > 0.08 {
+            paperOK = false
+            paperFailChecks = 0
+            lastPaperCheck = 0
+        }
+        paperQuad = subject
+        guard now - lastPaperCheck >= 0.3 else { return }
+        lastPaperCheck = now
+
+        let bright = meanBrightness(frame, quad: innerQuad(subject))
+        let boxes = detectTextBoxes(in: pixelBuffer)
+        let xs = subject.map(\.x), ys = subject.map(\.y)
+        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
+        let bbox = CGRect(x: minX, y: minY,
+                          width: (xs.max() ?? 0) - minX,
+                          height: (ys.max() ?? 0) - minY)
+        let inside = boxes.filter {
+            bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
+        }
+        paperTextCount = inside.count
+        let quadArea = max(bbox.width * bbox.height, 0.0001)
+        let bigText = inside.contains {
+            $0.width * $0.height >= 0.25 * quadArea
+        }
+        paperOK = bright >= 0.45 && (inside.count >= 3 || bigText)
+        if paperOK {
+            paperFailChecks = 0
+        } else {
+            paperFailChecks += 1
+            if paperFailChecks >= 4, trackedQuad != nil {
+                // Abandonner l'objet suivi : ce n'est pas un reçu.
+                trackedQuad = nil
+                trackMisses = 0
+                displayQuad = nil
+                acquisitionQuad = nil
+                acquisitionCount = 0
+                trackDrops += 1
+                paperOK = false
+                paperQuad = nil
+                paperFailChecks = 0
+            }
+        }
+    }
+
+    /// Le quadrilatère resserré vers son centre (l'intérieur du
+    /// papier, sans les bords ni l'arrière-plan).
+    private func innerQuad(_ quad: [CGPoint]) -> [CGPoint] {
+        let c = centroid(quad)
+        return quad.map {
+            CGPoint(x: c.x + ($0.x - c.x) * 0.7,
+                    y: c.y + ($0.y - c.y) * 0.7)
+        }
+    }
+
+    /// Zones de texte détectées par Vision (boîtes englobantes
+    /// normalisées) — détection seule, aucune lecture.
+    private func detectTextBoxes(in pixelBuffer: CVPixelBuffer)
+    -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil else { return [] }
+        return (request.results ?? []).map { $0.boundingBox }
     }
 
     // MARK: - Phase recherche : stabilité
@@ -1320,6 +1448,7 @@ final class CompositeScanner: NSObject,
             + " (dont chaînées : \(framesChained))\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
             + "Suivi du reçu : \(trackedQuad != nil ? "verrouillé" : (acquisitionQuad != nil ? "en acquisition" : "aucun"))  •  pertes du suivi : \(trackDrops)\n"
+            + "Papier + texte : \(paperOK ? "confirmé" : "non confirmé") (\(paperTextCount) zone(s) de texte)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"
