@@ -72,43 +72,15 @@ struct CompositeScanView: View {
                                 ? scanner.finalImage
                                 : scanner.rawFinalImage) ?? scanner.finalImage {
                                 // Le scan final, toujours à
-                                // l'endroit, avec les CARRÉS JAUNES
-                                // des réponses : les lignes d'où
-                                // viennent le commerce, la date, le
-                                // total et sa preuve (demande de
-                                // Grégoire, 2026-10-20).
-                                GeometryReader { cell in
-                                    let iw = CGFloat(image.width)
-                                    let ih = CGFloat(image.height)
-                                    let scale = min(cell.size.width / iw,
-                                                    cell.size.height / ih)
-                                    let dw = iw * scale
-                                    let dh = ih * scale
-                                    ZStack(alignment: .topLeading) {
-                                        Image(image, scale: 1,
-                                              label: Text("Scan du reçu"))
-                                            .resizable()
-                                            .frame(width: dw, height: dh)
-                                        ForEach((scanner.extraction?
-                                            .answerBoxes ?? []).indices,
-                                                id: \.self) { i in
-                                            let b = (scanner.extraction?
-                                                .answerBoxes ?? [])[i]
-                                            Rectangle()
-                                                .stroke(Color.yellow,
-                                                        lineWidth: 2)
-                                                .background(
-                                                    Color.yellow.opacity(0.10))
-                                                .frame(width: b.width * dw,
-                                                       height: b.height * dh)
-                                                .offset(x: b.minX * dw,
-                                                        y: (1 - b.maxY) * dh)
-                                        }
-                                    }
-                                    .frame(width: cell.size.width,
-                                           height: cell.size.height,
-                                           alignment: .center)
-                                }
+                                // l'endroit, ses carrés jaunes, et
+                                // les extraits ZOOMÉS des régions
+                                // encadrées (ZoomReviewView).
+                                ZoomReviewView(
+                                    image: image,
+                                    boxes: scanner.extraction?
+                                        .answerBoxes ?? [],
+                                    crops: scanner.extraction?
+                                        .answerCrops ?? [])
                                 .padding(10)
                             } else {
                                 CameraPreviewView(session: camera.session)
@@ -350,6 +322,118 @@ struct CompositeScanView: View {
                 // une fois sur deux) — quelques réessais brefs.
                 enterFullScreen(attempt: attempt + 1)
             }
+        }
+    }
+}
+
+
+/// Vue de révision du scan final (demande de Grégoire,
+/// 2026-10-20) : l'image au centre avec ses carrés jaunes, et
+/// chaque région encadrée ressort en EXTRAIT AGRANDI dans les
+/// colonnes latérales — en alternance droite, gauche, droite…
+/// (donc deux à droite et un à gauche pour trois régions) —
+/// reliée à sa boîte d'origine par un trait jaune. Le but :
+/// lire les réponses du programme sans plisser les yeux.
+struct ZoomReviewView: View {
+    let image: CGImage
+    let boxes: [CGRect]
+    let crops: [CGImage]
+
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            let iw = CGFloat(image.width)
+            let ih = CGFloat(image.height)
+            let hasCrops = !boxes.isEmpty && crops.count == boxes.count
+            let colW: CGFloat = hasCrops
+                ? min(380, size.width * 0.26) : 0
+            let gap: CGFloat = hasCrops ? 30 : 0
+            let areaW = size.width - 2 * colW - 2 * gap
+            let fit = min(areaW / iw, size.height / ih)
+            let dw = iw * fit
+            let dh = ih * fit
+            let imgX = colW + gap + (areaW - dw) / 2
+            let imgY = (size.height - dh) / 2
+            let rightIdx = boxes.indices.filter { $0 % 2 == 0 }
+            let leftIdx = boxes.indices.filter { $0 % 2 == 1 }
+
+            // Hauteur d'une carte extrait : largeur de colonne,
+            // aspect du découpage conservé.
+            func cardH(_ i: Int) -> CGFloat {
+                let c = crops[i]
+                guard c.width > 0 else { return 30 }
+                return max(20, colW * CGFloat(c.height)
+                    / CGFloat(c.width))
+            }
+            // Ordonnée du haut d'une carte dans sa colonne
+            // (pile centrée verticalement).
+            func stackY(_ idxs: [Int], _ i: Int) -> CGFloat {
+                let total = idxs.reduce(0) { $0 + cardH($1) + 18 } - 18
+                var y = max(0, (size.height - total) / 2)
+                for j in idxs {
+                    if j == i { break }
+                    y += cardH(j) + 18
+                }
+                return y
+            }
+
+            ZStack(alignment: .topLeading) {
+                // Traits de liaison boîte → extrait.
+                Path { path in
+                    if hasCrops {
+                        for i in boxes.indices {
+                            let b = boxes[i]
+                            let onRight = i % 2 == 0
+                            let cardX: CGFloat = onRight
+                                ? size.width - colW : 0
+                            let cy = stackY(onRight ? rightIdx : leftIdx,
+                                            i) + cardH(i) / 2
+                            let bx = imgX
+                                + (onRight ? b.maxX : b.minX) * dw
+                            let by = imgY + (1 - b.midY) * dh
+                            path.move(to: CGPoint(x: bx, y: by))
+                            path.addLine(to: CGPoint(
+                                x: onRight ? cardX : cardX + colW,
+                                y: cy))
+                        }
+                    }
+                }
+                .stroke(Color.yellow, lineWidth: 1.5)
+
+                // Image principale et ses carrés jaunes.
+                Image(image, scale: 1, label: Text("Scan du reçu"))
+                    .resizable()
+                    .frame(width: dw, height: dh)
+                    .offset(x: imgX, y: imgY)
+                ForEach(boxes.indices, id: \.self) { i in
+                    let b = boxes[i]
+                    Rectangle()
+                        .stroke(Color.yellow, lineWidth: 2)
+                        .background(Color.yellow.opacity(0.10))
+                        .frame(width: b.width * dw,
+                               height: b.height * dh)
+                        .offset(x: imgX + b.minX * dw,
+                                y: imgY + (1 - b.maxY) * dh)
+                }
+
+                // Extraits zoomés, encadrés de jaune.
+                if hasCrops {
+                    ForEach(boxes.indices, id: \.self) { i in
+                        let onRight = i % 2 == 0
+                        let cardX: CGFloat = onRight
+                            ? size.width - colW : 0
+                        let cy = stackY(onRight ? rightIdx : leftIdx, i)
+                        Image(crops[i], scale: 1,
+                              label: Text("Extrait agrandi"))
+                            .resizable()
+                            .frame(width: colW, height: cardH(i))
+                            .overlay(Rectangle().stroke(
+                                Color.yellow, lineWidth: 2))
+                            .offset(x: cardX, y: cy)
+                    }
+                }
+            }
+            .frame(width: size.width, height: size.height)
         }
     }
 }

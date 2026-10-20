@@ -1050,6 +1050,13 @@ final class CompositeScanner: NSObject,
     private func finish() {
         guard let composite else { return }
         phase = .done
+        // L'analyse qui suit prend une à deux secondes (lecture
+        // précise, amélioration) : le dire, sinon l'attente a
+        // l'air d'un temps de capture qui s'éternise (remarque de
+        // Grégoire le 2026-10-20).
+        DispatchQueue.main.async { [weak self] in
+            self?.statusText = "Analyse du scan…"
+        }
 
         // Reconstruction (approche demandée par Grégoire le
         // 2026-10-19) : le reçu est localisé DANS le composite —
@@ -1092,7 +1099,21 @@ final class CompositeScanner: NSObject,
         // informations que le programme peut extraire ») : OCR
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
-        let extraction = extractFields(from: outcome)
+        var extraction = extractFields(from: outcome)
+        // Extraits des régions encadrées en jaune, découpés dans
+        // le scan final : la vue les ressort en encadrés zoomés
+        // à côté de l'image (demande de Grégoire, 2026-10-20).
+        let fw = CGFloat(finalCG.width)
+        let fh = CGFloat(finalCG.height)
+        extraction.answerCrops = extraction.answerBoxes.map { box in
+            let rect = CGRect(
+                x: box.minX * fw,
+                y: (1 - box.maxY) * fh,
+                width: box.width * fw,
+                height: box.height * fh).integral
+                .intersection(CGRect(x: 0, y: 0, width: fw, height: fh))
+            return finalCG.cropping(to: rect) ?? finalCG
+        }
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1216,6 +1237,7 @@ final class CompositeScanner: NSObject,
         var totalVerified: Bool
         var totalParts: [Double]
         var answerBoxes: [CGRect]
+        var answerCrops: [CGImage] = []
         var readUpsideDown: Bool
     }
 
