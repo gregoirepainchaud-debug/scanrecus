@@ -214,7 +214,6 @@ struct CompositeScanView: View {
     /// figé et le texte OCR brut, pour juger sur pièces ce que le
     /// programme sait lire. Affichage seulement — rien n'est
     /// sauvegardé à cette étape.
-    @ViewBuilder
     /// Dossier du journal des scans (même clé UserDefaults
     /// que CompositeScanner.journalFolderKey) : les données de
     /// contrôle n'encombrent plus l'écran, elles s'accumulent
@@ -247,6 +246,7 @@ struct CompositeScanView: View {
         }
     }
 
+    @ViewBuilder
     private func extractionPanel(
         _ ex: CompositeScanner.ScanExtraction
     ) -> some View {
