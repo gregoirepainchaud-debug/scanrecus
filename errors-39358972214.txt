@@ -1,0 +1,1 @@
+526:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1274:50: error: cannot find type 'QuadCandidate' in scope
