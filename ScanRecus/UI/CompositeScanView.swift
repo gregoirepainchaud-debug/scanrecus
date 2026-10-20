@@ -339,6 +339,32 @@ struct ZoomReviewView: View {
     let boxes: [CGRect]
     let crops: [CGImage]
 
+    // Hauteur d'une carte extrait : largeur de colonne, aspect
+    // du découpage conservé. Ce sont des MÉTHODES de la
+    // structure : les fermetures @ViewBuilder (GeometryReader)
+    // n'acceptent pas de fonctions locales — erreur CI du
+    // 2026-10-20 (« cannot use explicit return in ViewBuilder »).
+    private func cardH(_ i: Int, colW: CGFloat) -> CGFloat {
+        let c = crops[i]
+        guard c.width > 0 else { return 30 }
+        return max(20, colW * CGFloat(c.height) / CGFloat(c.width))
+    }
+
+    // Ordonnée du haut d'une carte dans sa colonne (pile
+    // centrée verticalement).
+    private func stackY(_ idxs: [Int], _ i: Int,
+                        colW: CGFloat, height: CGFloat) -> CGFloat {
+        let total = idxs.reduce(0) {
+            $0 + cardH($1, colW: colW) + 18
+        } - 18
+        var y = max(0, (height - total) / 2)
+        for j in idxs {
+            if j == i { break }
+            y += cardH(j, colW: colW) + 18
+        }
+        return y
+    }
+
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
@@ -357,26 +383,6 @@ struct ZoomReviewView: View {
             let rightIdx = boxes.indices.filter { $0 % 2 == 0 }
             let leftIdx = boxes.indices.filter { $0 % 2 == 1 }
 
-            // Hauteur d'une carte extrait : largeur de colonne,
-            // aspect du découpage conservé.
-            func cardH(_ i: Int) -> CGFloat {
-                let c = crops[i]
-                guard c.width > 0 else { return 30 }
-                return max(20, colW * CGFloat(c.height)
-                    / CGFloat(c.width))
-            }
-            // Ordonnée du haut d'une carte dans sa colonne
-            // (pile centrée verticalement).
-            func stackY(_ idxs: [Int], _ i: Int) -> CGFloat {
-                let total = idxs.reduce(0) { $0 + cardH($1) + 18 } - 18
-                var y = max(0, (size.height - total) / 2)
-                for j in idxs {
-                    if j == i { break }
-                    y += cardH(j) + 18
-                }
-                return y
-            }
-
             ZStack(alignment: .topLeading) {
                 // Traits de liaison boîte → extrait.
                 Path { path in
@@ -387,7 +393,9 @@ struct ZoomReviewView: View {
                             let cardX: CGFloat = onRight
                                 ? size.width - colW : 0
                             let cy = stackY(onRight ? rightIdx : leftIdx,
-                                            i) + cardH(i) / 2
+                                            i, colW: colW,
+                                            height: size.height)
+                                + cardH(i, colW: colW) / 2
                             let bx = imgX
                                 + (onRight ? b.maxX : b.minX) * dw
                             let by = imgY + (1 - b.midY) * dh
@@ -422,11 +430,14 @@ struct ZoomReviewView: View {
                         let onRight = i % 2 == 0
                         let cardX: CGFloat = onRight
                             ? size.width - colW : 0
-                        let cy = stackY(onRight ? rightIdx : leftIdx, i)
+                        let cy = stackY(onRight ? rightIdx : leftIdx,
+                                        i, colW: colW,
+                                        height: size.height)
                         Image(crops[i], scale: 1,
                               label: Text("Extrait agrandi"))
                             .resizable()
-                            .frame(width: colW, height: cardH(i))
+                            .frame(width: colW,
+                                   height: cardH(i, colW: colW))
                             .overlay(Rectangle().stroke(
                                 Color.yellow, lineWidth: 2))
                             .offset(x: cardX, y: cy)

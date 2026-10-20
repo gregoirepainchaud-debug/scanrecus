@@ -1103,16 +1103,21 @@ final class CompositeScanner: NSObject,
         // Extraits des régions encadrées en jaune, découpés dans
         // le scan final : la vue les ressort en encadrés zoomés
         // à côté de l'image (demande de Grégoire, 2026-10-20).
-        let fw = CGFloat(finalCG.width)
-        let fh = CGFloat(finalCG.height)
-        extraction.answerCrops = extraction.answerBoxes.map { box in
-            let rect = CGRect(
-                x: box.minX * fw,
-                y: (1 - box.maxY) * fh,
-                width: box.width * fw,
-                height: box.height * fh).integral
-                .intersection(CGRect(x: 0, y: 0, width: fw, height: fh))
-            return finalCG.cropping(to: rect) ?? finalCG
+        // (finalCG est optionnel : le déballer avant de mesurer —
+        // erreur CI du 2026-10-20.)
+        if let finalCG {
+            let fw = CGFloat(finalCG.width)
+            let fh = CGFloat(finalCG.height)
+            extraction.answerCrops = extraction.answerBoxes.map { box in
+                let rect = CGRect(
+                    x: box.minX * fw,
+                    y: (1 - box.maxY) * fh,
+                    width: box.width * fw,
+                    height: box.height * fh).integral
+                    .intersection(CGRect(x: 0, y: 0,
+                                         width: fw, height: fh))
+                return finalCG.cropping(to: rect) ?? finalCG
+            }
         }
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
