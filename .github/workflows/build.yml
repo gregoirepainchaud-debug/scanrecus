@@ -31,6 +31,7 @@ jobs:
           swiftc -o parser-tests \
             ScanRecus/Logic/ReceiptParser.swift \
             ScanRecus/Logic/QuarterHelper.swift \
+            ParserTests/ReceiptItemStub.swift \
             ParserTests/main.swift 2>&1 | tee -a build.log
           ./parser-tests 2>&1 | tee -a build.log
 
