@@ -1,0 +1,2 @@
+1:ScanRecus/Logic/ReceiptParser.swift:540:16: error: use of local variable 'ymdRanges' before its declaration
+5:     |                `- error: use of local variable 'ymdRanges' before its declaration
