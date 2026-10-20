@@ -143,10 +143,16 @@ final class CameraManager: NSObject, @unchecked Sendable {
         }
         let active = CMVideoFormatDescriptionGetDimensions(
             device.activeFormat.formatDescription)
-        let best = device.formats.map {
-            CMVideoFormatDescriptionGetDimensions($0.formatDescription)
-        }.max {
-            Int($0.width) * Int($0.height) < Int($1.width) * Int($1.height)
+        var best: CMVideoDimensions?
+        var bestPixels = -1
+        for format in device.formats {
+            let d = CMVideoFormatDescriptionGetDimensions(
+                format.formatDescription)
+            let px = Int(d.width) * Int(d.height)
+            if px > bestPixels {
+                bestPixels = px
+                best = d
+            }
         }
         var info = "\(device.localizedName) • format actif : "
             + "\(active.width) × \(active.height)"
