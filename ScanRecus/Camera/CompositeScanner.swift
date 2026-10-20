@@ -981,6 +981,7 @@ final class CompositeScanner: NSObject,
         let hFull = toFullRes(hSmall)
         guard let warped = warpToCanvas(frame, hFull: hFull)
         else { return }
+        let w = fullSize.width, ht = fullSize.height
 
         // Netteté par tuile, mesurée sur un rendu gris réduit du
         // résultat déformé (variance du Laplacien).
