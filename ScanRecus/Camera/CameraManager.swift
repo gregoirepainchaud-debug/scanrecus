@@ -206,10 +206,14 @@ final class CameraManager: NSObject, @unchecked Sendable {
         // de calibrage du scanner sont exprimés en pixels et mis à
         // l'échelle en conséquence (voir CompositeScanner.pxScale).
         // Le format retenu est MÉMORISÉ ici et appliqué APRÈS le
-        // démarrage de la session (voir applyPreferredFormat) :
-        // posé pendant la configuration, il était écrasé par le
-        // preset 720p à la mise en route (retest du 2026-10-19).
-        session.sessionPreset = .hd1280x720
+        // démarrage de la session (voir applyPreferredFormat).
+        // Le preset DOIT être .inputPriority : avec un preset fixe
+        // (.hd1280x720), la session continuait de livrer du
+        // 1280 × 720 même quand le format du capteur, appliqué
+        // après coup, disait 1760 × 1328 (retest du 2026-10-19,
+        // 22 h 40 — « Caméra : 1280 × 720 » contre « format actif :
+        // 1760 × 1328 »). C'est le format qui gouverne, pas le preset.
+        session.sessionPreset = .inputPriority
         captureDevice = device
         let fluid = device.formats.filter { format in
             format.videoSupportedFrameRateRanges.contains {

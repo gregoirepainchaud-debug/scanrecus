@@ -260,11 +260,13 @@ final class CompositeScanner: NSObject,
         framesSeen += 1
 
         let frameFull = CIImage(cvPixelBuffer: pixelBuffer)
-        // Le plus grand rectangle de l'image ne sert QUE de juge
-        // pour calibrer/valider les homographies (ses coins sont
-        // des correspondances connues entre deux vues d'un plan) —
-        // plus jamais à décider ce qui est « le reçu ».
-        let judgeQuad = detectJudgeQuad(in: pixelBuffer)
+        // Un rectangle de l'image sert de juge pour calibrer/
+        // valider les homographies (ses coins sont des
+        // correspondances connues entre deux vues d'un plan) —
+        // jamais à décider ce qui est « le reçu ».
+        let judgeQuad = pickJudgeQuad(
+            detectRectangles(handler: VNImageRequestHandler(
+                cvPixelBuffer: pixelBuffer, options: [:])))
 
         switch phase {
         case .searching:
@@ -399,16 +401,35 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Détections (juges et preuves)
 
-    /// Le plus grand rectangle détecté dans l'image — utilisé
-    /// UNIQUEMENT comme juge géométrique pour le calibrage et la
-    /// validation des homographies. Il ne décide plus ni du
-    /// déclenchement, ni de la région extraite du scan.
-    private func detectJudgeQuad(in pixelBuffer: CVPixelBuffer)
-    -> [CGPoint]? {
-        let quads = detectRectangles(
-            handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                           options: [:]))
+    /// Choisit le rectangle JUGE parmi les candidats : en
+    /// capture, celui resté le plus près du quadrilatère juge de
+    /// la référence (vraisemblablement le même objet physique,
+    /// donc de vraies correspondances de coins) ; sinon le plus
+    /// grand. Utilisé UNIQUEMENT pour calibrer/valider les
+    /// homographies — il ne décide ni du déclenchement, ni de la
+    /// région extraite du scan.
+    private func pickJudgeQuad(_ quads: [[CGPoint]]) -> [CGPoint]? {
+        if phase == .capturing, let ref = refQuadNorm,
+           let closest = quads.min(by: {
+               cornerDistance($0, ref) < cornerDistance($1, ref)
+           }), cornerDistance(closest, ref) < 0.15 {
+            return closest
+        }
         return quads.max { abs(shoelace($0)) < abs(shoelace($1)) }
+    }
+
+    /// Distance moyenne entre coins correspondants (normalisé).
+    private func cornerDistance(_ a: [CGPoint], _ b: [CGPoint])
+    -> CGFloat {
+        guard a.count == 4, b.count == 4 else {
+            return .greatestFiniteMagnitude
+        }
+        var sum: CGFloat = 0
+        for i in 0..<4 {
+            let dx = a[i].x - b[i].x, dy = a[i].y - b[i].y
+            sum += (dx * dx + dy * dy).squareRoot()
+        }
+        return sum / 4
     }
 
     /// Tous les rectangles détectés par Vision dans l'image
@@ -617,8 +638,14 @@ final class CompositeScanner: NSObject,
     /// ne servira aux fusions qu'après confirmation (voir confirm()).
     private func calibrate(w: matrix_float3x3,
                            frameQuadNorm: [CGPoint]?) -> Bool {
+        // Le juge n'a plus à être un quadrilatère « complet »
+        // (2026-10-19) : un reçu qui remplit le cadre touche les
+        // bords — le calibrage restait à zéro tentative. N'importe
+        // quel rectangle plan assez grand fait l'affaire ; les RMS
+        // rejettent les mauvais appariements.
         guard let refQuad = refQuadNorm, let frameQuad = frameQuadNorm,
-              isFullQuad(refQuad), isFullQuad(frameQuad)
+              abs(shoelace(refQuad)) > 0.008,
+              abs(shoelace(frameQuad)) > 0.008
         else { return false }
         // Déplacement du centre du quadrilatère (coordonnées normalisées,
         // comparables d'une image à l'autre : même caméra).
@@ -690,7 +717,8 @@ final class CompositeScanner: NSObject,
                          frameQuadNorm: [CGPoint]?) -> ConfirmResult {
         guard let recipe, let refQuad = refQuadNorm,
               let frameQuad = frameQuadNorm,
-              isFullQuad(refQuad), isFullQuad(frameQuad)
+              abs(shoelace(refQuad)) > 0.008,
+              abs(shoelace(frameQuad)) > 0.008
         else { return .notApplicable }
         let cRef = centroid(refQuad), cNew = centroid(frameQuad)
         let shift = ((cNew.x - cRef.x) * (cNew.x - cRef.x)
@@ -793,9 +821,10 @@ final class CompositeScanner: NSObject,
         let bounds = canvasExtent.insetBy(dx: -0.4 * canvasExtent.width,
                                           dy: -0.4 * canvasExtent.height)
         guard bounds.contains(c) else { return false }
-        // Juge DLT, quand les quadrilatères complets sont disponibles.
+        // Juge DLT, quand les quadrilatères juges sont disponibles.
         if let refQuad = refQuadNorm, let frameQuad = frameQuadNorm,
-           isFullQuad(refQuad), isFullQuad(frameQuad) {
+           abs(shoelace(refQuad)) > 0.008,
+           abs(shoelace(frameQuad)) > 0.008 {
             let src = frameQuad.map { px($0, fullSize) }
             let dst = refQuad.map { px($0, fullSize) }
             if let judge = solveHomography(from: src, to: dst) {
@@ -1049,16 +1078,25 @@ final class CompositeScanner: NSObject,
             handler: VNImageRequestHandler(ciImage: composite,
                                            options: [:]))
 
-        var best: (quad: [CGPoint], texts: Int, area: CGFloat)?
+        // Critère (corrigé le 2026-10-19, après qu'un grand
+        // rectangle de scène eut gagné contre le reçu — scan final
+        // 1044 × 1026, toute la scène redressée) : le reçu est le
+        // papier qui PORTE le texte — presque toutes les zones de
+        // texte, pour la plus PETITE surface. Un rectangle de
+        // scène contient aussi le texte, mais avec 3-4× la surface.
+        let totalTexts = textBoxes.count
+        let minTexts = max(3, (totalTexts + 1) / 2)
+        var passing: [(quad: [CGPoint], texts: Int, area: CGFloat)] = []
         for quad in candidates {
             let ev = paperEvidence(frame: composite, quad: quad,
                                    textBoxes: textBoxes)
-            guard ev.ok else { continue }
-            let area = abs(shoelace(quad))
-            if best == nil || area > best!.area {
-                best = (quad, ev.textCount, area)
-            }
+            guard ev.ok, ev.textCount >= 3 else { continue }
+            passing.append((quad, ev.textCount, abs(shoelace(quad))))
         }
+        let maxTexts = passing.map(\.texts).max() ?? 0
+        let best = passing
+            .filter { $0.texts >= max(minTexts, maxTexts - 1) }
+            .min { $0.area < $1.area }
         if let best {
             // Normalisé → pixels du canvas, puis élargi de 3 %
             // (la détection rentre souvent le bord du papier).
@@ -1195,10 +1233,13 @@ final class CompositeScanner: NSObject,
             flat = a
         }
 
-        // 3. Niveaux automatiques : point noir au percentile 2,
-        // point blanc au percentile 99 (bornés pour rester sains),
-        // appliqués par une matrice de couleur + clamp.
-        let levels = grayPercentiles(flat, [0.02, 0.99])
+        // 3. Niveaux « document » : point noir au percentile 1,
+        // point blanc ancré sur le PAPIER (percentile 85 — la
+        // plupart des pixels d'un reçu SONT le papier) : le papier
+        // devient blanc pur, le reste s'assombrit en proportion.
+        // (L'ancien ancrage p2/p99 donnait noir 0,00 / blanc 1,00 —
+        // aucun effet — sur les images éclatées de la caméra.)
+        let levels = grayPercentiles(flat, [0.01, 0.85])
         let bp = min(max(levels.first ?? 0, 0), 0.45)
         let wp = min(max(levels.last ?? 1, bp + 0.25), 1)
         let s = 1 / (wp - bp)
@@ -1215,6 +1256,24 @@ final class CompositeScanner: NSObject,
             "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1),
         ]).cropped(to: extent)
 
+        // 3b. Courbe « encre » : les gris foncés glissent vers le
+        // noir (le texte ressort franchement) ; les clairs — le
+        // papier — ne bougent presque pas.
+        if let curve = CIFilter(name: "CIToneCurve") {
+            curve.setValue(leveled, forKey: kCIInputImageKey)
+            curve.setValue(CIVector(x: 0, y: 0), forKey: "inputPoint0")
+            curve.setValue(CIVector(x: 0.25, y: 0.08),
+                           forKey: "inputPoint1")
+            curve.setValue(CIVector(x: 0.5, y: 0.40),
+                           forKey: "inputPoint2")
+            curve.setValue(CIVector(x: 0.75, y: 0.76),
+                           forKey: "inputPoint3")
+            curve.setValue(CIVector(x: 1, y: 1), forKey: "inputPoint4")
+            if let curved = curve.outputImage {
+                leveled = curved.cropped(to: extent)
+            }
+        }
+
         // 4. Saturation réduite, puis accentuation de la luminance.
         let desaturated = leveled.applyingFilter(
             "CIColorControls", parameters: [
@@ -1226,7 +1285,7 @@ final class CompositeScanner: NSObject,
             ]).cropped(to: extent)
 
         let summary = String(
-            format: "fond aplati (division), niveaux noir %.2f / blanc %.2f, saturation 0,35, netteté %.2f",
+            format: "fond aplati (division), niveaux noir %.2f / blanc papier %.2f, courbe encre, saturation 0,35, netteté %.2f",
             bp, wp, enhanceSharpness)
         return (sharpened, summary)
     }
@@ -1264,20 +1323,6 @@ final class CompositeScanner: NSObject,
     }
 
     // MARK: - Quadrilatères : utilitaires
-
-    /// Un quadrilatère « complet » : assez grand et ne touchant pas les
-    /// bords de l'image (sinon le reçu est probablement tronqué et ses
-    /// coins ne sont pas les vrais coins du reçu).
-    private func isFullQuad(_ quad: [CGPoint]) -> Bool {
-        let xs = quad.map(\.x), ys = quad.map(\.y)
-        guard let minX = xs.min(), let maxX = xs.max(),
-              let minY = ys.min(), let maxY = ys.max()
-        else { return false }
-        let area = (maxX - minX) * (maxY - minY)
-        return area > 0.05
-            && minX > 0.02 && maxX < 0.98
-            && minY > 0.02 && maxY < 0.98
-    }
 
     // MARK: - Petites images
 
