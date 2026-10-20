@@ -1,0 +1,3 @@
+622:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:89:33: error: cannot find 'ScanOverlayView' in scope
+625:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:90:59: error: 'nil' requires a contextual type
+628:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:91:60: error: 'nil' requires a contextual type
