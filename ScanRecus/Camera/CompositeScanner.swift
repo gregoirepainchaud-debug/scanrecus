@@ -172,6 +172,10 @@ final class CompositeScanner: NSObject,
     private var framesSeen = 0
     private var lastDetectedCount = 0
     private var framesFused = 0
+    /// Chemin stable (B1) : somme des vues recalées par le juge
+    /// DLT, moyennée à la fin si le calibrage n'a rien fusionné.
+    private var stableSum: CIImage?
+    private var stableCount = 0
     private var framesChained = 0
     private var registrationsFailed = 0
     private var validationsFailed = 0
@@ -202,6 +206,8 @@ final class CompositeScanner: NSObject,
             self.refSmall = nil
             self.refQuadNorm = nil
             self.composite = nil
+            self.stableSum = nil
+            self.stableCount = 0
             self.tileSharpness = []
             self.tileFilled = []
             self.lastSmall = nil
@@ -403,6 +409,15 @@ final class CompositeScanner: NSObject,
 
         // La référence elle-même est la première tuile du composite.
         fuse(frame: frame, hSmall: matrix_identity_float3x3)
+
+        // Chemin stable (B1) : la référence, matérialisée,
+        // amorce la somme des vues recalées.
+        stableSum = nil
+        stableCount = 0
+        if let cg = ciContext.createCGImage(frame, from: frame.extent) {
+            stableSum = CIImage(cgImage: cg)
+            stableCount = 1
+        }
         publish(status: "Scan en cours — bougez lentement pour montrer ce qui compte…")
         publishLivePreview()
     }
@@ -569,6 +584,20 @@ final class CompositeScanner: NSObject,
     private func captureFrame(frameFull: CIImage, quadNorm: [CGPoint]?) {
         guard let refSmall else { return }
         let frameSmall = smallImage(frameFull)
+
+        // Chemin stable (B1, 2026-10-20) : tant que la recette
+        // n'est pas confirmée, une frame à faible déplacement ne
+        // peut NI calibrer NI confirmer (il faut un déplacement
+        // franc) — avant ce correctif, elle était simplement
+        // jetée, et le cas nominal « je tiens le reçu tranquille »
+        // finissait à zéro fusion (constat de Grégoire : 19
+        // images traitées, stabilité 3/3, aucun composite). Elle
+        // peut en revanche être recalée par le juge DLT et
+        // moyennée : si c'est fait, inutile de tenter le reste.
+        if (recipe == nil || !recipeConfirmed),
+           accumulateIfStable(frameFull: frameFull, quadNorm: quadNorm) {
+            return
+        }
 
         // Tant que la recette n'est pas CONFIRMÉE, aucune fusion ne
         // peut l'utiliser : on calibre (verrouillage provisoire),
@@ -870,6 +899,74 @@ final class CompositeScanner: NSObject,
 
     // MARK: - Fusion par tuiles
 
+    /// Déforme une vue dans l'espace du canvas selon
+    /// l'homographie pleine résolution (partagé par la fusion
+    /// par tuiles et par le chemin stable).
+    private func warpToCanvas(_ frame: CIImage,
+                              hFull: matrix_float3x3) -> CIImage? {
+        let w = fullSize.width, ht = fullSize.height
+        guard let mBL = applyH(hFull, CGPoint(x: 0, y: 0)),
+              let mBR = applyH(hFull, CGPoint(x: w, y: 0)),
+              let mTR = applyH(hFull, CGPoint(x: w, y: ht)),
+              let mTL = applyH(hFull, CGPoint(x: 0, y: ht)),
+              let warp = CIFilter(name: "CIPerspectiveTransform")
+        else { return nil }
+        warp.setValue(frame, forKey: kCIInputImageKey)
+        warp.setValue(CIVector(cgPoint: mTL), forKey: "inputTopLeft")
+        warp.setValue(CIVector(cgPoint: mTR), forKey: "inputTopRight")
+        warp.setValue(CIVector(cgPoint: mBR), forKey: "inputBottomRight")
+        warp.setValue(CIVector(cgPoint: mBL), forKey: "inputBottomLeft")
+        return warp.outputImage?.cropped(to: canvasExtent)
+    }
+
+    /// Chemin stable (B1) : recale une frame quasi immobile sur
+    /// la référence et l'ajoute à la somme qui sera moyennée.
+    /// Le warp vient du juge DLT — les coins du même rectangle
+    /// physique dans les deux vues, exactement l'homographie
+    /// que le calibrage prend pour vérité terrain — construit à
+    /// échelle réduite, passé par la validation habituelle, puis
+    /// déformé dans le canvas. Réservé aux déplacements < 0,07 :
+    /// là où la convention Vision est indécidable (une matrice
+    /// quasi identité est compatible avec presque toutes les
+    /// interprétations), mais où le warp est presque l'identité
+    /// et les coins ne peuvent pas s'être permutés entre deux
+    /// vues quasi identiques.
+    private func accumulateIfStable(frameFull: CIImage,
+                                    quadNorm: [CGPoint]?) -> Bool {
+        guard let refQuad = refQuadNorm, let frameQuad = quadNorm,
+              abs(shoelace(refQuad)) > 0.008,
+              abs(shoelace(frameQuad)) > 0.008
+        else { return false }
+        let cRef = centroid(refQuad), cNew = centroid(frameQuad)
+        let shift = ((cNew.x - cRef.x) * (cNew.x - cRef.x)
+            + (cNew.y - cRef.y) * (cNew.y - cRef.y)).squareRoot()
+        guard shift < 0.07 else { return false }
+        let src = frameQuad.map { px($0, smallSize) }
+        let dst = refQuad.map { px($0, smallSize) }
+        guard let hSmall = solveHomography(from: src, to: dst),
+              validate(hSmall: hSmall, frameQuadNorm: quadNorm),
+              let warped = warpToCanvas(frameFull,
+                                        hFull: toFullRes(hSmall))
+        else { return false }
+        if let sum = stableSum {
+            let added = sum.applyingFilter(
+                "CIAdditionCompositing",
+                parameters: [kCIInputBackgroundImageKey: warped])
+            guard let cg = ciContext.createCGImage(added,
+                                                   from: canvasExtent)
+            else { return false }
+            // Matérialiser, comme le composite : sinon le graphe
+            // CI grandit à chaque frame ajoutée.
+            stableSum = CIImage(cgImage: cg).transformed(by:
+                CGAffineTransform(translationX: canvasExtent.minX,
+                                  y: canvasExtent.minY))
+        } else {
+            stableSum = warped
+        }
+        stableCount += 1
+        return true
+    }
+
     /// Déforme l'image dans le plan du reçu (homographie pleine
     /// résolution) et fusionne : chaque tuile du canvas est remplacée
     /// si la nouvelle vue la couvre et est plus nette que le contenu
@@ -882,20 +979,8 @@ final class CompositeScanner: NSObject,
             fuseCount += 1
         }
         let hFull = toFullRes(hSmall)
-        let w = fullSize.width, ht = fullSize.height
-        guard let mBL = applyH(hFull, CGPoint(x: 0, y: 0)),
-              let mBR = applyH(hFull, CGPoint(x: w, y: 0)),
-              let mTR = applyH(hFull, CGPoint(x: w, y: ht)),
-              let mTL = applyH(hFull, CGPoint(x: 0, y: ht)),
-              let warp = CIFilter(name: "CIPerspectiveTransform")
+        guard let warped = warpToCanvas(frame, hFull: hFull)
         else { return }
-        warp.setValue(frame, forKey: kCIInputImageKey)
-        warp.setValue(CIVector(cgPoint: mTL), forKey: "inputTopLeft")
-        warp.setValue(CIVector(cgPoint: mTR), forKey: "inputTopRight")
-        warp.setValue(CIVector(cgPoint: mBR), forKey: "inputBottomRight")
-        warp.setValue(CIVector(cgPoint: mBL), forKey: "inputBottomLeft")
-        guard let warpedRaw = warp.outputImage else { return }
-        let warped = warpedRaw.cropped(to: canvasExtent)
 
         // Netteté par tuile, mesurée sur un rendu gris réduit du
         // résultat déformé (variance du Laplacien).
@@ -1065,7 +1150,29 @@ final class CompositeScanner: NSObject,
         // est bien plus fiable que sur le flux vivant — puis
         // redressé. Pendant le scan, aucune boîte n'a rien décidé.
         let t0 = CFAbsoluteTimeGetCurrent()
-        let (extracted, how) = extractReceipt(from: composite)
+        // Source de l'extraction, dite honnêtement dans le
+        // récap : le composite par homographies s'il a réellement
+        // fusionné des vues ; sinon la moyenne recalée du chemin
+        // stable, moins bruitée qu'une image seule ; sinon le
+        // composite, qui ne contient que la référence.
+        var source = composite
+        var sourceHow = "composite par homographies "
+            + "(\(framesFused) vue(s) fusionnée(s))"
+        if framesFused == 0, stableCount >= 2, let sum = stableSum {
+            let n = CGFloat(stableCount)
+            source = sum.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: 1 / n, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: 1 / n, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 1 / n, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1 / n),
+            ]).cropped(to: canvasExtent)
+            sourceHow = "moyenne de \(stableCount) images recalées "
+                + "(scène stable : calibrage sans objet, bruit réduit)"
+        } else if framesFused == 0 {
+            sourceHow = "image unique (la référence — aucune fusion "
+                + "ni moyenne possible)"
+        }
+        let (extracted, how) = extractReceipt(from: source)
         let tLoc = CFAbsoluteTimeGetCurrent()
         var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
@@ -1101,7 +1208,7 @@ final class CompositeScanner: NSObject,
             + " · orientation \(String(format: "%.2f", tOrient - tLoc)) s"
             + " · lecture \(String(format: "%.2f", tRead - tOrient)) s"
             + " · amélioration \(String(format: "%.2f", tEnh - tRead)) s"
-        finishInfo = "Reçu localisé : \(how)"
+        finishInfo = "Image finale : \(sourceHow)\nReçu localisé : \(how)"
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
             + "\nAnalyse : \(timing)"
