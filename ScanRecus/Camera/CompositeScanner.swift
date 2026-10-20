@@ -473,15 +473,33 @@ final class CompositeScanner: NSObject,
         return (request.results ?? []).map { $0.boundingBox }
     }
 
-    /// Les deux preuves « papier + texte » pour un quadrilatère
-    /// d'une image : intérieur clair (fond blanc) et zones de texte
-    /// dedans (≥ 3, ou une grande couvrant ≥ 25 % de l'objet).
-    /// Sert à la RECONSTRUCTION (choisir le rectangle du reçu dans
-    /// le composite figé).
+    /// Les preuves « papier + texte » pour un quadrilatère d'une
+    /// image : intérieur clair ET uniforme (le papier — voir le
+    /// percentile 10 plus bas) et zones de texte dedans (≥ 3, ou
+    /// une grande couvrant ≥ 25 % de l'objet). Sert à la
+    /// RECONSTRUCTION (choisir le rectangle du reçu dans le
+    /// composite figé).
     private func paperEvidence(frame: CIImage, quad: [CGPoint],
                                textBoxes: [CGRect])
     -> (ok: Bool, textCount: Int) {
-        let bright = meanBrightness(frame, quad: innerQuad(quad))
+        let inner = innerQuad(quad)
+        let bright = meanBrightness(frame, quad: inner)
+        // Uniformité : même le percentile 10 de l'intérieur doit
+        // être clair. Le papier est uniformément blanc (le texte
+        // couvre peu de surface) ; cheveux, tissus et peaux ont
+        // des zones sombres partout — un rectangle de cheveux
+        // gris, « clair » en moyenne sous le panneau, a déjà été
+        // choisi comme « reçu » (retest du 2026-10-19).
+        let ixs = inner.map(\.x), iys = inner.map(\.y)
+        let extent = frame.extent
+        let innerRect = CGRect(
+            x: extent.minX + (ixs.min() ?? 0) * extent.width,
+            y: extent.minY + (iys.min() ?? 0) * extent.height,
+            width: ((ixs.max() ?? 0) - (ixs.min() ?? 0)) * extent.width,
+            height: ((iys.max() ?? 0) - (iys.min() ?? 0)) * extent.height)
+        let p10 = grayPercentiles(frame.cropped(to: innerRect),
+                                  [0.10]).first ?? 0
+        let paperWhite = bright >= 0.5 && p10 >= 0.48
         let xs = quad.map(\.x), ys = quad.map(\.y)
         let minX = xs.min() ?? 0, minY = ys.min() ?? 0
         let bbox = CGRect(x: minX, y: minY,
@@ -494,7 +512,7 @@ final class CompositeScanner: NSObject,
         let bigText = inside.contains {
             $0.width * $0.height >= 0.25 * quadArea
         }
-        return (ok: bright >= 0.45 && (inside.count >= 3 || bigText),
+        return (ok: paperWhite && (inside.count >= 3 || bigText),
                 textCount: inside.count)
     }
 
@@ -904,7 +922,7 @@ final class CompositeScanner: NSObject,
                                           col: col, row: row)
                 let stored = tileSharpness[idx]
                 let shouldUpdate = !tileFilled[idx]
-                    || (sharp > stored * 1.20 && sharp > stored + 2)
+                    || (sharp > stored * 1.40 && sharp > stored + 2)
                 if shouldUpdate {
                     // Le tampon du masque est rangé ligne du haut
                     // d'abord (convention CGImage).
@@ -1065,7 +1083,7 @@ final class CompositeScanner: NSObject,
     /// Cherche le reçu dans le composite figé :
     /// 1. le meilleur rectangle qui prouve « papier + texte » (le
     ///    plus grand parmi ceux qui passent les preuves) →
-    ///    redressement par perspective, élargi de 3 % ;
+    ///    redressement par perspective, élargi de 5 % ;
     /// 2. à défaut, la zone de texte elle-même (boîte englobante
     ///    des zones de texte, élargie de 12 %) — pas de
     ///    redressement, mais le contenu est là ;
@@ -1097,8 +1115,25 @@ final class CompositeScanner: NSObject,
         let best = passing
             .filter { $0.texts >= max(minTexts, maxTexts - 1) }
             .min { $0.area < $1.area }
-        if let best {
-            // Normalisé → pixels du canvas, puis élargi de 3 %
+        // Garde « scan partiel » : si le rectangle choisi laisse
+        // une part notable des zones de texte DEHORS, il ne couvre
+        // qu'un morceau du reçu (le contour complet n'a pas été
+        // détecté — papier gondolé, fusion ondulée) ; on préfère
+        // alors le repli « zone de texte », qui couvre tout.
+        func coversText(_ quad: [CGPoint]) -> Bool {
+            let xs = quad.map(\.x), ys = quad.map(\.y)
+            let bbox = CGRect(x: xs.min() ?? 0, y: ys.min() ?? 0,
+                              width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                              height: (ys.max() ?? 0) - (ys.min() ?? 0))
+            let outside = textBoxes.filter {
+                !bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
+            }.count
+            return outside < 2
+                || Double(outside) / Double(max(textBoxes.count, 1))
+                    <= 0.15
+        }
+        if let best, coversText(best.quad) {
+            // Normalisé → pixels du canvas, puis élargi de 5 %
             // (la détection rentre souvent le bord du papier).
             let raw = best.quad.map {
                 CGPoint(x: extent.minX + $0.x * extent.width,
@@ -1106,8 +1141,8 @@ final class CompositeScanner: NSObject,
             }
             let c = centroid(raw)
             let corners = raw.map {
-                CGPoint(x: c.x + ($0.x - c.x) * 1.03,
-                        y: c.y + ($0.y - c.y) * 1.03)
+                CGPoint(x: c.x + ($0.x - c.x) * 1.05,
+                        y: c.y + ($0.y - c.y) * 1.05)
             }
             if let filter = CIFilter(name: "CIPerspectiveCorrection") {
                 filter.setValue(composite, forKey: kCIInputImageKey)
@@ -1142,9 +1177,15 @@ final class CompositeScanner: NSObject,
         return (composite, "composite entier (aucune localisation)")
     }
 
-    /// Choisit, parmi 4 rotations, celle où un OCR rapide reconnaît le
-    /// plus de texte avec la meilleure confiance — puis l'applique.
-    /// Aucune extraction : seule l'orientation est déterminée.
+    /// Choisit, parmi 4 rotations, celle où l'OCR reconnaît le vrai
+    /// texte. Score = Σ confiance × longueur de la chaîne : le texte
+    /// à l'endroit fait des mots (« PHARMACIE », « SOUS-TOTAL »),
+    /// le texte renversé fait des fragments courts que l'ancien
+    /// score (confiances brutes additionnées) laissait parfois
+    /// gagner — scans inversés haut-en-bas au retest du 2026-10-19.
+    /// Si la rotation opposée (180°) reste proche, un second
+    /// passage au niveau accurate départage. Aucune extraction :
+    /// seule l'orientation est déterminée.
     private func upright(_ image: CIImage) -> CIImage {
         let targetWidth: CGFloat = 720
         let k = targetWidth / image.extent.width
@@ -1152,29 +1193,34 @@ final class CompositeScanner: NSObject,
             by: CGAffineTransform(scaleX: k, y: k))
         let orientations: [CGImagePropertyOrientation] =
             [.up, .right, .down, .left]
-        var best: CGImagePropertyOrientation = .up
-        var bestScore: Float = -1
-        for orientation in orientations {
+        func score(_ orientation: CGImagePropertyOrientation,
+                   level: VNRequestTextRecognitionLevel) -> Float {
             let rotated = small.oriented(orientation)
             let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .fast
+            request.recognitionLevel = level
             request.recognitionLanguages = ["fr-FR", "en-US"]
             let handler = VNImageRequestHandler(ciImage: rotated,
                                                 options: [:])
             guard (try? handler.perform([request])) != nil
-            else { continue }
-            var score: Float = 0
+            else { return -1 }
+            var total: Float = 0
             for obs in request.results ?? [] {
                 if let candidate = obs.topCandidates(1).first {
-                    score += candidate.confidence
+                    total += candidate.confidence
+                        * Float(candidate.string.count)
                 }
             }
-            if score > bestScore {
-                bestScore = score
-                best = orientation
-            }
+            return total
         }
-        return image.oriented(best)
+        let scores = orientations.map { score($0, level: .fast) }
+        var bestIdx = scores.indices.max { scores[$0] < scores[$1] } ?? 0
+        let oppIdx = (bestIdx + 2) % 4
+        if scores[bestIdx] >= 0, scores[oppIdx] > scores[bestIdx] * 0.75 {
+            let a = score(orientations[bestIdx], level: .accurate)
+            let b = score(orientations[oppIdx], level: .accurate)
+            if b > a { bestIdx = oppIdx }
+        }
+        return image.oriented(orientations[bestIdx])
     }
 
     // MARK: - Amélioration automatique (look « scanner »)
@@ -1241,7 +1287,11 @@ final class CompositeScanner: NSObject,
         // aucun effet — sur les images éclatées de la caméra.)
         let levels = grayPercentiles(flat, [0.01, 0.85])
         let bp = min(max(levels.first ?? 0, 0), 0.45)
-        let wp = min(max(levels.last ?? 1, bp + 0.25), 1)
+        // Plancher 0,72 : si la région extraite contient peu de
+        // papier, le percentile 85 tombe trop bas et tout s'écrase
+        // vers le blanc (blancs « poussés à l'extrême » vus au
+        // retest du 2026-10-19).
+        let wp = min(max(levels.last ?? 1, max(bp + 0.25, 0.72)), 1)
         let s = 1 / (wp - bp)
         var leveled = flat.applyingFilter("CIColorMatrix", parameters: [
             "inputRVector": CIVector(x: s, y: 0, z: 0, w: 0),
