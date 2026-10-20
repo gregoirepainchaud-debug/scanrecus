@@ -14,7 +14,7 @@ import AppKit  // NSApplication, pour le bouton Exit
 ///   que la scène est stable ~0,5 s, le scan démarre tout seul.
 ///   Aucune boîte de sélection : le reçu est localisé APRÈS la
 ///   capture, dans le composite figé.
-/// - CAPTURE (1 s) : le flux reste affiché, une barre de progression
+/// - CAPTURE (0,5 s) : le flux reste affiché, une barre de progression
 ///   montre la fenêtre ; à droite, le composite s'assemble en direct
 ///   (tuiles remplies, remplissage du rectangle englobant).
 /// - FIGÉ : le flux caméra COUPE à l'écran (la session reste en
@@ -71,10 +71,45 @@ struct CompositeScanView: View {
                             if isDone, let image = (showEnhanced
                                 ? scanner.finalImage
                                 : scanner.rawFinalImage) ?? scanner.finalImage {
-                                Image(image, scale: 1, label: Text("Scan du reçu"))
-                                    .resizable()
-                                    .scaledToFit()
-                                    .padding(10)
+                                // Le scan final, toujours à
+                                // l'endroit, avec les CARRÉS JAUNES
+                                // des réponses : les lignes d'où
+                                // viennent le commerce, la date, le
+                                // total et sa preuve (demande de
+                                // Grégoire, 2026-10-20).
+                                GeometryReader { cell in
+                                    let iw = CGFloat(image.width)
+                                    let ih = CGFloat(image.height)
+                                    let scale = min(cell.size.width / iw,
+                                                    cell.size.height / ih)
+                                    let dw = iw * scale
+                                    let dh = ih * scale
+                                    ZStack(alignment: .topLeading) {
+                                        Image(image, scale: 1,
+                                              label: Text("Scan du reçu"))
+                                            .resizable()
+                                            .frame(width: dw, height: dh)
+                                        ForEach((scanner.extraction?
+                                            .answerBoxes ?? []).indices,
+                                                id: \.self) { i in
+                                            let b = (scanner.extraction?
+                                                .answerBoxes ?? [])[i]
+                                            Rectangle()
+                                                .stroke(Color.yellow,
+                                                        lineWidth: 2)
+                                                .background(
+                                                    Color.yellow.opacity(0.10))
+                                                .frame(width: b.width * dw,
+                                                       height: b.height * dh)
+                                                .offset(x: b.minX * dw,
+                                                        y: (1 - b.maxY) * dh)
+                                        }
+                                    }
+                                    .frame(width: cell.size.width,
+                                           height: cell.size.height,
+                                           alignment: .center)
+                                }
+                                .padding(10)
                             } else {
                                 CameraPreviewView(session: camera.session)
                                     .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
@@ -231,7 +266,7 @@ struct CompositeScanView: View {
                 fieldRow("Total", totalText(ex))
             }
             if ex.readUpsideDown {
-                Text("Lu à l'envers : l'image affichée est restée inversée, la lecture s'en est accommodée.")
+                Text("Le scan se présentait à l'envers : il a été retourné pour s'afficher à l'endroit.")
                     .font(.system(size: 11.5))
                     .foregroundColor(.secondary)
             }
@@ -280,6 +315,13 @@ struct CompositeScanView: View {
         f.currencyCode = "CAD"
         let amount = f.string(from: NSNumber(value: total))
             ?? String(format: "%.2f $", total)
+        if ex.totalVerified, ex.totalParts.count >= 2 {
+            let parts = ex.totalParts
+                .map { String(format: "%.2f", $0)
+                    .replacingOccurrences(of: ".", with: ",") }
+                .joined(separator: " + ")
+            return amount + "  ✓ preuve : \(parts)"
+        }
         return amount
             + (ex.totalVerified ? "  ✓ vérifié par addition" : "")
     }

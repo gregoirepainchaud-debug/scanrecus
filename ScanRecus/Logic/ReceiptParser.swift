@@ -110,6 +110,11 @@ enum ReceiptParser {
     /// Retourne (valeur, indexDeLigne) ou nil.
     static func parseTotal(_ text: String) -> (value: Double, lineIndex: Int)? {
         guard !text.isEmpty else { return nil }
+        // La preuve d'addition d'abord (voir parseTotalVerified) :
+        // elle prime sur la ligne à mot-clé.
+        if let verified = parseTotalVerified(text) {
+            return (verified.value, verified.lineIndex)
+        }
         if let best = totalCandidates(text)
             .max(by: { $0.lineIndex < $1.lineIndex }) {
             return best
@@ -193,6 +198,127 @@ enum ReceiptParser {
             }
         }
         return out
+    }
+
+    /// Le total par la PREUVE D'ADDITION — doctrine de Grégoire
+    /// (2026-10-20) : « on force l'addition des taxes pour trouver
+    /// le total… des fois l'info est mal extraite, l'addition des
+    /// chiffres probables est la preuve finale ». On cherche un
+    /// montant qui est la somme de 2 ou 3 autres montants situés
+    /// AU-DESSUS de lui (à 10 lignes près), en préférant les
+    /// sommes qui passent par les lignes d'impôts (TPS/TVQ) et de
+    /// sous-total — la structure québécoise classique
+    /// (21,60 + 1,08 + 2,16 = 24,84). Ni un montant d'impôt ni un
+    /// sous-total ne peuvent être le total cherché. Tolérance
+    /// d'un cent (arrondis et lectures imparfaites). Retourne le
+    /// total, sa ligne et ses parties (avec leurs lignes).
+    static func parseTotalVerified(_ text: String)
+    -> (value: Double, lineIndex: Int,
+        parts: [(value: Double, lineIndex: Int)])? {
+        let amounts = allAmounts(text)
+            .filter { $0.value > 0 && $0.value < 100_000 }
+        guard amounts.count >= 3 else { return nil }
+        let lines = text.components(separatedBy: .newlines)
+        func folded(_ i: Int) -> String {
+            lines.indices.contains(i)
+                ? removeAccents(lines[i]).lowercased() : ""
+        }
+        let taxRe = try! NSRegularExpression(
+            pattern: #"\b(tps|gst|tvq|qst)\b"#)
+        func isTaxLine(_ i: Int) -> Bool {
+            let f = folded(i)
+            return taxRe.firstMatch(in: f, range: f.nsRange) != nil
+        }
+        func isSubLine(_ i: Int) -> Bool {
+            let f = folded(i)
+            return f.contains("sous-total") || f.contains("sous total")
+                || f.contains("subtotal")
+        }
+        // Montants indexés par valeur en cents (recherche rapide,
+        // ± 1 cent de tolérance au moment de la recherche).
+        var byCents: [Int: [Int]] = [:]
+        for (idx, a) in amounts.enumerated() {
+            byCents[Int((a.value * 100).rounded()), default: []]
+                .append(idx)
+        }
+        func findAmount(cents: Int, notIn excluded: Set<Int>,
+                        aboveLine: Int, minLine: Int) -> Int? {
+            for c in (cents - 1)...(cents + 1) {
+                for idx in byCents[c] ?? [] {
+                    let line = amounts[idx].lineIndex
+                    if !excluded.contains(idx),
+                       line < aboveLine, line >= minLine {
+                        return idx
+                    }
+                }
+            }
+            return nil
+        }
+        struct Solution {
+            var totalIdx: Int
+            var partIdxs: [Int]
+            var score: Int
+        }
+        var best: Solution?
+        func consider(totalIdx: Int, partIdxs: [Int]) {
+            var score = partIdxs.count * 5
+                + amounts[totalIdx].lineIndex
+            if partIdxs.contains(
+                where: { isTaxLine(amounts[$0].lineIndex) }) {
+                score += 100
+            }
+            if partIdxs.contains(
+                where: { isSubLine(amounts[$0].lineIndex) }) {
+                score += 40
+            }
+            if best == nil || score > best!.score {
+                best = Solution(totalIdx: totalIdx,
+                                partIdxs: partIdxs, score: score)
+            }
+        }
+        for ti in amounts.indices {
+            let total = amounts[ti]
+            guard !isTaxLine(total.lineIndex),
+                  !isSubLine(total.lineIndex) else { continue }
+            let totalCents = Int((total.value * 100).rounded())
+            let minLine = total.lineIndex - 10
+            for i in amounts.indices {
+                let a = amounts[i]
+                guard a.lineIndex < total.lineIndex,
+                      a.lineIndex >= minLine,
+                      a.value < total.value else { continue }
+                let rest = totalCents - Int((a.value * 100).rounded())
+                // Somme de 2 parties : a + autre = total.
+                if let j = findAmount(cents: rest, notIn: [ti, i],
+                                      aboveLine: total.lineIndex,
+                                      minLine: minLine),
+                   amounts[j].value < total.value {
+                    consider(totalIdx: ti, partIdxs: [i, j])
+                }
+                // Somme de 3 parties : a + b + autre = total.
+                for j in amounts.indices where j != i {
+                    let b = amounts[j]
+                    guard b.lineIndex < total.lineIndex,
+                          b.lineIndex >= minLine,
+                          b.value < total.value else { continue }
+                    let rest2 = rest - Int((b.value * 100).rounded())
+                    if rest2 > 0,
+                       let k = findAmount(cents: rest2,
+                                          notIn: [ti, i, j],
+                                          aboveLine: total.lineIndex,
+                                          minLine: minLine),
+                       amounts[k].value < total.value {
+                        consider(totalIdx: ti, partIdxs: [i, j, k])
+                    }
+                }
+            }
+        }
+        guard let best else { return nil }
+        let parts = best.partIdxs
+            .map { amounts[$0] }
+            .sorted { $0.lineIndex < $1.lineIndex }
+        let total = amounts[best.totalIdx]
+        return (total.value, total.lineIndex, parts)
     }
 
     /// Preuve par addition : vrai si `total` est la somme de 2 ou 3

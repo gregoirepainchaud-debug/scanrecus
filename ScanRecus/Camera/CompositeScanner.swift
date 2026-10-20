@@ -18,7 +18,7 @@ import simd
 ///    démarre quand l'image ENTIÈRE montre du texte (≥ 5 zones)
 ///    sur une grande surface claire (le papier) ET que la
 ///    disposition du texte est stable ~0,4 s.
-/// 2. CAPTURE — fenêtre fixe de 1 seconde. La première image devient
+/// 2. CAPTURE — fenêtre fixe de 0,5 seconde. La première image devient
 ///    la référence ; chaque image suivante est enregistrée sur elle
 ///    par HOMOGRAPHIE (le reçu est un plan : la transformation entre
 ///    deux vues est exacte), déformée dans le plan du reçu et fusionnée
@@ -103,10 +103,10 @@ final class CompositeScanner: NSObject,
     // MARK: Réglages
 
     private let processInterval: CFTimeInterval = 0.12  // ~8 images/s max
-    // Fenêtre de capture : 1 s (divisée par deux à la demande
-    // de Grégoire le 2026-10-19 — « long pour rien », et ~8 images
-    // traitées suffisent largement à la fusion).
-    private let captureDuration: CFTimeInterval = 1.0
+    // Fenêtre de capture : 0,5 s (divisée par deux deux fois à
+    // la demande de Grégoire, 2 s → 1 s → 0,5 s, les 2026-10-19/20 :
+    // quelques images suffisent quand le reçu est tenu stable).
+    private let captureDuration: CFTimeInterval = 0.5
     private let smallWidth: CGFloat = 640               // enregistrement
     private let stableThreshold: CGFloat = 0.03         // mouvement max (normalisé, quadrilatère lissé)
     private let stableFramesNeeded = 3                  // ~0,4 s à 8 img/s
@@ -1063,6 +1063,16 @@ final class CompositeScanner: NSObject,
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
+        // Arbitre d'orientation (demande de Grégoire, 2026-10-20 :
+        // le scan final DOIT s'afficher dans un sens qui fait du
+        // sens à l'œil humain) : la lecture précise dans les deux
+        // sens — celle qui sert à l'extraction — décide aussi de
+        // l'affichage. Si le texte se lit mieux à l'envers, on
+        // retourne l'image pour de vrai avant tout le reste.
+        let outcome = recognizeBestText(image: image)
+        if outcome.upsideDown {
+            image = image.oriented(.down)
+        }
         // Amélioration automatique LÉGÈRE : le test « image
         // brute » (2026-10-19, 23 h 41) a donné de bonnes
         // lectures, et Grégoire a ensuite demandé « un brin de
@@ -1082,7 +1092,7 @@ final class CompositeScanner: NSObject,
         // informations que le programme peut extraire ») : OCR
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
-        let extraction = extractFields(from: enhanced.image)
+        let extraction = extractFields(from: outcome)
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -1204,7 +1214,26 @@ final class CompositeScanner: NSObject,
         var dateIsDefault: Bool
         var total: Double?
         var totalVerified: Bool
+        var totalParts: [Double]
+        var answerBoxes: [CGRect]
         var readUpsideDown: Bool
+    }
+
+    /// Une ligne reconnue par l'OCR, avec sa boîte (coordonnées
+    /// normalisées Vision, dans le référentiel de l'image finale
+    /// affichée — après retournement éventuel).
+    struct RecognizedLine {
+        var text: String
+        var box: CGRect
+    }
+
+    /// Résultat complet d'une lecture précise : les lignes (avec
+    /// boîtes), le texte joint, et si l'image a dû être retournée
+    /// pour être lisible.
+    struct RecognitionOutcome {
+        var lines: [RecognizedLine]
+        var text: String
+        var upsideDown: Bool
     }
 
     /// OCR précis sur l'image finale, essayé dans les DEUX sens
@@ -1218,9 +1247,9 @@ final class CompositeScanner: NSObject,
     /// commerce = ligne du bas, total aberrant, date par défaut
     /// (retest du 2026-10-19, 23 h 37).
     private func recognizeBestText(image: CIImage)
-    -> (text: String, upsideDown: Bool) {
+    -> RecognitionOutcome {
         func pass(_ candidateImage: CIImage)
-        -> (text: String, score: Float) {
+        -> (lines: [RecognizedLine], score: Float) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["fr-FR", "en-US"]
@@ -1228,31 +1257,37 @@ final class CompositeScanner: NSObject,
             let handler = VNImageRequestHandler(
                 ciImage: candidateImage, options: [:])
             guard (try? handler.perform([request])) != nil
-            else { return ("", -1) }
-            var lines: [(y: CGFloat, x: CGFloat, s: String)] = []
+            else { return ([], -1) }
+            var lines: [RecognizedLine] = []
             var score: Float = 0
             for obs in request.results ?? [] {
                 guard let top = obs.topCandidates(1).first
                 else { continue }
                 score += top.confidence * Float(top.string.count)
-                lines.append((obs.boundingBox.maxY,
-                              obs.boundingBox.minX, top.string))
+                lines.append(RecognizedLine(text: top.string,
+                                            box: obs.boundingBox))
             }
             lines.sort {
-                if abs($0.y - $1.y) > 0.01 { return $0.y > $1.y }
-                return $0.x < $1.x
+                let a = $0.box, b = $1.box
+                if abs(a.maxY - b.maxY) > 0.01 {
+                    return a.maxY > b.maxY
+                }
+                return a.minX < b.minX
             }
-            let text = lines.map(\.s).joined(separator: "\n")
+            let text = lines.map(\.text).joined(separator: "\n")
             // Un reçu lu à l'endroit contient plusieurs montants
             // lisibles ; lu à l'envers, presque aucun — c'est le
             // critère qui départage les deux sens.
             let amounts = ReceiptParser.allAmounts(text).count
-            return (text, Float(amounts) * 1000 + score)
+            return (lines, Float(amounts) * 1000 + score)
         }
         let up = pass(image)
         let down = pass(image.oriented(.down))
-        return down.score > up.score
-            ? (down.text, true) : (up.text, false)
+        let winner = down.score > up.score ? down : up
+        return RecognitionOutcome(
+            lines: winner.lines,
+            text: winner.lines.map(\.text).joined(separator: "\n"),
+            upsideDown: down.score > up.score)
     }
 
     /// Lit le scan et en tire les champs affichables. Date non
@@ -1261,25 +1296,58 @@ final class CompositeScanner: NSObject,
     /// accompagné de sa preuve par addition quand elle existe
     /// (sous-total + taxes = total) — le vérificateur prévu pour
     /// l'étape 2, déjà à l'œuvre pour l'affichage.
-    private func extractFields(from image: CIImage)
+    private func extractFields(from outcome: RecognitionOutcome)
     -> ScanExtraction {
-        let (text, upsideDown) = recognizeBestText(image: image)
+        let text = outcome.text
+        let lines = outcome.lines
         let foundDate = ReceiptParser.parseDate(text)
-        let total = ReceiptParser.parseTotal(text)?.value
-        var verified = false
-        if let total {
-            let amounts = ReceiptParser.allAmounts(text).map(\.value)
-            verified = ReceiptParser.isSumVerified(total: total,
-                                                   amounts: amounts)
+        // Le total vient d'abord de la PREUVE D'ADDITION
+        // (ReceiptParser.parseTotalVerified — la doctrine de
+        // Grégoire) ; sinon, la voie classique du parseur.
+        let verifiedHit = ReceiptParser.parseTotalVerified(text)
+        let plainHit = verifiedHit == nil
+            ? ReceiptParser.parseTotal(text) : nil
+        let total = verifiedHit?.value ?? plainHit?.value
+        let totalLine = verifiedHit?.lineIndex ?? plainHit?.lineIndex
+
+        // Carrés jaunes (demande de Grégoire, 2026-10-20) : les
+        // boîtes des lignes d'où viennent les réponses — commerce,
+        // date, total et les parties de sa preuve — pour que le
+        // vérificateur voie d'un coup d'œil si c'est n'importe quoi.
+        var boxes: [CGRect] = []
+        func addBox(lineIndex: Int?) {
+            guard let lineIndex, lines.indices.contains(lineIndex)
+            else { return }
+            let box = lines[lineIndex].box
+            if !boxes.contains(box) { boxes.append(box) }
         }
+        let merchant = ReceiptParser.parseMerchant(text) ?? ""
+        if !merchant.isEmpty {
+            addBox(lineIndex: lines.firstIndex {
+                $0.text.trimmingCharacters(in: .whitespaces)
+                    .hasPrefix(merchant)
+            })
+        }
+        if let foundDate {
+            addBox(lineIndex: lines.firstIndex {
+                ReceiptParser.parseDate($0.text) == foundDate
+            })
+        }
+        addBox(lineIndex: totalLine)
+        for part in verifiedHit?.parts ?? [] {
+            addBox(lineIndex: part.lineIndex)
+        }
+
         return ScanExtraction(
             text: text,
-            merchant: ReceiptParser.parseMerchant(text) ?? "",
+            merchant: merchant,
             date: foundDate ?? QuarterHelper.previousQuarterStart(),
             dateIsDefault: foundDate == nil,
             total: total,
-            totalVerified: verified,
-            readUpsideDown: upsideDown)
+            totalVerified: verifiedHit != nil,
+            totalParts: verifiedHit?.parts.map(\.value) ?? [],
+            answerBoxes: boxes,
+            readUpsideDown: outcome.upsideDown)
     }
 
     /// Choisit, parmi 4 rotations, celle où l'OCR reconnaît le vrai
