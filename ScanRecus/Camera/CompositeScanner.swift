@@ -12,9 +12,12 @@ import simd
 /// désactivée ; les modules (Models, ReceiptParser…) sont conservés.
 ///
 /// Déroulement :
-/// 1. RECHERCHE — un quadrilatère de reçu est détecté (Vision) ; quand
-///    il bouge PEU (les mains tremblent toujours un peu) pendant
-///    ~0,4 s, le scan démarre tout seul.
+/// 1. RECHERCHE — aucun objet n'est suivi : la boîte de sélection
+///    a été abandonnée le 2026-10-19 après une série d'échecs
+///    (montre, rideau, visage, quadrilatère partiel). Le scan
+///    démarre quand l'image ENTIÈRE montre du texte (≥ 5 zones)
+///    sur une grande surface claire (le papier) ET que la
+///    disposition du texte est stable ~0,4 s.
 /// 2. CAPTURE — fenêtre fixe de 2 secondes. La première image devient
 ///    la référence ; chaque image suivante est enregistrée sur elle
 ///    par HOMOGRAPHIE (le reçu est un plan : la transformation entre
@@ -25,8 +28,10 @@ import simd
 ///    Ce qui n'est jamais montré n'existe pas dans le scan.
 /// 3. FIGEAGE — à 2 s, le flux caméra coupe à l'écran (la vue
 ///    bascule sur le composite ; la session reste en marche)
-///    et le composite est redressé (correction de perspective) puis
-///    tourné pour que les caractères soient à l'endroit (mini-OCR
+///    et le reçu est RECONSTRUIT : localisé dans le composite
+///    figé (image fixe et propre — la détection y est bien plus
+///    fiable que sur le flux vivant), redressé, puis tourné pour
+///    que les caractères soient à l'endroit (mini-OCR
 ///    d'orientation seulement — aucune extraction à cette étape).
 ///
 /// Le composite vit uniquement en RAM (CIImage) : aucune image de reçu
@@ -114,32 +119,20 @@ final class CompositeScanner: NSObject,
     private var lastProcessStart: CFTimeInterval = 0
 
     private var phase: State = .searching
-    private var smoothedQuad: [CGPoint]?   // quadrilatère lissé (normalisé, [TL, TR, BR, BL])
-    private var stableCount = 0
-
-    // Suivi du reçu parmi les rectangles candidats (voir track()).
-    private var trackedQuad: [CGPoint]?
-    private var trackMisses = 0
-    private var trackDrops = 0
-    private var acquisitionQuad: [CGPoint]?
-    private var acquisitionCount = 0
-    private var displayQuad: [CGPoint]?
-
-    // Porte « papier + texte » : aucun scan ne démarre tant que
-    // l'objet suivi n'a pas montré du texte sur fond blanc
-    // (voir updatePaperGate).
-    private var paperOK = false
-    private var paperTextCount = 0
-    private var paperQuad: [CGPoint]?
-    private var lastPaperCheck: CFTimeInterval = 0
-    private var paperFailChecks = 0
+    // Déclencheur « scène entière » : zones de texte de l'image
+    // précédente et compteur de stabilité (voir
+    // updateSceneStability) — plus aucun suivi d'objet.
+    private var prevTextBoxes: [CGRect] = []
+    private var sceneStableCount = 0
+    private var lastTextCount = 0
+    private var lastBrightness: CGFloat = 0
 
     private var captureStart: CFTimeInterval = 0
     private var fullSize = CGSize.zero
     private var smallSize = CGSize.zero
 
     private var refSmall: CIImage?         // référence réduite (enregistrement)
-    private var refQuadNorm: [CGPoint]?    // quadrilatère de la référence
+    private var refQuadNorm: [CGPoint]?    // quadrilatère JUGE de la référence (calibrage seulement)
     private var canvasExtent = CGRect.zero
     private var composite: CIImage?        // le composite, coordonnées canvas
     private var tileSharpness: [Float] = []
@@ -147,14 +140,6 @@ final class CompositeScanner: NSObject,
 
     private var lastSmall: CIImage?        // dernière image acceptée (chaînage)
     private var lastHSmall = matrix_identity_float3x3
-
-    /// Un rectangle candidat du détecteur, avec son score
-    /// d'acquisition (voir candidateScore).
-    private struct QuadCandidate {
-        var quad: [CGPoint]      // [TL, TR, BR, BL], normalisé
-        var confidence: Float
-        var score: Double
-    }
 
     /// Recette de conversion de la matrice Vision, verrouillée par calibrage.
     private struct Recipe {
@@ -202,8 +187,10 @@ final class CompositeScanner: NSObject,
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.phase = .searching
-            self.smoothedQuad = nil
-            self.stableCount = 0
+            self.prevTextBoxes = []
+            self.sceneStableCount = 0
+            self.lastTextCount = 0
+            self.lastBrightness = 0
             self.captureStart = 0
             self.refSmall = nil
             self.refQuadNorm = nil
@@ -235,17 +222,6 @@ final class CompositeScanner: NSObject,
             self.finalImage = nil
             self.rawFinalImage = nil
             self.finishInfo = nil
-            self.trackedQuad = nil
-            self.trackMisses = 0
-            self.trackDrops = 0
-            self.acquisitionQuad = nil
-            self.acquisitionCount = 0
-            self.displayQuad = nil
-            self.paperOK = false
-            self.paperTextCount = 0
-            self.paperQuad = nil
-            self.lastPaperCheck = 0
-            self.paperFailChecks = 0
             self.statsText = ""
         }
     }
@@ -278,47 +254,29 @@ final class CompositeScanner: NSObject,
             // l'image (le canvas ne correspondrait plus).
             guard phase == .searching else { return }
             adoptFrameSize(frameSize)
-            smoothedQuad = nil
-            stableCount = 0
-            trackedQuad = nil
-            trackMisses = 0
-            acquisitionQuad = nil
-            acquisitionCount = 0
-            displayQuad = nil
+            prevTextBoxes = []
+            sceneStableCount = 0
         }
         framesSeen += 1
 
         let frameFull = CIImage(cvPixelBuffer: pixelBuffer)
-        let quadNorm = track(candidates: detectQuads(in: pixelBuffer,
-                                                     frame: frameFull))
-
-        // Porte « papier + texte » : le déclenchement du scan exige
-        // du texte sur fond blanc dans l'objet suivi.
-        if phase == .searching {
-            updatePaperGate(subject: displayQuad, frame: frameFull,
-                            pixelBuffer: pixelBuffer, now: now)
-        }
+        // Le plus grand rectangle de l'image ne sert QUE de juge
+        // pour calibrer/valider les homographies (ses coins sont
+        // des correspondances connues entre deux vues d'un plan) —
+        // plus jamais à décider ce qui est « le reçu ».
+        let judgeQuad = detectJudgeQuad(in: pixelBuffer)
 
         switch phase {
         case .searching:
-            // La stabilité ne compte que pour LE quadrilatère que
-            // la porte a confirmé (à 0,04 près) : si le suivi a
-            // glissé sur un objet voisin entre-temps, on repart à
-            // zéro plutôt que de compléter la stabilité sur le
-            // mauvais objet.
-            var subject: [CGPoint]?
-            if paperOK, let q = quadNorm, let anchor = paperQuad,
-               cornerDistance(q, anchor) < 0.04 {
-                subject = q
-            }
-            updateStability(quadNorm: subject, frame: frameFull,
-                            pixelBuffer: pixelBuffer)
+            updateSceneStability(pixelBuffer: pixelBuffer,
+                                 frame: frameFull,
+                                 judgeQuad: judgeQuad)
         case .capturing:
             let elapsed = now - captureStart
             if elapsed >= captureDuration {
                 finish()
             } else {
-                captureFrame(frameFull: frameFull, quadNorm: quadNorm)
+                captureFrame(frameFull: frameFull, quadNorm: judgeQuad)
                 publish(progress: elapsed / captureDuration)
                 if now - lastPreviewTime >= 0.35 {
                     lastPreviewTime = now
@@ -329,23 +287,10 @@ final class CompositeScanner: NSObject,
             break
         }
 
-        // La boîte affichée suit le quadrilatère LISSÉ du suivi
-        // (elle glisse au lieu de sauter d'un objet à l'autre).
-        if phase == .searching {
-            // La boîte n'apparaît que si la porte « papier + texte »
-            // est passée (demande de Grégoire, 2026-10-19 : détecter
-            // le texte sur fond blanc AVANT de cerner l'objet).
-            publish(quad: paperOK ? (smoothedQuad ?? displayQuad) : nil)
-            if !paperOK {
-                if displayQuad != nil {
-                    publish(status: "Objet en vue — je cherche du texte sur fond blanc avant de le cerner…")
-                }
-            } else if quadNorm == nil, displayQuad != nil {
-                publish(status: "Reçu confirmé — verrouillage du suivi…")
-            }
-        } else {
-            publish(quad: displayQuad)
-        }
+        // Plus aucune boîte de sélection à l'écran (choix de
+        // Grégoire, 2026-10-19) : le reçu sera localisé APRÈS la
+        // capture, dans le composite figé.
+        publish(quad: nil)
     }
 
     // MARK: - Géométrie des images livrées
@@ -358,120 +303,188 @@ final class CompositeScanner: NSObject,
                            height: (fullSize.height * k).rounded())
     }
 
-    // MARK: - Suivi du candidat reçu
+    // MARK: - Phase recherche : papier, texte, stabilité de la scène
 
-    /// Garde LE quadrilatère du reçu d'une image à l'autre.
-    ///
-    /// Le détecteur voit PLUSIEURS rectangles dans une pièce (rideau,
-    /// porte, lunettes…) : choisir « le plus grand » à chaque image
-    /// faisait sauter la boîte jaune d'un objet à l'autre et la
-    /// stabilité ne se déclenchait jamais (retest de Grégoire,
-    /// 2026-10-19 : 5 rectangles détectés, la boîte sur le rideau).
-    /// Ici : acquisition par SCORE (candidateScore), confirmée sur
-    /// 2 images consécutives, puis suivi du candidat le plus proche
-    /// — avec tolérance de 6 pertes brèves (~0,75 s) avant de lâcher.
-    ///
-    /// Retourne le quadrilatère suivi, nil pendant l'acquisition ;
-    /// `displayQuad` reçoit celui à afficher (suivi, ou candidat en
-    /// cours de verrouillage).
-    private func track(candidates: [QuadCandidate]) -> [CGPoint]? {
-        if let current = trackedQuad {
-            var best: QuadCandidate?
-            var bestDist = CGFloat.greatestFiniteMagnitude
-            for candidate in candidates {
-                let d = cornerDistance(candidate.quad, current)
-                if d < bestDist { bestDist = d; best = candidate }
-            }
-            if let best, bestDist < 0.08 {
-                trackedQuad = best.quad
-                trackMisses = 0
-                displayQuad = best.quad
-                if bestDist > 0.05 {
-                    // Saut d'objet (du reçu au visage voisin, par
-                    // exemple) : la stabilité accumulée concernait
-                    // l'AUTRE objet — le lissage la laisserait
-                    // glisser en douce d'un objet à l'autre.
-                    smoothedQuad = nil
-                    stableCount = 0
+    /// Déclencheur « scène entière » (2026-10-19, proposé par
+    /// Grégoire après la série d'échecs de la boîte de sélection :
+    /// montre, rideau, visage, quadrilatère partiel) : on ne suit
+    /// plus AUCUN objet. Le scan démarre quand, dans l'image
+    /// ENTIÈRE :
+    /// (a) le détecteur de texte voit assez de zones de texte
+    ///     (≥ 5) — un visage ou un plafond n'en ont pas ;
+    /// (b) une grande surface claire est présente (le papier :
+    ///     percentile 65 de gris ≥ 0,52) ;
+    /// (c) la DISPOSITION des zones de texte est stable d'une
+    ///     image à l'autre (≥ 70 % appariées à moins de 0,03,
+    ///     déplacement moyen < 0,02) pendant 3 images de suite —
+    ///     la scène est fixe, on capte.
+    private func updateSceneStability(pixelBuffer: CVPixelBuffer,
+                                      frame: CIImage,
+                                      judgeQuad: [CGPoint]?) {
+        let boxes = detectTextBoxes(in: pixelBuffer)
+        lastTextCount = boxes.count
+        lastBrightness = grayPercentiles(frame, [0.65]).first ?? 0
+        let evidence = boxes.count >= 5 && lastBrightness >= 0.52
+
+        var layoutStable = false
+        if evidence, !prevTextBoxes.isEmpty {
+            var matched = 0
+            var dispSum: CGFloat = 0
+            for box in boxes {
+                var best = CGFloat.greatestFiniteMagnitude
+                for prev in prevTextBoxes {
+                    let dx = prev.midX - box.midX
+                    let dy = prev.midY - box.midY
+                    let d = (dx * dx + dy * dy).squareRoot()
+                    if d < best { best = d }
                 }
-                return best.quad
+                if best < 0.03 {
+                    matched += 1
+                    dispSum += best
+                }
             }
-            trackMisses += 1
-            if trackMisses <= 6 {
-                displayQuad = current
-                return current
-            }
-            trackedQuad = nil
-            trackDrops += 1
-            acquisitionQuad = nil
-            acquisitionCount = 0
-            paperOK = false
-            paperQuad = nil
-            paperFailChecks = 0
+            let frac = Double(matched) / Double(max(boxes.count, 1))
+            layoutStable = frac >= 0.7 && matched > 0
+                && dispSum / CGFloat(matched) < 0.02
         }
-        guard let winner = candidates.max(by: { $0.score < $1.score })
-        else {
-            acquisitionQuad = nil
-            acquisitionCount = 0
-            displayQuad = nil
-            return nil
-        }
-        if let pending = acquisitionQuad,
-           cornerDistance(winner.quad, pending) < 0.06 {
-            acquisitionCount += 1
+        prevTextBoxes = boxes
+
+        if evidence && layoutStable {
+            sceneStableCount += 1
+        } else if evidence {
+            sceneStableCount = max(0, sceneStableCount - 1)
         } else {
-            acquisitionQuad = winner.quad
-            acquisitionCount = 1
+            sceneStableCount = 0
         }
-        displayQuad = acquisitionQuad
-        guard acquisitionCount >= 2 else { return nil }
-        trackedQuad = winner.quad
-        trackMisses = 0
-        acquisitionQuad = nil
-        acquisitionCount = 0
-        displayQuad = winner.quad
-        paperOK = false
-        paperQuad = nil
-        paperFailChecks = 0
-        lastPaperCheck = 0
-        return winner.quad
+
+        if sceneStableCount >= stableFramesNeeded {
+            startCapture(frame: frame, judgeQuad: judgeQuad)
+        } else if !evidence {
+            publish(status: boxes.isEmpty
+                    ? "Présentez un reçu à la caméra…"
+                    : "Du texte est visible, mais pas assez de papier blanc — approchez le reçu…")
+        } else if sceneStableCount > 0 {
+            publish(status: "Papier et texte détectés — stabilisez… (\(sceneStableCount)/\(stableFramesNeeded))")
+        } else {
+            publish(status: "Papier et texte détectés — stabilisez l'appareil pour lancer le scan…")
+        }
     }
 
-    /// Distance moyenne entre coins correspondants (coordonnées
-    /// normalisées ; 0 = quadrilatères identiques).
-    private func cornerDistance(_ a: [CGPoint], _ b: [CGPoint]) -> CGFloat {
-        guard a.count == 4, b.count == 4 else { return 1 }
-        var sum: CGFloat = 0
-        for i in 0..<4 {
-            let dx = a[i].x - b[i].x
-            let dy = a[i].y - b[i].y
-            sum += (dx * dx + dy * dy).squareRoot()
-        }
-        return sum / 4
+    // MARK: - Démarrage de la capture
+
+    private func startCapture(frame: CIImage, judgeQuad: [CGPoint]?) {
+        phase = .capturing
+        captureStart = CFAbsoluteTimeGetCurrent()
+        refQuadNorm = judgeQuad
+        refSmall = materializedSmall(frame)
+        lastSmall = refSmall
+        lastHSmall = matrix_identity_float3x3
+
+        // Le canvas partage les coordonnées de l'image de référence,
+        // élargi de 35 % de chaque côté pour laisser le pan déborder.
+        canvasExtent = CGRect(origin: .zero, size: fullSize)
+            .insetBy(dx: -0.35 * fullSize.width,
+                     dy: -0.35 * fullSize.height)
+        tileSharpness = [Float](repeating: 0,
+                                count: tileCols * tileRows)
+        tileFilled = [Bool](repeating: false,
+                            count: tileCols * tileRows)
+        composite = CIImage(color: .black).cropped(to: canvasExtent)
+
+        // La référence elle-même est la première tuile du composite.
+        fuse(frame: frame, hSmall: matrix_identity_float3x3)
+        publish(status: "Scan en cours — bougez lentement pour montrer ce qui compte…")
+        publishLivePreview()
     }
 
-    /// Score d'acquisition d'un candidat : le papier du reçu est
-    /// l'objet le plus CLAIR de la scène, il est présenté plutôt au
-    /// CENTRE et un reçu est plus HAUT que large. L'aire compte,
-    /// mais ne décide plus seule.
-    private func candidateScore(quad: [CGPoint], confidence: Float,
-                                frame: CIImage) -> Double {
-        let area = abs(shoelace(quad))
-        guard area > 0 else { return 0 }
-        let c = centroid(quad)
-        let dCenter = ((c.x - 0.5) * (c.x - 0.5)
-            + (c.y - 0.5) * (c.y - 0.5)).squareRoot() / 0.7071
-        let centerFactor = 1 - 0.45 * min(1, Double(dCenter) * 1.4)
+    // MARK: - Détections (juges et preuves)
+
+    /// Le plus grand rectangle détecté dans l'image — utilisé
+    /// UNIQUEMENT comme juge géométrique pour le calibrage et la
+    /// validation des homographies. Il ne décide plus ni du
+    /// déclenchement, ni de la région extraite du scan.
+    private func detectJudgeQuad(in pixelBuffer: CVPixelBuffer)
+    -> [CGPoint]? {
+        let quads = detectRectangles(
+            handler: VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                           options: [:]))
+        return quads.max { abs(shoelace($0)) < abs(shoelace($1)) }
+    }
+
+    /// Tous les rectangles détectés par Vision dans l'image
+    /// fournie au handler (coordonnées normalisées, [TL, TR, BR, BL]).
+    private func detectRectangles(handler: VNImageRequestHandler)
+    -> [[CGPoint]] {
+        let request = VNDetectRectanglesRequest()
+        request.minimumAspectRatio = 0.15
+        request.maximumAspectRatio = 1.0
+        request.minimumSize = 0.10
+        request.maximumObservations = 6
+        request.minimumConfidence = 0.3
+        request.quadratureTolerance = 40
+        guard (try? handler.perform([request])) != nil else { return [] }
+        let results = request.results ?? []
+        lastDetectedCount = results.count
+        return results.map {
+            [$0.topLeft, $0.topRight, $0.bottomRight, $0.bottomLeft]
+        }
+    }
+
+    /// Zones de texte détectées par Vision (boîtes normalisées) —
+    /// détection seule, aucune lecture.
+    private func detectTextBoxes(in pixelBuffer: CVPixelBuffer)
+    -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil else { return [] }
+        return (request.results ?? []).map { $0.boundingBox }
+    }
+
+    /// Même chose, sur une image CoreImage (le composite figé).
+    private func detectTextBoxes(in image: CIImage) -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(ciImage: image,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil else { return [] }
+        return (request.results ?? []).map { $0.boundingBox }
+    }
+
+    /// Les deux preuves « papier + texte » pour un quadrilatère
+    /// d'une image : intérieur clair (fond blanc) et zones de texte
+    /// dedans (≥ 3, ou une grande couvrant ≥ 25 % de l'objet).
+    /// Sert à la RECONSTRUCTION (choisir le rectangle du reçu dans
+    /// le composite figé).
+    private func paperEvidence(frame: CIImage, quad: [CGPoint],
+                               textBoxes: [CGRect])
+    -> (ok: Bool, textCount: Int) {
+        let bright = meanBrightness(frame, quad: innerQuad(quad))
         let xs = quad.map(\.x), ys = quad.map(\.y)
-        let w = (xs.max() ?? 0) - (xs.min() ?? 0)
-        let h = (ys.max() ?? 0) - (ys.min() ?? 0)
-        let aspect = h > 0.001 ? w / h : 1
-        let aspectFactor = (aspect >= 0.16 && aspect <= 0.95)
-            ? 1.0 : 0.35
-        let brightFactor = 0.35 + 0.65
-            * Double(meanBrightness(frame, quad: quad))
-        return Double(area) * centerFactor * aspectFactor
-            * brightFactor * (0.7 + 0.3 * Double(confidence))
+        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
+        let bbox = CGRect(x: minX, y: minY,
+                          width: (xs.max() ?? 0) - minX,
+                          height: (ys.max() ?? 0) - minY)
+        let inside = textBoxes.filter {
+            bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
+        }
+        let quadArea = max(bbox.width * bbox.height, 0.0001)
+        let bigText = inside.contains {
+            $0.width * $0.height >= 0.25 * quadArea
+        }
+        return (ok: bright >= 0.45 && (inside.count >= 3 || bigText),
+                textCount: inside.count)
+    }
+
+    /// Le quadrilatère resserré vers son centre (l'intérieur du
+    /// papier, sans les bords ni l'arrière-plan).
+    private func innerQuad(_ quad: [CGPoint]) -> [CGPoint] {
+        let c = centroid(quad)
+        return quad.map {
+            CGPoint(x: c.x + ($0.x - c.x) * 0.7,
+                    y: c.y + ($0.y - c.y) * 0.7)
+        }
     }
 
     /// Luminosité moyenne (0…1) dans la boîte englobante du
@@ -502,207 +515,6 @@ final class CompositeScanner: NSObject,
         }
         return (CGFloat(rgba[0]) + CGFloat(rgba[1]) + CGFloat(rgba[2]))
             / (3 * 255)
-    }
-
-    // MARK: - Porte « papier + texte »
-
-    /// Vérifie que l'objet suivi est bien un papier portant du
-    /// texte, AVANT que le scan puisse démarrer (demande de
-    /// Grégoire, 2026-10-19 : son visage et le plafond se sont fait
-    /// « scanner » — un rectangle stable ne suffit pas).
-    /// Deux preuves, contrôlées au plus toutes les 0,3 s :
-    /// (a) l'intérieur de l'objet est CLAIR (fond blanc) ;
-    /// (b) le détecteur de texte de Vision y trouve des zones de
-    /// texte (≥ 3, ou une grande zone couvrant ≥ 25 % de l'objet).
-    /// Un objet suivi qui échoue 4 contrôles de suite est
-    /// abandonné : ce n'est pas un reçu, le suivi doit se libérer
-    /// pour le vrai.
-    private func updatePaperGate(subject: [CGPoint]?, frame: CIImage,
-                                 pixelBuffer: CVPixelBuffer,
-                                 now: CFTimeInterval) {
-        guard let subject else {
-            paperOK = false
-            paperTextCount = 0
-            paperQuad = nil
-            paperFailChecks = 0
-            return
-        }
-        // Nouvel objet (ou objet qui a beaucoup bougé) : repartir
-        // à zéro et contrôler tout de suite.
-        if let checked = paperQuad,
-           cornerDistance(subject, checked) > 0.08 {
-            paperOK = false
-            paperFailChecks = 0
-            lastPaperCheck = 0
-        }
-        paperQuad = subject
-        guard now - lastPaperCheck >= 0.3 else { return }
-        lastPaperCheck = now
-
-        let evidence = paperEvidence(frame: frame, quad: subject,
-                                     pixelBuffer: pixelBuffer)
-        paperTextCount = evidence.textCount
-        paperOK = evidence.ok
-        if paperOK {
-            paperFailChecks = 0
-        } else {
-            paperFailChecks += 1
-            if paperFailChecks >= 4, trackedQuad != nil {
-                // Abandonner l'objet suivi : ce n'est pas un reçu.
-                trackedQuad = nil
-                trackMisses = 0
-                displayQuad = nil
-                acquisitionQuad = nil
-                acquisitionCount = 0
-                trackDrops += 1
-                paperOK = false
-                paperQuad = nil
-                paperFailChecks = 0
-            }
-        }
-    }
-
-    /// Les deux preuves « papier + texte » pour un quadrilatère :
-    /// intérieur clair (fond blanc) et zones de texte de Vision
-    /// dedans (≥ 3, ou une grande couvrant ≥ 25 % de l'objet).
-    /// Utilisé par la porte du suivi ET par la vérification finale
-    /// au départ de la capture : mêmes seuils aux deux endroits.
-    private func paperEvidence(frame: CIImage, quad: [CGPoint],
-                               pixelBuffer: CVPixelBuffer)
-    -> (ok: Bool, textCount: Int) {
-        let bright = meanBrightness(frame, quad: innerQuad(quad))
-        let boxes = detectTextBoxes(in: pixelBuffer)
-        let xs = quad.map(\.x), ys = quad.map(\.y)
-        let minX = xs.min() ?? 0, minY = ys.min() ?? 0
-        let bbox = CGRect(x: minX, y: minY,
-                          width: (xs.max() ?? 0) - minX,
-                          height: (ys.max() ?? 0) - minY)
-        let inside = boxes.filter {
-            bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
-        }
-        let quadArea = max(bbox.width * bbox.height, 0.0001)
-        let bigText = inside.contains {
-            $0.width * $0.height >= 0.25 * quadArea
-        }
-        return (ok: bright >= 0.45 && (inside.count >= 3 || bigText),
-                textCount: inside.count)
-    }
-
-    /// Le quadrilatère resserré vers son centre (l'intérieur du
-    /// papier, sans les bords ni l'arrière-plan).
-    private func innerQuad(_ quad: [CGPoint]) -> [CGPoint] {
-        let c = centroid(quad)
-        return quad.map {
-            CGPoint(x: c.x + ($0.x - c.x) * 0.7,
-                    y: c.y + ($0.y - c.y) * 0.7)
-        }
-    }
-
-    /// Zones de texte détectées par Vision (boîtes englobantes
-    /// normalisées) — détection seule, aucune lecture.
-    private func detectTextBoxes(in pixelBuffer: CVPixelBuffer)
-    -> [CGRect] {
-        let request = VNDetectTextRectanglesRequest()
-        request.reportCharacterBoxes = false
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                            options: [:])
-        guard (try? handler.perform([request])) != nil else { return [] }
-        return (request.results ?? []).map { $0.boundingBox }
-    }
-
-    // MARK: - Phase recherche : stabilité
-
-    private func updateStability(quadNorm: [CGPoint]?,
-                                 frame: CIImage,
-                                 pixelBuffer: CVPixelBuffer) {
-        guard let quadNorm else {
-            stableCount = 0
-            smoothedQuad = nil
-            publish(status: "Présentez un reçu à la caméra…")
-            return
-        }
-        // Lissage exponentiel du quadrilatère suivi : le détecteur
-        // Vision fait trembler les coins d'une image à l'autre, même
-        // reçu immobile, et une main tremble toujours un peu. Avec le
-        // seuil d'origine (0,015, retour à zéro au moindre écart), le
-        // compteur n'arrivait jamais à terme à main levée — constat
-        // de Grégoire, 2026-10-19. Le mouvement est donc mesuré sur
-        // le quadrilatère lissé, et un écart isolé ne coûte qu'un pas.
-        let a = quadSmoothing
-        if let prev = smoothedQuad {
-            let smoothed = (0..<4).map { i in
-                CGPoint(x: prev[i].x + a * (quadNorm[i].x - prev[i].x),
-                        y: prev[i].y + a * (quadNorm[i].y - prev[i].y))
-            }
-            let movement = (0..<4).map { i -> CGFloat in
-                let dx = smoothed[i].x - prev[i].x
-                let dy = smoothed[i].y - prev[i].y
-                return (dx * dx + dy * dy).squareRoot()
-            }.max() ?? 1
-            if movement < stableThreshold {
-                stableCount += 1
-            } else {
-                stableCount = max(0, stableCount - 1)
-            }
-            smoothedQuad = smoothed
-        } else {
-            smoothedQuad = quadNorm
-            stableCount = 0
-        }
-
-        if stableCount >= stableFramesNeeded {
-            startCapture(frame: frame, quadNorm: quadNorm,
-                         pixelBuffer: pixelBuffer)
-        } else if stableCount > 0 {
-            publish(status: "Reçu détecté — stabilisez… (\(stableCount)/\(stableFramesNeeded))")
-        } else {
-            publish(status: "Reçu détecté — stabilisez le reçu pour lancer le scan…")
-        }
-    }
-
-    // MARK: - Démarrage de la capture
-
-    private func startCapture(frame: CIImage, quadNorm: [CGPoint],
-                              pixelBuffer: CVPixelBuffer) {
-        // Vérification finale, sur CETTE image et CE quadrilatère :
-        // sans texte sur fond blanc, pas de référence figée. Un
-        // transfert de suivi (reçu tenu près du visage, casquette
-        // portant du texte) a déjà lancé un « scan » de visage
-        // malgré la porte, le 2026-10-19 : la porte valide un
-        // objet, le suivi peut ensuite glisser sur un autre — ici,
-        // au moment de figer, on revérifie l'objet RÉEL.
-        guard paperEvidence(frame: frame, quad: quadNorm,
-                            pixelBuffer: pixelBuffer).ok else {
-            stableCount = 0
-            smoothedQuad = nil
-            paperOK = false
-            paperQuad = nil
-            lastPaperCheck = 0
-            publish(status: "Fausse alerte — pas de texte sur fond blanc ici : scan annulé.")
-            return
-        }
-        phase = .capturing
-        captureStart = CFAbsoluteTimeGetCurrent()
-        refQuadNorm = quadNorm
-        refSmall = materializedSmall(frame)
-        lastSmall = refSmall
-        lastHSmall = matrix_identity_float3x3
-
-        // Le canvas partage les coordonnées de l'image de référence,
-        // élargi de 35 % de chaque côté pour laisser le pan déborder.
-        canvasExtent = CGRect(origin: .zero, size: fullSize)
-            .insetBy(dx: -0.35 * fullSize.width,
-                     dy: -0.35 * fullSize.height)
-        tileSharpness = [Float](repeating: 0,
-                                count: tileCols * tileRows)
-        tileFilled = [Bool](repeating: false,
-                            count: tileCols * tileRows)
-        composite = CIImage(color: .black).cropped(to: canvasExtent)
-
-        // La référence elle-même est la première tuile du composite.
-        fuse(frame: frame, hSmall: matrix_identity_float3x3)
-        publish(status: "Scan en cours — bougez lentement pour montrer ce qui compte…")
-        publishLivePreview()
     }
 
     // MARK: - Capture : enregistrement + fusion
@@ -1179,41 +991,19 @@ final class CompositeScanner: NSObject,
         }
     }
 
-    // MARK: - Figeage : redressement + orientation
+    // MARK: - Figeage : reconstruction du reçu dans le composite
 
     private func finish() {
-        guard let composite, let refQuad = refQuadNorm else { return }
+        guard let composite else { return }
         phase = .done
 
-        // Redressement : le quadrilatère de la référence (coordonnées
-        // canvas = coordonnées de l'image de référence) devient un
-        // rectangle propre.
-        // Quadrilatère élargi de 3 % autour de son centre : la
-        // détection rentre souvent le bord du papier de quelques
-        // pour cent (bord mou contre un fond clair), et l'image
-        // finale étant découpée sur ce quadrilatère, la colonne
-        // des montants perdait son dernier chiffre (retest du
-        // 2026-10-19 : tous les totaux tronqués à droite).
-        let rawCorners = refQuad.map { px($0, fullSize) }  // TL, TR, BR, BL
-        let quadCenter = centroid(rawCorners)
-        let corners = rawCorners.map {
-            CGPoint(x: quadCenter.x + ($0.x - quadCenter.x) * 1.03,
-                    y: quadCenter.y + ($0.y - quadCenter.y) * 1.03)
-        }
-        var corrected: CIImage?
-        if let filter = CIFilter(name: "CIPerspectiveCorrection") {
-            filter.setValue(composite, forKey: kCIInputImageKey)
-            filter.setValue(CIVector(cgPoint: corners[0]),
-                            forKey: "inputTopLeft")
-            filter.setValue(CIVector(cgPoint: corners[1]),
-                            forKey: "inputTopRight")
-            filter.setValue(CIVector(cgPoint: corners[2]),
-                            forKey: "inputBottomRight")
-            filter.setValue(CIVector(cgPoint: corners[3]),
-                            forKey: "inputBottomLeft")
-            corrected = filter.outputImage
-        }
-        var image = corrected ?? composite
+        // Reconstruction (approche demandée par Grégoire le
+        // 2026-10-19) : le reçu est localisé DANS le composite —
+        // une image fixe, propre, déjà fusionnée, où la détection
+        // est bien plus fiable que sur le flux vivant — puis
+        // redressé. Pendant le scan, aucune boîte n'a rien décidé.
+        let (extracted, how) = extractReceipt(from: composite)
+        var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
         image = image.transformed(by: CGAffineTransform(
             translationX: -image.extent.minX, y: -image.extent.minY))
@@ -1226,7 +1016,8 @@ final class CompositeScanner: NSObject,
         let enhanced = enhanceDocument(image)
         let finalCG = ciContext.createCGImage(enhanced.image,
                                               from: enhanced.image.extent)
-        finishInfo = "Scan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
+        finishInfo = "Reçu localisé : \(how)"
+            + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
 
         let stats = buildStats()
@@ -1240,6 +1031,77 @@ final class CompositeScanner: NSObject,
             self.livePreview = finalCG
             self.statsText = stats
         }
+    }
+
+    /// Cherche le reçu dans le composite figé :
+    /// 1. le meilleur rectangle qui prouve « papier + texte » (le
+    ///    plus grand parmi ceux qui passent les preuves) →
+    ///    redressement par perspective, élargi de 3 % ;
+    /// 2. à défaut, la zone de texte elle-même (boîte englobante
+    ///    des zones de texte, élargie de 12 %) — pas de
+    ///    redressement, mais le contenu est là ;
+    /// 3. à défaut, le composite entier.
+    private func extractReceipt(from composite: CIImage)
+    -> (image: CIImage, how: String) {
+        let extent = composite.extent
+        let textBoxes = detectTextBoxes(in: composite)
+        let candidates = detectRectangles(
+            handler: VNImageRequestHandler(ciImage: composite,
+                                           options: [:]))
+
+        var best: (quad: [CGPoint], texts: Int, area: CGFloat)?
+        for quad in candidates {
+            let ev = paperEvidence(frame: composite, quad: quad,
+                                   textBoxes: textBoxes)
+            guard ev.ok else { continue }
+            let area = abs(shoelace(quad))
+            if best == nil || area > best!.area {
+                best = (quad, ev.textCount, area)
+            }
+        }
+        if let best {
+            // Normalisé → pixels du canvas, puis élargi de 3 %
+            // (la détection rentre souvent le bord du papier).
+            let raw = best.quad.map {
+                CGPoint(x: extent.minX + $0.x * extent.width,
+                        y: extent.minY + $0.y * extent.height)
+            }
+            let c = centroid(raw)
+            let corners = raw.map {
+                CGPoint(x: c.x + ($0.x - c.x) * 1.03,
+                        y: c.y + ($0.y - c.y) * 1.03)
+            }
+            if let filter = CIFilter(name: "CIPerspectiveCorrection") {
+                filter.setValue(composite, forKey: kCIInputImageKey)
+                filter.setValue(CIVector(cgPoint: corners[0]),
+                                forKey: "inputTopLeft")
+                filter.setValue(CIVector(cgPoint: corners[1]),
+                                forKey: "inputTopRight")
+                filter.setValue(CIVector(cgPoint: corners[2]),
+                                forKey: "inputBottomRight")
+                filter.setValue(CIVector(cgPoint: corners[3]),
+                                forKey: "inputBottomLeft")
+                if let corrected = filter.outputImage {
+                    return (corrected,
+                            "rectangle du composite (\(best.texts) zones de texte)")
+                }
+            }
+        }
+        if !textBoxes.isEmpty {
+            var union = textBoxes[0]
+            for box in textBoxes.dropFirst() {
+                union = union.union(box)
+            }
+            let pw = union.width * extent.width
+            let ph = union.height * extent.height
+            let rect = CGRect(x: extent.minX + union.minX * extent.width,
+                              y: extent.minY + union.minY * extent.height,
+                              width: pw, height: ph)
+                .insetBy(dx: -0.12 * pw, dy: -0.12 * ph)
+            return (composite.cropped(to: rect),
+                    "zone de texte seule (\(textBoxes.count) zones)")
+        }
+        return (composite, "composite entier (aucune localisation)")
     }
 
     /// Choisit, parmi 4 rotations, celle où un OCR rapide reconnaît le
@@ -1282,7 +1144,7 @@ final class CompositeScanner: NSObject,
     /// Constantes de l'amélioration, affichées dans les statistiques
     /// pour pouvoir les régler d'après les retours de terrain.
     private let enhanceSaturation: CGFloat = 0.35
-    private let enhanceSharpness: CGFloat = 0.55
+    private let enhanceSharpness: CGFloat = 0.35
 
     /// Rend le scan redressé « propre » comme un scanner de
     /// documents, pour l'œil ET pour l'OCR de l'étape 2 :
@@ -1511,8 +1373,7 @@ final class CompositeScanner: NSObject,
         text += "Images traitées : \(framesSeen)  •  fusionnées : \(framesFused)"
             + " (dont chaînées : \(framesChained))\n"
             + "Rectangles détectés (dernière image) : \(lastDetectedCount)\n"
-            + "Suivi du reçu : \(trackedQuad != nil ? "verrouillé" : (acquisitionQuad != nil ? "en acquisition" : "aucun"))  •  pertes du suivi : \(trackDrops)\n"
-            + "Papier + texte : \(paperOK ? "confirmé" : "non confirmé") (\(paperTextCount) zone(s) de texte)\n"
+            + "Zones de texte (dernière image) : \(lastTextCount)  •  stabilité scène : \(sceneStableCount)/\(stableFramesNeeded)\n"
             + "Échecs enregistrement : \(registrationsFailed)"
             + "  •  validations rejetées : \(validationsFailed)\n"
             + "Calibrage Vision : \(calib)\n"

@@ -8,9 +8,11 @@ import AppKit  // NSApplication, pour le bouton Exit
 /// dans la base de données (aucun accès SwiftData ici).
 ///
 /// Déroulement affiché :
-/// - RECHERCHE : flux caméra brut (aperçu miroir commutable, comme
-///   avant) + contour jaune du reçu détecté ; quand le quadrilatère
-///   bouge peu ~0,5 s, le scan démarre tout seul.
+/// - RECHERCHE : flux caméra brut (aperçu miroir commutable) ;
+///   quand du texte sur papier blanc est détecté dans l'image et
+///   que la scène est stable ~0,5 s, le scan démarre tout seul.
+///   Aucune boîte de sélection : le reçu est localisé APRÈS la
+///   capture, dans le composite figé.
 /// - CAPTURE (2 s) : le flux reste affiché, une barre de progression
 ///   montre la fenêtre ; à droite, le composite s'assemble en direct
 ///   (tuiles remplies, remplissage du rectangle englobant).
