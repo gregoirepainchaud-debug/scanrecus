@@ -1,0 +1,4 @@
+545:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:343:9: error: generic parameter 'Content' could not be inferred
+552:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:364:42: error: cannot use explicit 'return' statement in the body of result builder 'ViewBuilder'
+571:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1106:26: error: value of optional type 'CGImage?' must be unwrapped to refer to member 'width' of wrapped base type 'CGImage'
+582:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1107:26: error: value of optional type 'CGImage?' must be unwrapped to refer to member 'height' of wrapped base type 'CGImage'
