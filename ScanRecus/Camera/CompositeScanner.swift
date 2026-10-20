@@ -188,6 +188,12 @@ final class CompositeScanner: NSObject,
     /// Boîtes de texte de l'image de référence (solution 2) :
     /// les correspondances du chemin stable.
     private var refTextBoxes: [CGRect] = []
+    /// Orientation de détection du texte (reçu présenté DE
+    /// CÔTÉ) : la préférée est la dernière à avoir produit
+    /// ≥ 5 boîtes ; celle du scan en cours est verrouillée au
+    /// déclenchement.
+    private var preferredTextOrientation: CGImagePropertyOrientation = .up
+    private var scanTextOrientation: CGImagePropertyOrientation = .up
     private var framesChained = 0
     private var registrationsFailed = 0
     private var validationsFailed = 0
@@ -218,6 +224,7 @@ final class CompositeScanner: NSObject,
             self.refSmall = nil
             self.refQuadNorm = nil
             self.refTextBoxes = []
+            self.scanTextOrientation = .up
             self.composite = nil
             self.stableSum = nil
             self.stableCount = 0
@@ -311,8 +318,12 @@ final class CompositeScanner: NSObject,
             if elapsed >= captureDuration {
                 finish()
             } else {
+                let boxes = scanTextOrientation == .up
+                    ? detectTextBoxes(in: pixelBuffer)
+                    : detectTextBoxes(in: frameFull,
+                                      orientation: scanTextOrientation)
                 captureFrame(frameFull: frameFull, quadNorm: judgeQuad,
-                             textBoxes: detectTextBoxes(in: pixelBuffer))
+                             textBoxes: boxes)
                 publish(progress: elapsed / captureDuration)
                 if now - lastPreviewTime >= 0.35 {
                     lastPreviewTime = now
@@ -357,7 +368,8 @@ final class CompositeScanner: NSObject,
     private func updateSceneStability(pixelBuffer: CVPixelBuffer,
                                       frame: CIImage,
                                       judgeQuad: [CGPoint]?) {
-        let boxes = detectTextBoxes(in: pixelBuffer)
+        let boxes = detectEvidenceBoxes(pixelBuffer: pixelBuffer,
+                                        frame: frame)
         lastTextCount = boxes.count
         lastBrightness = grayPercentiles(frame, [0.65]).first ?? 0
         let evidence = boxes.count >= 5 && lastBrightness >= 0.52
@@ -415,6 +427,7 @@ final class CompositeScanner: NSObject,
         captureStart = CFAbsoluteTimeGetCurrent()
         refQuadNorm = judgeQuad
         refTextBoxes = textBoxes
+        scanTextOrientation = preferredTextOrientation
         refSmall = materializedSmall(frame)
         lastSmall = refSmall
         lastHSmall = matrix_identity_float3x3
@@ -513,6 +526,68 @@ final class CompositeScanner: NSObject,
                                             options: [:])
         guard (try? handler.perform([request])) != nil else { return [] }
         return (request.results ?? []).map { $0.boundingBox }
+    }
+
+    /// Boîtes de texte d'une image pivotée de 90°, ramenées
+    /// dans l'espace normalisé de l'image d'origine (les axes
+    /// s'échangent — formules de transposition EXIF).
+    private func detectTextBoxes(
+        in image: CIImage,
+        orientation: CGImagePropertyOrientation) -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(
+            ciImage: image.oriented(orientation), options: [:])
+        guard (try? handler.perform([request])) != nil else { return [] }
+        return (request.results ?? []).map {
+            rawSpaceBox($0.boundingBox, orientation: orientation)
+        }
+    }
+
+    /// Boîte normalisée lue dans une image pivotée → boîte
+    /// normalisée de l'image d'origine (.left/.right).
+    private func rawSpaceBox(
+        _ box: CGRect,
+        orientation: CGImagePropertyOrientation) -> CGRect {
+        switch orientation {
+        case .right:
+            return CGRect(x: 1 - box.maxY, y: box.minX,
+                          width: box.height, height: box.width)
+        case .left:
+            return CGRect(x: box.minY, y: 1 - box.maxX,
+                          width: box.height, height: box.width)
+        default:
+            return box
+        }
+    }
+
+    /// Détection pour la preuve et la stabilité : l'orientation
+    /// préférée d'abord, puis les autres ; la première à
+    /// ≥ 5 boîtes gagne et devient la préférée. Un reçu
+    /// présenté DE CÔTÉ (demande de Grégoire, 2026-10-20 : il
+    /// occupe alors bien plus du cadre — de meilleurs scans)
+    /// rend le détecteur presque aveugle sur l'image telle
+    /// quelle : il lui faut l'image pivotée.
+    private func detectEvidenceBoxes(pixelBuffer: CVPixelBuffer,
+                                     frame: CIImage) -> [CGRect] {
+        var order: [CGImagePropertyOrientation] =
+            [preferredTextOrientation]
+        for o in [CGImagePropertyOrientation.up, .right, .left]
+        where o != preferredTextOrientation {
+            order.append(o)
+        }
+        var best: [CGRect] = []
+        for o in order {
+            let boxes = o == .up
+                ? detectTextBoxes(in: pixelBuffer)
+                : detectTextBoxes(in: frame, orientation: o)
+            if boxes.count > best.count { best = boxes }
+            if boxes.count >= 5 {
+                preferredTextOrientation = o
+                return boxes
+            }
+        }
+        return best
     }
 
     /// Même chose, sur une image CoreImage (le composite figé).
@@ -1945,6 +2020,9 @@ final class CompositeScanner: NSObject,
             + " · warp \(stableRejectWarp)\n"
             + String(format: "Enregistrement : %.0f ms/img  •  fusion : %.0f ms/img",
                      regMs, fuseMs)
+        if preferredTextOrientation != .up {
+            text += "Détection du texte : pivotée à 90° (reçu de côté)\n"
+        }
         if let finishInfo {
             text += "\n" + finishInfo
         }
