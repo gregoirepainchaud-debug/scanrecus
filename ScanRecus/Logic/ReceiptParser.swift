@@ -526,7 +526,11 @@ enum ReceiptParser {
             return String(text[r])
         }
 
+        // Plages des dates AAAA-MM-JJ : un fragment JJ/MM lu
+        // dedans est un artefact à écarter (voir plus bas).
+        var ymdRanges: [NSRange] = []
         for m in dateYMD.matches(in: text, range: full) {
+            ymdRanges.append(m.range)
             if let y = group(m, 1).flatMap(Int.init),
                let mo = group(m, 2).flatMap(Int.init),
                let d = group(m, 3).flatMap(Int.init) {
@@ -557,10 +561,6 @@ enum ReceiptParser {
         }
         // Dates nommées mois en tête (« October 5, 2026 ») —
         // invisibles aux autres motifs avant l'audit.
-        var ymdRanges: [NSRange] = []
-        for m in dateYMD.matches(in: text, range: full) {
-            ymdRanges.append(m.range)
-        }
         for m in dateNamedFirst.matches(in: text, range: full) {
             if let rawMonth = group(m, 1),
                let mo = monthNumbers[removeAccents(rawMonth)

@@ -1080,7 +1080,8 @@ final class CompositeScanner: NSObject,
         // sens — celle qui sert à l'extraction — décide aussi de
         // l'affichage. Si le texte se lit mieux à l'envers, on
         // retourne l'image pour de vrai avant tout le reste.
-        let outcome = recognizeBestText(image: image)
+        let outcome = recognizeBestText(
+            image: sharpenForReading(image))
         let tRead = CFAbsoluteTimeGetCurrent()
         if outcome.upsideDown {
             image = image.oriented(.down)
@@ -1436,23 +1437,61 @@ final class CompositeScanner: NSObject,
             guard (try? handler.perform([request])) != nil
             else { return -1 }
             var total: Float = 0
+            var text = ""
             for obs in request.results ?? [] {
                 if let candidate = obs.topCandidates(1).first {
                     total += candidate.confidence
                         * Float(candidate.string.count)
+                    text += candidate.string + "\n"
                 }
             }
+            // Les montants lisibles sont le signal le plus fort
+            // d'un reçu à l'endroit — même doctrine que
+            // l'arbitre : un reçu pivoté à 90° n'en produit
+            // presque aucun. Sans eux, le juge choisissait
+            // parfois la mauvaise PAIRE d'orientations, que
+            // rien ne réexaminait ensuite (audit 2026-10-20,
+            // confirmé au terrain par Grégoire : scans « à
+            // l'envers » et lectures dégradées).
+            total += Float(ReceiptParser.allAmounts(text).count)
+                * 1000
             return total
         }
         let scores = orientations.map { score($0, level: .fast) }
         var bestIdx = scores.indices.max { scores[$0] < scores[$1] } ?? 0
-        let oppIdx = (bestIdx + 2) % 4
-        if scores[bestIdx] >= 0, scores[oppIdx] > scores[bestIdx] * 0.75 {
-            let a = score(orientations[bestIdx], level: .accurate)
-            let b = score(orientations[oppIdx], level: .accurate)
-            if b > a { bestIdx = oppIdx }
+        if scores[bestIdx] >= 0 {
+            // Réexamen en lecture précise : le meilleur ET tout
+            // sens dont le score rapide atteint 60 % du sien —
+            // avant, seul l'opposé à 180° avait ce droit, et un
+            // mauvais choix de paire (90°) n'était jamais
+            // rattrapé.
+            var bestAccurate = score(orientations[bestIdx],
+                                     level: .accurate)
+            for idx in orientations.indices where idx != bestIdx {
+                if scores[idx] >= 0,
+                   scores[idx] > scores[bestIdx] * 0.6 {
+                    let candidate = score(orientations[idx],
+                                          level: .accurate)
+                    if candidate > bestAccurate {
+                        bestAccurate = candidate
+                        bestIdx = idx
+                    }
+                }
+            }
         }
         return image.oriented(orientations[bestIdx])
+    }
+
+    /// Petite touche de netteté pour la LECTURE seulement
+    /// (demande de Grégoire, 2026-10-20 : « presque rien ») :
+    /// 0,15 de CISharpenLuminance sur l'image soumise à l'OCR
+    /// et à l'arbitre. L'affichage garde son amélioration
+    /// propre ; la géométrie ne change pas.
+    private func sharpenForReading(_ image: CIImage) -> CIImage {
+        image.applyingFilter(
+            "CISharpenLuminance",
+            parameters: ["inputSharpness": 0.15])
+            .cropped(to: image.extent)
     }
 
     // MARK: - Amélioration automatique (look « scanner »)
