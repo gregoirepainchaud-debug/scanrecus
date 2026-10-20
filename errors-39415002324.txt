@@ -1,0 +1,4 @@
+538:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1011:38: error: cannot find 'w' in scope
+541:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1011:56: error: cannot find 'w' in scope
+544:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1012:38: error: cannot find 'ht' in scope
+547:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1012:57: error: cannot find 'ht' in scope
