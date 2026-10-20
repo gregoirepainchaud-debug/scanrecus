@@ -1060,23 +1060,27 @@ final class CompositeScanner: NSObject,
             translationX: -image.extent.minX, y: -image.extent.minY))
         // Orientation : tourner pour que les caractères soient à l'endroit.
         image = upright(image)
-        // Amélioration automatique « look scanner » : c'est elle qui
-        // est affichée (et qui, à l'étape 2, sera lue par l'OCR) ;
-        // la version brute reste publiée à part pour comparaison.
+        // Amélioration automatique DÉSACTIVÉE (demande de
+        // Grégoire le 2026-10-19, 23 h 41 : « n'applique plus de
+        // contraste et sharpening, voir ce que ça va faire ») :
+        // l'image BRUTE — localisée, redressée, orientée, rien
+        // d'autre — sert à l'affichage ET à la lecture, pour
+        // mesurer si le traitement aidait ou nuisait (soupçon :
+        // les niveaux écrasés et les halos de netteté fusionnent
+        // les chiffres à l'OCR). enhanceDocument reste en place,
+        // prête à rebrancher si le test la réhabilite.
         let rawCG = ciContext.createCGImage(image, from: image.extent)
-        let enhanced = enhanceDocument(image)
-        let finalCG = ciContext.createCGImage(enhanced.image,
-                                              from: enhanced.image.extent)
+        let finalCG = rawCG
         finishInfo = "Reçu localisé : \(how)"
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
-            + "\nAmélioration auto : \(enhanced.summary)"
+            + "\nAmélioration auto : DÉSACTIVÉE (test — image brute)"
 
         // Lecture du scan figé (première brique de l'étape 2,
         // demandée par Grégoire le 2026-10-19 : « voir les
         // informations que le programme peut extraire ») : OCR
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
-        let extraction = extractFields(from: enhanced.image)
+        let extraction = extractFields(from: image)
         let stats = buildStats()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
