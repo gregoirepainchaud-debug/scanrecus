@@ -1,0 +1,1 @@
+528:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:217:5: error: result builder attribute 'ViewBuilder' can only be applied to a property if it defines a getter
