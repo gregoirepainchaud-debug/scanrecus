@@ -1535,6 +1535,8 @@ final class CompositeScanner: NSObject,
                 rescueNote = " · perpendiculaires écartés"
             }
         }
+        let verdict = correction == .down ? "renversé"
+            : correction == .up ? "droit" : "pivoté"
         lastArbiterSummary = "droit : \(up.amounts) montants"
             + (up.proven ? " + preuve" : "")
             + ", score \(Int(up.score)) · renversé : "
@@ -1542,8 +1544,7 @@ final class CompositeScanner: NSObject,
             + (down.proven ? " + preuve" : "")
             + ", score \(Int(down.score))"
             + rescueNote
-            + " → \(correction == .down ? "renversé"
-                    : correction == .up ? "droit" : "pivoté")"
+            + " → \(verdict)"
         return RecognitionOutcome(
             lines: winner.lines,
             text: winner.lines.map(\.text).joined(separator: "\n"),
