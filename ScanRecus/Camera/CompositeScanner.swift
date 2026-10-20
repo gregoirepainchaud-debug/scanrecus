@@ -1263,38 +1263,7 @@ final class CompositeScanner: NSObject,
         }
     }
 
-    // MARK: - Détection du quadrilatère
-
-    /// Tous les rectangles candidats du détecteur, chacun avec son
-    /// score d'acquisition (voir candidateScore) ; le SUIVI (track)
-    /// choisit lequel est le reçu et le garde d'une image à l'autre.
-    /// Seuils élargis : vues partielles et reçu plus petit dans le
-    /// champ sont acceptés — le score et le suivi filtrent le bruit.
-    private func detectQuads(in pixelBuffer: CVPixelBuffer,
-                             frame: CIImage) -> [QuadCandidate] {
-        let request = VNDetectRectanglesRequest()
-        request.minimumAspectRatio = 0.15
-        request.maximumAspectRatio = 1.0
-        request.minimumSize = 0.10
-        request.maximumObservations = 6
-        request.minimumConfidence = 0.3
-        request.quadratureTolerance = 40
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer,
-                                            options: [:])
-        guard (try? handler.perform([request])) != nil else { return [] }
-        let results = request.results ?? []
-        lastDetectedCount = results.count
-        return results.map { rect in
-            let quad = [rect.topLeft, rect.topRight,
-                        rect.bottomRight, rect.bottomLeft]
-            return QuadCandidate(quad: quad,
-                                 confidence: rect.confidence,
-                                 score: candidateScore(
-                                    quad: quad,
-                                    confidence: rect.confidence,
-                                    frame: frame))
-        }
-    }
+    // MARK: - Quadrilatères : utilitaires
 
     /// Un quadrilatère « complet » : assez grand et ne touchant pas les
     /// bords de l'image (sinon le reçu est probablement tronqué et ses
