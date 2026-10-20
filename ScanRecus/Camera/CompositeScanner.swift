@@ -1076,7 +1076,12 @@ final class CompositeScanner: NSObject,
         // sens — celle qui sert à l'extraction — décide aussi de
         // l'affichage. Si le texte se lit mieux à l'envers, on
         // retourne l'image pour de vrai avant tout le reste.
-        let outcome = recognizeBestText(image: image)
+        // Réglages de lecture de Grégoire (curseurs de la vue,
+        // persistés) : appliqués à l'image SOUMISE À L'OCR,
+        // jamais à l'affichage.
+        let reading = readingSettings()
+        let outcome = recognizeBestText(
+            image: applyReadingAdjustments(image, reading))
         if outcome.upsideDown {
             image = image.oriented(.down)
         }
@@ -1093,6 +1098,7 @@ final class CompositeScanner: NSObject,
         finishInfo = "Reçu localisé : \(how)"
             + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
+            + "\nRéglages de lecture : \(readingSummary(reading))"
 
         // Lecture du scan figé (première brique de l'étape 2,
         // demandée par Grégoire le 2026-10-19 : « voir les
@@ -1453,6 +1459,65 @@ final class CompositeScanner: NSObject,
     /// non plus.
     /// Aucune étape ne déplace un pixel : la géométrie du scan
     /// redressé est intacte (rien n'est « déformé »).
+    /// Réglages de lecture (demande de Grégoire, 2026-10-20) :
+    /// contraste, netteté, exposition qu'il choisit lui-même
+    /// avec les curseurs de la vue pour l'image soumise à
+    /// l'OCR. Neutres par défaut (1 / 0 / 0) : comportement
+    /// actuel inchangé tant qu'il n'y touche pas. (Son « ISO » :
+    /// l'ISO capteur d'une caméra FaceTime ne se règle pas à
+    /// la main sous AVFoundation — l'exposition en EV est
+    /// l'équivalent qui agit réellement sur la lecture.)
+    struct ReadingSettings {
+        var contrast: Double = 1.0
+        var sharpness: Double = 0.0
+        var exposure: Double = 0.0
+    }
+
+    private func readingSettings() -> ReadingSettings {
+        let d = UserDefaults.standard
+        return ReadingSettings(
+            contrast: d.object(forKey: "ocrContrast") as? Double
+                ?? 1.0,
+            sharpness: d.object(forKey: "ocrSharpness") as? Double
+                ?? 0.0,
+            exposure: d.object(forKey: "ocrExposure") as? Double
+                ?? 0.0)
+    }
+
+    private func readingSummary(_ s: ReadingSettings) -> String {
+        "contraste \(String(format: "%.2f", s.contrast))"
+        + " · netteté \(String(format: "%.2f", s.sharpness))"
+        + " · exposition \(String(format: "%+.2f", s.exposure)) EV"
+    }
+
+    /// Applique les réglages à l'image de LECTURE — mêmes
+    /// dimensions, seuls les pixels changent : les boîtes OCR
+    /// restent valides. Ordre : exposition, contraste, netteté.
+    private func applyReadingAdjustments(
+        _ image: CIImage, _ s: ReadingSettings) -> CIImage {
+        guard s.contrast != 1.0 || s.sharpness != 0.0
+                || s.exposure != 0.0 else { return image }
+        var out = image
+        if s.exposure != 0.0 {
+            out = out.applyingFilter(
+                "CIExposureAdjust",
+                parameters: ["inputEV": s.exposure])
+        }
+        if s.contrast != 1.0 {
+            out = out.applyingFilter(
+                "CIColorControls",
+                parameters: ["inputContrast": s.contrast,
+                             "inputBrightness": 0.0,
+                             "inputSaturation": 1.0])
+        }
+        if s.sharpness != 0.0 {
+            out = out.applyingFilter(
+                "CISharpenLuminance",
+                parameters: ["inputSharpness": s.sharpness])
+        }
+        return out.cropped(to: image.extent)
+    }
+
     private func enhanceDocument(_ image: CIImage)
     -> (image: CIImage, summary: String) {
         let extent = image.extent
