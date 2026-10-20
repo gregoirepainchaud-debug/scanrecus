@@ -293,6 +293,26 @@ enum ReceiptParser {
                 where: { isSubLine(amounts[$0].lineIndex) }) {
                 score += 40
             }
+            // Signature fiscale québécoise : si une partie peut
+            // être le sous-total et que d'autres parties valent
+            // ≈ TPS (5 %) et ≈ TVQ (9,975 %) de celle-ci
+            // (± 0,02 — les terminaux arrondissent par article,
+            // ex. TVQ réelle 2,16 pour 2,1546 théorique), la
+            // somme a la structure exacte d'un vrai reçu taxé :
+            // presque impossible à obtenir par hasard. C'est le
+            // garde-fou « béton » contre les additions fortuites
+            // sur les reçus à beaucoup d'articles.
+            for (pi, pIdx) in partIdxs.enumerated() {
+                let base = amounts[pIdx].value
+                var hasTPS = false, hasTVQ = false
+                for (qi, qIdx) in partIdxs.enumerated() where qi != pi {
+                    let v = amounts[qIdx].value
+                    if abs(v - base * 0.05) <= 0.02 { hasTPS = true }
+                    if abs(v - base * 0.09975) <= 0.02 { hasTVQ = true }
+                }
+                if hasTPS && hasTVQ { score += 80 }
+                else if hasTPS || hasTVQ { score += 30 }
+            }
             // À preuve égale, le total qui siège sur la vraie
             // ligne « TOTAL » bat celui de la ligne « DÉBIT »
             // (même montant, juste en dessous — constaté au test

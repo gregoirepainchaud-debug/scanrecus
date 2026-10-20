@@ -25,6 +25,15 @@ jobs:
       - name: Version de Xcode
         run: xcodebuild -version
 
+      - name: Tests du parseur (logique d'extraction)
+        run: |
+          set -o pipefail
+          swiftc -o parser-tests \
+            ScanRecus/Logic/ReceiptParser.swift \
+            ScanRecus/Logic/QuarterHelper.swift \
+            ParserTests/main.swift 2>&1 | tee -a build.log
+          ./parser-tests 2>&1 | tee -a build.log
+
       - name: Build
         run: |
           set -o pipefail
