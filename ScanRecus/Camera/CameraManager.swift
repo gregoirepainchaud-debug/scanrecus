@@ -20,8 +20,9 @@ final class CameraManager: NSObject, @unchecked Sendable {
     private(set) var errorMessage: String?
 
     /// Diagnostic matériel (nom de la caméra, format réellement
-    /// actif, meilleur format offert) — pour trancher « le code ou
-    /// la caméra ? » quand la résolution livrée ne suit pas.
+    /// actif, meilleur format offert, meilleur format paysage) —
+    /// pour trancher « le code ou la caméra ? » quand la résolution
+    /// livrée ne suit pas.
     private(set) var formatInfo: String?
 
     /// La session est thread-safe (documentation Apple) : on peut la lire
@@ -145,6 +146,8 @@ final class CameraManager: NSObject, @unchecked Sendable {
             device.activeFormat.formatDescription)
         var best: CMVideoDimensions?
         var bestPixels = -1
+        var bestLand: CMVideoDimensions?
+        var bestLandPixels = -1
         for format in device.formats {
             let d = CMVideoFormatDescriptionGetDimensions(
                 format.formatDescription)
@@ -153,11 +156,18 @@ final class CameraManager: NSObject, @unchecked Sendable {
                 bestPixels = px
                 best = d
             }
+            if d.width > d.height, px > bestLandPixels {
+                bestLandPixels = px
+                bestLand = d
+            }
         }
         var info = "\(device.localizedName) • format actif : "
             + "\(active.width) × \(active.height)"
         if let best {
             info += " • meilleur offert : \(best.width) × \(best.height)"
+        }
+        if let bestLand {
+            info += " • meilleur paysage : \(bestLand.width) × \(bestLand.height)"
         }
         DispatchQueue.main.async { self.formatInfo = info }
     }
@@ -215,7 +225,20 @@ final class CameraManager: NSObject, @unchecked Sendable {
             CMVideoFormatDescriptionGetDimensions(
                 $0.formatDescription).width <= 2560
         }
-        preferredFormat = (capped.isEmpty ? fluid : capped)
+        let pool = capped.isEmpty ? fluid : capped
+        // Paysage d'abord : cette caméra offre aussi un format
+        // CARRÉ 1552 × 1552 (Center Stage) qui gagne en aire brute
+        // mais gaspille des pixels en hauteur, ne correspond pas à
+        // la fenêtre d'aperçu et laisse moins de largeur utile au
+        // reçu. Parmi les formats paysage (largeur > hauteur), le
+        // plus grand gagne ; repli : la plus grande aire, quel que
+        // soit le format (comportement précédent).
+        let landscape = pool.filter {
+            let d = CMVideoFormatDescriptionGetDimensions(
+                $0.formatDescription)
+            return d.width > d.height
+        }
+        preferredFormat = (landscape.isEmpty ? pool : landscape)
             .max(by: { pixels($0) < pixels($1) })
 
         let output = AVCaptureVideoDataOutput()
