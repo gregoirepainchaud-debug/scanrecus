@@ -325,6 +325,12 @@ enum ReceiptParser {
         // la preuve seulement).
         let fracOneRe = try! NSRegularExpression(
             pattern: #"^\s*1(\d{2})(?:\s*\$)?\s*$"#)
+        // Variante du journal (2026-10-20, scan 27) : la
+        // virgule devient « 1, » — le fragment se lit comme un
+        // montant complet (« 1,60 $ »). Les cents, eux, sont
+        // les bons : on recolle unités + ces cents-là.
+        let fracCommaOneRe = try! NSRegularExpression(
+            pattern: #"^\s*1[.,](\d{2})(?:\s*\$)?\s*$"#)
         var out: [(value: Double, lineIndex: Int)] = []
         let lines = text.components(separatedBy: .newlines)
         guard lines.count > 1 else { return out }
@@ -344,6 +350,10 @@ enum ReceiptParser {
                 in: b, range: b.nsRange),
                       let rb = Range(mb.range(at: 1), in: b) {
                 cents = Double(b[rb])
+            } else if let mb = fracCommaOneRe.firstMatch(
+                in: b, range: b.nsRange),
+                      let rb = Range(mb.range(at: 1), in: b) {
+                cents = Double(b[rb])
             }
             guard let cents else { continue }
             let v = whole + cents / 100
@@ -358,7 +368,7 @@ enum ReceiptParser {
     /// chiffres probables est la preuve finale ». On cherche un
     /// montant qui est la somme de 2 à 4 autres montants situés
     /// (4 seulement si la somme est structurée)
-    /// AU-DESSUS de lui (à 10 lignes près), en préférant les
+    /// AU-DESSUS de lui (à 20 lignes près), en préférant les
     /// sommes qui passent par les lignes d'impôts (TPS/TVQ) et de
     /// sous-total — la structure québécoise classique
     /// (21,60 + 1,08 + 2,16 = 24,84). Ni un montant d'impôt ni un
@@ -525,7 +535,7 @@ enum ReceiptParser {
                   !isSubLine(total.lineIndex),
                   !isPaymentLine(total.lineIndex) else { continue }
             let totalCents = Int((total.value * 100).rounded())
-            let minLine = total.lineIndex - 10
+            let minLine = total.lineIndex - 20
             for i in amounts.indices {
                 let a = amounts[i]
                 guard a.lineIndex <= total.lineIndex,

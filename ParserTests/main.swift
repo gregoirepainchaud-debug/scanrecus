@@ -680,6 +680,94 @@ if let proof = ReceiptParser.parseTotalVerified(unitesPerdues) {
     check(false, "Journal/unités perdues : aucune preuve")
 }
 
+// — 17. Journal du 2026-10-20 (build 59) : le même reçu,
+// deux nouvelles formes du même mal.
+
+// Scan 27 verbatim : « ,60 » lu « 1,60 $ » (montant complet
+// en apparence) et bloc fiscal étiré — la preuve classique
+// doit se former (fragment recollé), parties = sous-total
+// et taxes, total sur la ligne 27.
+let scan27 = """
+Postes Canada/Canada Post
+PJC574 PHARMACIE MYRIAM CHAPUT
+302-2700 BOUL LAURIER
+QUEBEC, QC GIV 2MO
+TPS/GST#119321495
+TVQ/QST#1006393299
+2026/09/30
+14:19:25
+FRANÇOIS
+CC106268
+G/W
+1
+T
+1 0 19,60 $
+19,60 $
+PP XP REG MOYEN/PP XP REG MEDIUM
+1 0 2,00 $
+2,00 $
+AUTOC DEM. SIGN/SIGN, REQ STICKER
+SOUS-TOTAL/SUPTL
+21
+1,60 $
+TPS/GST
+1,08
+TVQ/QST
+2,16
+TOTAL
+24,84 $
+Débit/Debit
+24,84 $
+"""
+expectTotal(scan27, 24.84, verified: true, "Journal/scan 27")
+if let proof = ReceiptParser.parseTotalVerified(scan27) {
+    let parts = proof.parts.map(\.value)
+    check(parts.count == 3
+          && abs(parts[0] - 21.60) < 0.001
+          && abs(parts[1] - 1.08) < 0.001
+          && abs(parts[2] - 2.16) < 0.001,
+          "Journal/scan 27 : parties attendues "
+          + "[21.60, 1.08, 2.16], obtenues \(parts)")
+    check(proof.lineIndex == 27,
+          "Journal/scan 27 : total sur la ligne 27 — "
+          + "obtenu \(proof.lineIndex)")
+} else {
+    check(false, "Journal/scan 27 : aucune preuve trouvée")
+}
+
+// Bloc étiré : les articles sont à plus de 10 lignes du
+// total — la fenêtre de la preuve (20 lignes) doit les
+// atteindre, et la somme de 4 parties structurée se forme.
+let etire = """
+MAGASIN
+1 0 19,60 $
+19,60 $
+1 0 2,00 $
+2,00 $
+NOTE A
+NOTE B
+NOTE C
+NOTE D
+NOTE E
+NOTE F
+NOTE G
+NOTE H
+TPS/GST
+1,08
+TVQ/QST
+2,16
+TOTAL
+24,84 $
+"""
+expectTotal(etire, 24.84, verified: true, "Journal/étiré")
+if let proof = ReceiptParser.parseTotalVerified(etire) {
+    check(proof.parts.count == 4,
+          "Journal/étiré : 4 parties attendues, obtenues "
+          + "\(proof.parts.count)")
+} else {
+    check(false, "Journal/étiré : aucune preuve trouvée")
+}
+
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,
       "allAmounts : un montant dans « TOTAL 24,84 »")
