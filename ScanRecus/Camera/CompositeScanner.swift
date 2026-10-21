@@ -1298,6 +1298,59 @@ final class CompositeScanner: NSObject,
         case upright, upsideDown, sideways
     }
 
+    /// JOUEUR ROTATION (jour 1, heuristique) de la table de
+    /// jeu « Entraînement IA » : propose la rotation (en
+    /// degrés appliqués à l'image) qui rend le texte lisible.
+    /// Recherche bornée : alignement par les bords de la zone
+    /// blanche, sens par les mots (quarts de tour, ≤ 4
+    /// essais), finition par les bords. Méthode autonome —
+    /// le rituel du scanner ne s'en sert pas.
+    func rotationProposal(for image: CIImage)
+    -> (degrees: Double, confidence: Float, detail: String) {
+        var work = image
+        var total: CGFloat = 0
+        var notes: [String] = []
+        func fmt(_ rad: CGFloat) -> String {
+            String(format: "%+.1f°", rad * 180 / .pi)
+        }
+        // 1) Alignement grossier par les bords (la déviation
+        //    se mesure sans lire le texte).
+        if let zone = findWhiteZone(in: work),
+           let dev = measureDeviation(zone: zone) {
+            work = rotateKeepingExtent(work, by: -dev)
+            total += -dev
+            notes.append("bords \(fmt(dev))")
+        }
+        // 2) Le sens par les mots (quarts de tour).
+        var confidence: Float = 0.1
+        for _ in 0..<4 {
+            let sense = wordSense(of: work)
+            if sense.verdict == .upright {
+                confidence = min(1, max(0.05,
+                                        sense.score / 150_000))
+                notes.append("mots : endroit")
+                break
+            }
+            let turn: CGFloat = sense.verdict == .upsideDown
+                ? .pi : .pi / 2
+            work = rotateKeepingExtent(work, by: turn)
+            total += turn
+            notes.append(sense.verdict == .upsideDown
+                         ? "mots : envers → 180°"
+                         : "mots : côté → 90°")
+        }
+        // 3) Finition par les bords.
+        if let zone = findWhiteZone(in: work),
+           let dev = measureDeviation(zone: zone),
+           abs(dev) > 0.003 {
+            work = rotateKeepingExtent(work, by: -dev)
+            total += -dev
+            notes.append("finition \(fmt(dev))")
+        }
+        return (Double(total * 180 / .pi), confidence,
+                notes.joined(separator: " · "))
+    }
+
     /// Lit le texte d'une image parfaitement horizontale ou
     /// verticale et juge son sens sur les LETTRES :
     /// (1) la direction des lettres du mot d'ancrage (la

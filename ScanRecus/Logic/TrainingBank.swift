@@ -86,6 +86,31 @@ struct BankDerived: Codable, Identifiable {
     var ts: String
 }
 
+/// Une tentative du jeu « Entraînement IA », journalisée
+/// dans jeu.jsonl (append-only, miroir Drive) : la
+/// proposition de l'IA, la correction de Grégoire et
+/// l'ÉCART — qui fait office de note. C'est la matière des
+/// cycles d'entraînement entre les passes.
+struct GameAttempt: Codable {
+    var ts: String
+    var stage: String
+    /// Le fichier de l'instance jouée (PhotoN.NN).
+    var file: String
+    var sourceNumber: Int
+    var group: Int
+    /// L'angle de génération de l'instance (vérité du deck).
+    var generationAngle: Double
+    var proposalDeg: Double
+    var confidence: Float
+    /// La correction de Grégoire (finale − proposition).
+    var correctionDeg: Double
+    var finalDeg: Double
+    /// |correction| — LA note.
+    var errorDeg: Double
+    /// Acceptée sans correction (écart < 0,05°).
+    var accepted: Bool
+}
+
 /// La banque de matériel du GÉNÉRATEUR (menu « Générer
 /// matériel ») : les frames figées de la webcam y sont
 /// coffrées telles quelles, groupées par reçu, puis chaque
@@ -196,7 +221,8 @@ final class TrainingBank {
 
     /// Le miroir du manifeste, à côté du journal des scans
     /// (dossier choisi dans la vue, sinon Drive « My Drive »).
-    private func mirrorURL() -> URL? {
+    private func mirrorURL(
+        named name: String = "banque-materiel.jsonl") -> URL? {
         let fm = FileManager.default
         var folder: URL?
         if let chosen = UserDefaults.standard.string(
@@ -219,8 +245,43 @@ final class TrainingBank {
                 }
             }
         }
-        return folder?.appendingPathComponent(
-            "banque-materiel.jsonl")
+        return folder?.appendingPathComponent(name)
+    }
+
+    /// Journalise une tentative du jeu (jeu.jsonl au
+    /// coffre + miroir « jeu-entrainement.jsonl » dans le
+    /// dossier du journal, pour relecture par Muse).
+    func appendAttempt(_ attempt: GameAttempt) {
+        guard let data = try? JSONEncoder().encode(attempt)
+        else { return }
+        var payload = data
+        payload.append(0x0A)
+        ioLock.lock()
+        defer { ioLock.unlock() }
+        let local = root.appendingPathComponent("jeu.jsonl")
+        for url in [local,
+                    mirrorURL(named: "jeu-entrainement.jsonl")]
+            .compactMap({ $0 }) {
+            if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: payload)
+            } else {
+                try? payload.write(to: url)
+            }
+        }
+    }
+
+    /// L'image d'une photo ou d'une copie de la banque
+    /// (lecture pour la table de jeu).
+    func image(forPhoto photo: BankPhoto) -> CGImage? {
+        Self.loadImage(at: resolveURL(file: photo.file,
+                                      sha: photo.sha256))
+    }
+
+    func image(forDerived entry: BankDerived) -> CGImage? {
+        Self.loadImage(at: resolveURL(file: entry.file,
+                                      sha: entry.sha256))
     }
 
     private func load() {

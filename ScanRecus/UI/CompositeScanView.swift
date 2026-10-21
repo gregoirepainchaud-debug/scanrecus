@@ -62,11 +62,14 @@ struct CompositeScanView: View {
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
+    @State private var game = GameSession()
 
     private var isDone: Bool { scanner.state == .done }
 
     /// Panneau lumineux actif hors phase figée.
-    private var lightPanelActive: Bool { scanLighting && !isDone }
+    private var lightPanelActive: Bool {
+        scanLighting && !isDone && appSection != .entrainement
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -122,7 +125,15 @@ struct CompositeScanView: View {
                                 .padding(.bottom, 14)
                         }
                     }
-                    if isDone {
+                    // Le canevas du JEU couvre la zone dans la
+                    // section Entraînement IA (l'aperçu reste
+                    // dans la hiérarchie en dessous).
+                    if appSection == .entrainement {
+                        gameCanvas
+                            .frame(width: geo.size.width,
+                                   height: geo.size.height)
+                    }
+                    if isDone, appSection != .entrainement {
                         // Le scan figé, par-dessus l'aperçu
                         // (caméra déjà coupée) : d'abord la
                         // meilleure image retenue pendant que
@@ -191,7 +202,6 @@ struct CompositeScanView: View {
                                 .tag(AppSection.materiel)
                             Text("Entraînement IA")
                                 .tag(AppSection.entrainement)
-                                .disabled(true)
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 560)
@@ -209,11 +219,7 @@ struct CompositeScanView: View {
                         if appSection == .materiel {
                             materielPanel
                         } else if appSection == .entrainement {
-                            Text("L'entraînement IA se codera "
-                                + "pendant que la banque se "
-                                + "remplit.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.secondary)
+                            gamePanel
                         } else if isDone,
                                   let ex = scanner.extraction {
                             extractionPanel(ex)
@@ -267,6 +273,9 @@ struct CompositeScanView: View {
         .onDisappear { camera.stop() }
         .onChange(of: appSection) { _, section in
             scanner.setBankingMode(section == .materiel)
+            if section == .entrainement {
+                game.prepare(bank: bank, scanner: scanner)
+            }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in
             guard appSection == .materiel,
@@ -345,6 +354,98 @@ struct CompositeScanView: View {
                     bank.removeLast()
                 }
                 .disabled(bank.photos.isEmpty)
+            }
+        }
+    }
+
+    /// Le canevas du jeu : l'instance courante (la copie
+    /// tournée + la proposition et la correction appliquées),
+    /// ajustée à la zone avec la marge du zoom-fit
+    /// automatique de la méthode (100 px ≈ 50 pt).
+    private var gameCanvas: some View {
+        Group {
+            if let img = game.displayImage {
+                Image(nsImage: NSImage(
+                    cgImage: img,
+                    size: NSSize(width: img.width,
+                                 height: img.height)))
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Text("…")
+                    .foregroundColor(.white)
+            }
+        }
+        .padding(50)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
+    }
+
+    /// Le panneau de la table de jeu — étape ROTATION :
+    /// l'IA propose, Grégoire corrige (le curseur + les pas
+    /// fins/grossiers), valide ; l'écart fait office de note
+    /// et tout est journalisé pour les cycles d'entraînement.
+    private var gamePanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if bank.derived.isEmpty {
+                Text("La banque n'a pas encore de copies "
+                    + "tournées — génère du matériel d'abord "
+                    + "(section « Générer matériel » : « Next "
+                    + "scan » fabrique les 30 copies de chaque "
+                    + "scan). Le jeu se jouera sur ces copies.")
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Entraînement IA — ROTATION · instance "
+                    + "\(game.positionText) · "
+                    + "\(game.instanceLabel)")
+                    .font(.system(size: 14, weight: .medium))
+                Text(game.statusText)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+                if game.proposalDeg != nil {
+                    HStack(spacing: 8) {
+                        Text("Correction :")
+                        Slider(value: $game.delta, in: -45...45)
+                            .frame(maxWidth: 260)
+                        Button("−90°") { game.delta -= 90 }
+                        Button("+90°") { game.delta += 90 }
+                        Button("180°") { game.delta += 180 }
+                        Button("−1°") { game.delta -= 1 }
+                        Button("−0,1°") { game.delta -= 0.1 }
+                        Button("+0,1°") { game.delta += 0.1 }
+                        Button("+1°") { game.delta += 1 }
+                        Button("À 0") { game.delta = 0 }
+                    }
+                    .font(.system(size: 13))
+                    Text("Proposition "
+                        + "\(GameSession.fmt(game.proposalDeg ?? 0))"
+                        + " · ta correction "
+                        + "\(GameSession.fmt(game.delta))"
+                        + " · finale "
+                        + "\(GameSession.fmt(game.finalDeg))"
+                        + " · écart "
+                        + "\(GameSession.fmt(abs(game.delta)))")
+                        .font(.system(size: 13,
+                                      design: .monospaced))
+                    HStack(spacing: 12) {
+                        Button("Valider et suivant") {
+                            game.validate()
+                        }
+                        .controlSize(.large)
+                        Button("Passer") { game.skip() }
+                        Button("Nouveau deck") {
+                            game.reshuffle()
+                        }
+                    }
+                } else if game.finished {
+                    Button("Nouveau deck") { game.reshuffle() }
+                        .controlSize(.large)
+                }
+                Text(game.statsText)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
             }
         }
     }
