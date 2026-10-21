@@ -51,6 +51,18 @@ struct CompositeScanView: View {
     /// l'original brut, pour comparer l'effet de l'amélioration.
     @State private var showEnhanced = true
 
+    /// Les sections de l'app (menu, 2026-10-21) : le scanner
+    /// d'origine ; « Générer matériel » — la banque de photos
+    /// d'entraînement (la webcam fige et coffre, sans rituel
+    /// ni analyse) ; « Entraînement IA » — annoncé au menu,
+    /// pas encore codé (il le sera pendant que Grégoire
+    /// génère le matériel).
+    private enum AppSection {
+        case scanner, materiel, entrainement
+    }
+    @State private var appSection: AppSection = .scanner
+    @State private var bank = TrainingBank()
+
     private var isDone: Bool { scanner.state == .done }
 
     /// Panneau lumineux actif hors phase figée.
@@ -172,12 +184,38 @@ struct CompositeScanView: View {
                             .font(.system(size: 11.5, design: .monospaced))
                             .foregroundColor(.secondary)
 
+                        HStack(alignment: .center, spacing: 14) {
+                        Picker("", selection: $appSection) {
+                            Text("Scanner").tag(AppSection.scanner)
+                            Text("Générer matériel")
+                                .tag(AppSection.materiel)
+                            Text("Entraînement IA")
+                                .tag(AppSection.entrainement)
+                                .disabled(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 560)
+                        Button("Exit") {
+                            NSApplication.shared.terminate(nil)
+                        }
+                        .controlSize(.large)
+                        }
+
                         Text(scanner.statusText)
                             .font(.system(size: 16, weight: .medium))
 
                         journalRow
 
-                        if isDone, let ex = scanner.extraction {
+                        if appSection == .materiel {
+                            materielPanel
+                        } else if appSection == .entrainement {
+                            Text("L'entraînement IA se codera "
+                                + "pendant que la banque se "
+                                + "remplit.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.secondary)
+                        } else if isDone,
+                                  let ex = scanner.extraction {
                             extractionPanel(ex)
                         }
 
@@ -227,6 +265,22 @@ struct CompositeScanView: View {
             enterFullScreen()
         }
         .onDisappear { camera.stop() }
+        .onChange(of: appSection) { _, section in
+            scanner.setBankingMode(section == .materiel)
+        }
+        .onChange(of: scanner.frozenFrameStamp) { _, _ in
+            guard appSection == .materiel,
+                  let frame = scanner.frozenRawFrame,
+                  let photo = bank.bank(cgImage: frame)
+            else { return }
+            let inGroup = bank.photos
+                .filter { $0.group == photo.group }.count
+            scanner.showStatus(
+                "Photo coffrée — reçu nº \(photo.group) : "
+                + "\(inGroup) photo(s). « Next scan » pour "
+                + "la suivante, « Reçu suivant » pour "
+                + "changer de reçu.")
+        }
         // La caméra coupe dès que le scan se fige — l'état .done
         // est publié dès le DÉBUT de l'analyse — et redémarre au
         // retour en recherche (demande de Grégoire, 2026-10-20).
@@ -252,6 +306,48 @@ struct CompositeScanView: View {
     /// contrôle n'encombrent plus l'écran, elles s'accumulent
     /// dans scanrecus-journal.txt, sur Drive idéalement.
     @AppStorage("journalFolderPath") private var journalFolderPath = ""
+
+    /// Panneau « Générer matériel » : la banque de photos
+    /// d'entraînement. La capture reste celle du scanner
+    /// (présenter un reçu → la frame se fige → elle est
+    /// coffrée automatiquement) ; ici on groupe les photos
+    /// par reçu et on surveille la banque.
+    private var materielPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Présentez un reçu : la photo se fige et se "
+                + "coffre toute seule. Groupez les photos par "
+                + "reçu — « Reçu suivant » quand vous changez "
+                + "de papier.")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            Text("Reçu nº \(bank.currentGroup)"
+                + " · photos de ce reçu : "
+                + "\(bank.photos.filter { "
+                + "$0.group == bank.currentGroup }.count)")
+                .font(.system(size: 14, weight: .medium))
+            Text("Scans uniques dans le répertoire : "
+                + "\(bank.photos.count)"
+                + " · scans générés : \(bank.derived.count)"
+                + " · total matériel : "
+                + "\(bank.totalMaterial) images"
+                + " · \(bank.receiptCount) reçu(s)"
+                + " · \(bank.sizeText)")
+                .font(.system(size: 14, weight: .medium))
+            if !bank.generationNote.isEmpty {
+                Text(bank.generationNote)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            HStack(spacing: 12) {
+                Button("Reçu suivant") { bank.nextReceipt() }
+                    .controlSize(.large)
+                Button("Retirer la dernière photo") {
+                    bank.removeLast()
+                }
+                .disabled(bank.photos.isEmpty)
+            }
+        }
+    }
 
     private var journalRow: some View {
         HStack(spacing: 8) {
@@ -356,6 +452,12 @@ struct CompositeScanView: View {
     /// Abandonne le test en cours (quel que soit l'état) et repart
     /// en recherche pour le scénario suivant.
     private func nextScan() {
+        // En « Générer matériel » : quitter un scan lance la
+        // génération de ses 30 copies tournées (arrière-plan,
+        // reçu jamais coupé) — demandé par Grégoire.
+        if appSection == .materiel, let last = bank.photos.last {
+            bank.generateDerived(for: last)
+        }
         // Le redémarrage de la caméra suit l'état (onChange) :
         // reset() republie .searching, qui relance la session.
         scanner.reset()

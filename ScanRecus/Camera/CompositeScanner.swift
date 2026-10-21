@@ -86,6 +86,23 @@ final class CompositeScanner: NSObject,
     /// Remplissage du rectangle englobant du composite (0…100).
     /// Aperçu vivant du composite pendant la capture.
     private(set) var livePreview: CGImage?
+    /// Mode « Générer matériel » (2026-10-21) : finish()
+    /// s'arrête à la frame figée — pas de rituel, pas
+    /// d'analyse — et la vue coffre la frame dans la banque
+    /// d'entraînement (TrainingBank).
+    private(set) var bankingMode = false
+    /// La frame brute figée du dernier scan (avant tout
+    /// redressement), pour la banque de matériel.
+    private(set) var frozenRawFrame: CGImage?
+    /// Compteur incrémenté à chaque frame figée (la vue s'y
+    /// abonne pour coffrer au bon moment).
+    private(set) var frozenFrameStamp = 0
+
+    func setBankingMode(_ on: Bool) { bankingMode = on }
+
+    /// Statut posé par la vue (ex. confirmation du coffrage
+    /// d'une photo de matériel).
+    func showStatus(_ text: String) { statusText = text }
     /// Le scan final : redressé, caractères à l'endroit, AMÉLIORÉ
     /// automatiquement (voir enhanceDocument).
     private(set) var finalImage: CGImage?
@@ -611,7 +628,24 @@ final class CompositeScanner: NSObject,
             guard let self, self.scanToken == token else { return }
             self.state = .done
             self.statusText = "Analyse du scan…"
-            if let frozen { self.livePreview = frozen }
+            if let frozen {
+                self.livePreview = frozen
+                self.frozenRawFrame = frozen
+                self.frozenFrameStamp += 1
+            }
+        }
+
+        // MODE « GÉNÉRER MATÉRIEL » : on s'arrête ici — la
+        // frame figée est publiée, la vue la coffre dans la
+        // banque. Ni rituel, ni analyse.
+        if bankingMode {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.scanToken == token
+                else { return }
+                self.statusText = "Frame figée — « Générer "
+                    + "matériel » : la photo part au coffre."
+            }
+            return
         }
 
         // REDRESSEMENT PAR ÉTAPES (algorithme de Grégoire,
