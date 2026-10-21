@@ -1065,7 +1065,28 @@ final class CompositeScanner: NSObject,
                 ReceiptParser.parseDate($0.text) == foundDate
             })
         }
-        addBox(lineIndex: totalLine)
+        // Le carré du total doit contenir un MONTANT, jamais le
+        // seul mot « TOTAL » (demande de Grégoire, 2026-10-20) :
+        // quand la ligne rapportée ne porte pas le montant
+        // (étiquette seule, montant lu à la ligne suivante — le
+        // cas du repli mot-clé), on vise la ligne voisine qui
+        // le contient.
+        func amountLine(_ idx: Int?, value: Double?) -> Int? {
+            guard let idx, let value else { return idx }
+            func hasAmount(_ i: Int) -> Bool {
+                lines.indices.contains(i)
+                    && ReceiptParser.allAmounts(lines[i].text)
+                        .contains { abs($0.value - value) < 0.005 }
+            }
+            if hasAmount(idx) { return idx }
+            if hasAmount(idx + 1) { return idx + 1 }
+            if hasAmount(idx - 1) { return idx - 1 }
+            let near = lines.indices.filter { hasAmount($0) }
+            return near.min(by: {
+                abs($0 - idx) < abs($1 - idx)
+            }) ?? idx
+        }
+        addBox(lineIndex: amountLine(totalLine, value: total))
 
         return ScanExtraction(
             text: text,

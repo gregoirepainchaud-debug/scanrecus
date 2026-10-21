@@ -578,6 +578,34 @@ check(ReceiptParser.parseTotal(debitNu)?.lineIndex == 2,
       + "(2), obtenue "
       + "\(ReceiptParser.parseTotal(debitNu)?.lineIndex ?? -1)")
 
+// — 15. Journal du 2026-10-20 (build 57) : la virgule du
+// sous-total fragmenté lue comme un « 1 » (« 21 » / « 160 $ »)
+// — la preuve doit se former quand même, et le total doit
+// siéger sur le montant sous TOTAL.
+let virguleUn = """
+MAGASIN
+ARTICLE 19,60
+SOUS-TOTAL/SUPTL
+21
+160 $
+TPS/GST
+1,08
+TVQ/QST
+2,16
+TOTAL
+24,84
+Débit/Debit
+24,84 $
+"""
+expectTotal(virguleUn, 24.84, verified: true, "Journal/virgule-1")
+if let proof = ReceiptParser.parseTotalVerified(virguleUn) {
+    check(proof.lineIndex == 10,
+          "Journal/virgule-1 : le total doit siéger sur le "
+          + "montant sous TOTAL (10) — obtenu \(proof.lineIndex)")
+} else {
+    check(false, "Journal/virgule-1 : aucune preuve trouvée")
+}
+
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,
       "allAmounts : un montant dans « TOTAL 24,84 »")

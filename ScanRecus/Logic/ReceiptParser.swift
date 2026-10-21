@@ -312,6 +312,12 @@ enum ReceiptParser {
             pattern: #"^\s*\$?\s*(\d{1,6})\s*$"#)
         let fracRe = try! NSRegularExpression(
             pattern: #"^\s*[.,](\d{2})(?:\s*\$)?\s*$"#)
+        // Variante vue au journal (2026-10-20) : la virgule du
+        // fragment est lue comme un « 1 » — « ,60 » devient
+        // « 160 $ ». Même recolle, mêmes garde-fous (bassin de
+        // la preuve seulement).
+        let fracOneRe = try! NSRegularExpression(
+            pattern: #"^\s*1(\d{2})(?:\s*\$)?\s*$"#)
         var out: [(value: Double, lineIndex: Int)] = []
         let lines = text.components(separatedBy: .newlines)
         guard lines.count > 1 else { return out }
@@ -320,12 +326,19 @@ enum ReceiptParser {
             guard let ma = wholeRe.firstMatch(in: a,
                                               range: a.nsRange),
                   let ra = Range(ma.range(at: 1), in: a),
-                  let mb = fracRe.firstMatch(in: b,
-                                             range: b.nsRange),
-                  let rb = Range(mb.range(at: 1), in: b),
-                  let whole = Double(a[ra]),
-                  let cents = Double(b[rb])
+                  let whole = Double(a[ra])
             else { continue }
+            var cents: Double?
+            if let mb = fracRe.firstMatch(in: b,
+                                          range: b.nsRange),
+               let rb = Range(mb.range(at: 1), in: b) {
+                cents = Double(b[rb])
+            } else if let mb = fracOneRe.firstMatch(
+                in: b, range: b.nsRange),
+                      let rb = Range(mb.range(at: 1), in: b) {
+                cents = Double(b[rb])
+            }
+            guard let cents else { continue }
             let v = whole + cents / 100
             if v > 0, v < 100_000 { out.append((v, i)) }
         }
