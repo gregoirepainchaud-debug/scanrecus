@@ -1,0 +1,1 @@
+553:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1333:20: error: call can throw, but it is not marked with 'try' and the error is not handled
