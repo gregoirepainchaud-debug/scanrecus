@@ -140,6 +140,14 @@ struct CompositeScanView: View {
                                     .padding(10)
                             }
                         }
+                        // Épinglé à TOUTE la zone disponible
+                        // (sinon l'image se retrouvait à
+                        // droite, tassée sur son contenu —
+                        // vu par Grégoire pendant la phase
+                        // de test, 2026-10-21) : l'image reste
+                        // maximisée, au centre.
+                        .frame(width: geo.size.width,
+                               height: geo.size.height)
                     }
                 }
             }

@@ -692,123 +692,192 @@ final class CompositeScanner: NSObject,
             else { return }
         }
 
-        // Étape 3 — si la bordure supérieure est plus longue
+        // Étape 3 — l'INCLINAISON d'abord (ordre inversé à
+        // la demande de Grégoire, 2026-10-21) : l'angle du
+        // bord supérieur, et l'image tourne de son contraire.
+        // Le rectangle suivi tourne avec l'image.
+        if let q = quad {
+            let angle = quadEdges(q, imageSize: work.extent.size)
+                .topAngle
+            if abs(angle) > 0.1 * .pi / 180 {
+                let oldSize = work.extent.size
+                work = rotateKeepingExtent(work, by: -angle)
+                quad = mapQuad(q, oldSize: oldSize, angle: -angle)
+                trace.append(String(
+                    format: "Étape 3 — inclinaison %+.1f° : "
+                        + "rotation de %+.1f°",
+                    Double(angle) * 180 / .pi,
+                    Double(-angle) * 180 / .pi))
+                guard showStep(work, String(
+                    format: "Étape 3 — inclinaison de %+.1f° "
+                        + "corrigée",
+                    Double(angle) * 180 / .pi))
+                else { return }
+            } else {
+                trace.append("Étape 3 — aucune inclinaison")
+                guard showStep(work,
+                    "Étape 3 — le rectangle est déjà horizontal")
+                else { return }
+            }
+        }
+
+        // Étape 4 — si la bordure supérieure est plus longue
         // que la bordure de droite, le papier est couché :
-        // rotation de 90° (les coins suivent l'image).
+        // rotation de 90°.
         if let q = quad {
             let e = quadEdges(q, imageSize: work.extent.size)
             if e.topLength > e.rightLength {
+                let oldSize = work.extent.size
                 work = rotateKeepingExtent(work, by: .pi / 2)
-                quad = q.map { CGPoint(x: 1 - $0.y, y: $0.x) }
-                trace.append("Étape 3 — bord supérieur plus "
+                quad = mapQuad(q, oldSize: oldSize, angle: .pi / 2)
+                trace.append("Étape 4 — bord supérieur plus "
                     + "long que le bord droit : rotation de 90°")
-                guard showStep(work, "Étape 3 — bord supérieur "
+                guard showStep(work, "Étape 4 — bord supérieur "
                     + "plus long que le bord droit : "
                     + "rotation de 90°")
                 else { return }
             } else {
-                trace.append("Étape 3 — bord supérieur déjà "
+                trace.append("Étape 4 — bord supérieur déjà "
                     + "le plus court : pas de rotation")
-                guard showStep(work, "Étape 3 — le bord "
+                guard showStep(work, "Étape 4 — le bord "
                     + "supérieur est déjà le plus court")
                 else { return }
             }
         }
 
-        // Étape 4 — l'angle du rectangle : penché de +X° ?
-        // on tourne de −X°.
-        if let q = quad {
-            let angle = quadEdges(q, imageSize: work.extent.size)
-                .topAngle
-            if abs(angle) > 0.1 * .pi / 180 {
-                work = rotateKeepingExtent(work, by: -angle)
-                trace.append(String(
-                    format: "Étape 4 — rectangle penché de "
-                        + "%+.1f° : rotation de %+.1f°",
-                    Double(angle) * 180 / .pi,
-                    Double(-angle) * 180 / .pi))
-                guard showStep(work, String(
-                    format: "Étape 4 — rectangle penché de "
-                        + "%+.1f° : rotation contraire",
-                    Double(angle) * 180 / .pi))
-                else { return }
-            } else {
-                trace.append("Étape 4 — rectangle déjà horizontal")
-                guard showStep(work,
-                    "Étape 4 — le rectangle est déjà horizontal")
-                else { return }
-            }
-        }
-
-        // Étape 5 — le texte est-il lisible par un humain ?
-        // Sinon on tourne de 180°, on reteste ; sinon de
-        // 90°, on reteste ; sinon de 180°, on reteste : les
-        // quatre sens y passent. (Le choix du test de
-        // lisibilité a été laissé à Muse : voir readability.)
-        let turns: [CGFloat] = [0, .pi, .pi / 2, .pi]
-        var current = work
-        var bestImage = work
-        var bestScore: Float = -1
+        // Étape 5 — le SENS, jugé sur les MOTS (demande de
+        // Grégoire, 2026-10-21) : une fois l'image
+        // parfaitement horizontale ou verticale, la lecture
+        // est excellente — même à l'envers, et les chiffres
+        // ne distinguent pas le sens. On lit donc les
+        // LETTRES : le mot du commerce va-t-il de sa première
+        // à sa dernière lettre de gauche à droite (P → A
+        // pour « Postes Canada ») quand on lit depuis la
+        // gauche absolue ? Le texte se déroule-t-il de haut
+        // en bas ou de bas en haut ? Verdicts : bon sens /
+        // à l'envers (rotation de 180°) / de côté (rotation
+        // de 90°), retestés à chaque position.
         var placed = false
-        for i in turns.indices {
-            if turns[i] != 0 {
-                current = rotateKeepingExtent(current,
-                                              by: turns[i])
+        var attempts = 0
+        var bestSense: (image: CIImage, quad: [CGPoint]?,
+                        score: Float) = (work, quad, -1)
+        while attempts < 4 {
+            attempts += 1
+            let sense = wordSense(of: work)
+            trace.append("Étape 5.\(attempts) — mots : "
+                + sense.summary)
+            if sense.score > bestSense.score {
+                bestSense = (work, quad, sense.score)
             }
-            let r = readability(of: current)
-            trace.append("Étape 5.\(i + 1) — lisibilité : "
-                + "\(r.amounts) montant(s), preuve "
-                + "\(r.proof ? "OUI" : "non"), commerce "
-                + "\(r.merchant ? "OUI" : "non"), date "
-                + "\(r.date ? "OUI" : "non"), score "
-                + "\(Int(r.score))"
-                + " → \(r.readable ? "LISIBLE" : "illisible")")
-            if r.score > bestScore {
-                bestScore = r.score
-                bestImage = current
-            }
-            guard showStep(current, "Étape 5.\(i + 1) — texte "
-                + "\(r.readable ? "lisible ✓" : "illisible") "
-                + "(\(r.amounts) montants)")
+            guard showStep(work, "Étape 5.\(attempts) — "
+                + sense.status)
             else { return }
-            if r.readable {
-                work = current
+            if sense.verdict == .upright {
                 placed = true
                 break
             }
+            let turn: CGFloat = sense.verdict == .upsideDown
+                ? .pi : .pi / 2
+            let oldSize = work.extent.size
+            work = rotateKeepingExtent(work, by: turn)
+            if let q = quad {
+                quad = mapQuad(q, oldSize: oldSize, angle: turn)
+            }
+            trace.append("Étape 5.\(attempts) — rotation de "
+                + "\(turn == .pi ? "180" : "90")°")
         }
         if !placed {
-            work = bestImage
-            trace.append("Étape 5 — aucun sens franchement "
-                + "lisible : on garde le meilleur score")
+            work = bestSense.image
+            quad = bestSense.quad
+            trace.append("Étape 5 — aucun sens concluant : "
+                + "meilleur score de mots gardé")
         }
 
-        // Fin de la phase de test : l'image redressée reste
-        // affichée ; l'analyse au-delà est suspendue.
-        let finalCG = ciContext.createCGImage(work,
-                                              from: work.extent)
+        // Étape 6 — le reçu est DÉCOUPÉ sur son rectangle
+        // (suivi à travers toutes les rotations) pour
+        // éliminer le fond.
+        if let q = quad {
+            let ext = work.extent
+            var rect = CGRect(
+                x: ext.minX + (q.map(\.x).min() ?? 0) * ext.width,
+                y: ext.minY + (q.map(\.y).min() ?? 0) * ext.height,
+                width: ((q.map(\.x).max() ?? 0)
+                        - (q.map(\.x).min() ?? 0)) * ext.width,
+                height: ((q.map(\.y).max() ?? 0)
+                         - (q.map(\.y).min() ?? 0)) * ext.height)
+            rect = rect.insetBy(dx: -0.01 * rect.width,
+                                dy: -0.01 * rect.height)
+                .intersection(ext)
+            if rect.width > 40, rect.height > 40 {
+                work = atOrigin(work.cropped(to: rect))
+                trace.append("Étape 6 — reçu découpé "
+                    + "(fond éliminé)")
+                guard showStep(work,
+                    "Étape 6 — reçu découpé, fond éliminé")
+                else { return }
+            }
+        } else {
+            trace.append("Étape 6 — pas de rectangle : "
+                + "pas de découpage")
+            guard showStep(work, "Étape 6 — pas de découpage "
+                + "(aucun rectangle)")
+            else { return }
+        }
+
+        // Étape 7 — ENFIN (pas avant) l'analyse : nom de la
+        // compagnie, date et montant total, par les
+        // algorithmes existants, sur le reçu redressé et
+        // découpé. C'est le retour du finale suspendu au
+        // build 65, branché au bout du rituel.
+        let outcome = recognizeBestText(
+            image: sharpenForReading(work))
+        var image = work
+        if outcome.correction != .up {
+            image = image.oriented(outcome.correction)
+            trace.append("Analyse — l'arbitre de lecture a "
+                + "retourné l'image de 180°")
+        }
+        let rawCG = ciContext.createCGImage(image,
+                                            from: image.extent)
+        let enhanced = enhanceDocument(image)
+        let finalCG = ciContext.createCGImage(enhanced.image,
+            from: enhanced.image.extent)
+        var extraction = extractFields(from: outcome)
+        if let finalCG {
+            let fw = CGFloat(finalCG.width)
+            let fh = CGFloat(finalCG.height)
+            func crop(_ box: CGRect) -> CGImage {
+                let rect = CGRect(
+                    x: box.minX * fw,
+                    y: (1 - box.maxY) * fh,
+                    width: box.width * fw,
+                    height: box.height * fh).integral
+                    .intersection(CGRect(x: 0, y: 0,
+                                         width: fw, height: fh))
+                return finalCG.cropping(to: rect) ?? finalCG
+            }
+            extraction.answerCrops = extraction.answerBoxes
+                .map(crop)
+        }
         finishInfo = "Image finale : \(sourceHow)"
-            + "\nRedressement par étapes (phase de test) :\n"
+            + "\nRedressement par étapes :\n"
             + trace.joined(separator: "\n")
-            + "\nScan final : \(Int(work.extent.width)) × "
-            + "\(Int(work.extent.height)) px"
-            + "\nAnalyse suspendue après le redressement."
+            + "\nScan final : \(Int(image.extent.width)) × "
+            + "\(Int(image.extent.height)) px"
+            + "\nAmélioration auto : \(enhanced.summary)"
+            + "\nOrientation : \(lastArbiterSummary)"
         let stats = buildStats()
-        appendRitualToJournal(stats: stats, trace: trace)
+        appendToJournal(stats: stats, extraction: extraction)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.scanToken == token else { return }
             self.state = .done
-            self.statusText = placed
-                ? "Reçu redressé, texte lisible — analyse "
-                    + "suspendue (phase de test)"
-                : "Reçu redressé au mieux — analyse suspendue "
-                    + "(phase de test)"
+            self.statusText = "Scan terminé — voici le scan."
             self.progress = 1
             self.finalImage = finalCG
-            self.rawFinalImage = finalCG
+            self.rawFinalImage = rawCG
             self.livePreview = finalCG
-            self.extraction = nil
+            self.extraction = extraction
             self.statsText = stats
         }
     }
@@ -1130,6 +1199,192 @@ final class CompositeScanner: NSObject,
             || (merchantHit && amounts >= 4 && weighted >= 300)
         return (readable, score, amounts, proof, merchantHit,
                 dateHit)
+    }
+
+    /// Fait suivre un quadrilatère normalisé à travers la
+    /// même rotation que rotateKeepingExtent applique à
+    /// l'image (rotation autour du centre, puis étendue
+    /// recadrée à l'origine) : les coins du rectangle du
+    /// reçu restent donc sur le papier à chaque étape.
+    private func mapQuad(_ quad: [CGPoint], oldSize: CGSize,
+                         angle: CGFloat) -> [CGPoint] {
+        let cx = oldSize.width / 2, cy = oldSize.height / 2
+        func rot(_ p: CGPoint) -> CGPoint {
+            let dx = p.x - cx, dy = p.y - cy
+            return CGPoint(
+                x: cx + dx * cos(angle) - dy * sin(angle),
+                y: cy + dx * sin(angle) + dy * cos(angle))
+        }
+        let img = [CGPoint(x: 0, y: 0),
+                   CGPoint(x: oldSize.width, y: 0),
+                   CGPoint(x: oldSize.width, y: oldSize.height),
+                   CGPoint(x: 0, y: oldSize.height)].map(rot)
+        let minX = img.map(\.x).min() ?? 0
+        let minY = img.map(\.y).min() ?? 0
+        let newW = (img.map(\.x).max() ?? 0) - minX
+        let newH = (img.map(\.y).max() ?? 0) - minY
+        guard newW > 0, newH > 0 else { return quad }
+        return quad.map { p in
+            let r = rot(CGPoint(x: p.x * oldSize.width,
+                                y: p.y * oldSize.height))
+            return CGPoint(x: (r.x - minX) / newW,
+                           y: (r.y - minY) / newH)
+        }
+    }
+
+    /// Verdict de sens d'après les MOTS (voir l'étape 5 de
+    /// finish) : à l'endroit / à l'envers / de côté, avec le
+    /// résumé des signaux pour le journal.
+    private enum SenseVerdict {
+        case upright, upsideDown, sideways
+    }
+
+    /// Lit le texte d'une image parfaitement horizontale ou
+    /// verticale et juge son sens sur les LETTRES :
+    /// (1) la direction des lettres du mot d'ancrage (la
+    /// ligne du commerce, sinon la plus longue) — ses
+    /// première et dernière lettres, lues depuis la gauche
+    /// absolue : de gauche à droite (P → A) = à l'endroit,
+    /// de droite à gauche = à l'envers, à la verticale =
+    /// de côté ; (2) le déroulement des lignes — l'ordre
+    /// retourné suit-il le haut→bas spatial, ou le
+    /// bas→haut ? ; (3) en appoint, les mots du lexique des
+    /// reçus, le commerce du répertoire et la preuve.
+    private func wordSense(of image: CIImage)
+    -> (verdict: SenseVerdict, score: Float,
+        summary: String, status: String) {
+        let targetWidth: CGFloat = 720
+        let k = targetWidth / max(image.extent.width, 1)
+        let small = k < 1
+            ? image.transformed(
+                by: CGAffineTransform(scaleX: k, y: k))
+            : image
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["fr-FR", "en-US"]
+        let handler = VNImageRequestHandler(ciImage: small,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let results = request.results, !results.isEmpty
+        else {
+            return (.sideways, 0,
+                    "aucune ligne reconnue",
+                    "aucun texte lu → de côté ?")
+        }
+        let lines: [(text: String, box: CGRect,
+                     obs: VNRecognizedText)] = results
+            .compactMap { o in
+                guard let c = o.topCandidates(1).first
+                else { return nil }
+                return (c.string, o.boundingBox, c)
+            }
+        guard !lines.isEmpty else {
+            return (.sideways, 0, "aucune ligne retenue",
+                    "aucun texte lu → de côté ?")
+        }
+        let fullText = lines.map(\.text)
+            .joined(separator: "\n")
+        let folded = fullText.lowercased()
+        let lexicon = ["total", "sous-total", "tps", "tvq",
+                       "gst", "qst", "merci", "reçu", "recu",
+                       "débit", "debit", "crédit", "credit",
+                       "postes", "canada", "facture", "client",
+                       "article", "quantité", "quantite",
+                       "paiement", "téléphone", "telephone",
+                       "bonjour", "commande", "livraison"]
+        let wordHits = lexicon
+            .filter { folded.contains($0) }.count
+        let merchant = ReceiptParser
+            .parseMerchantMatch(fullText)
+        let proof = ReceiptParser
+            .parseTotalVerified(fullText) != nil
+        let dateHit = ReceiptParser.parseDate(fullText) != nil
+        // Déroulement des lignes (ordre retourné contre
+        // positions, y montant : le haut a le plus grand y).
+        var down = 0, up = 0
+        if lines.count >= 2 {
+            for i in 1..<lines.count {
+                if lines[i].box.midY < lines[i - 1].box.midY {
+                    down += 1
+                } else if lines[i].box.midY
+                            > lines[i - 1].box.midY {
+                    up += 1
+                }
+            }
+        }
+        let unrollsDown: Bool? = lines.count >= 3
+            ? (down > up ? true : (up > down ? false : nil))
+            : nil
+        // Direction des lettres sur la ligne d'ancrage.
+        var anchor = lines.max {
+            $0.text.count < $1.text.count
+        }
+        if let m = merchant,
+           lines.indices.contains(m.lineIndex) {
+            anchor = lines[m.lineIndex]
+        }
+        func charBox(_ t: VNRecognizedText, first: Bool)
+        -> CGRect? {
+            let str = t.string
+            guard !str.isEmpty else { return nil }
+            let idx = first ? str.startIndex
+                : str.index(before: str.endIndex)
+            let range = idx..<str.index(after: idx)
+            return t.boundingBox(for: range)?.boundingBox
+        }
+        var letters = "?"
+        var ltr: Bool? = nil
+        if let a = anchor,
+           let f = charBox(a.obs, first: true),
+           let l = charBox(a.obs, first: false) {
+            let dx = l.midX - f.midX, dy = l.midY - f.midY
+            if abs(dy) > 2 * abs(dx) {
+                letters = "verticales"
+            } else {
+                ltr = dx > 0
+                letters = ltr == true ? "gauche→droite"
+                                      : "droite→gauche"
+            }
+        }
+        let wordsStrong = merchant != nil || wordHits >= 3
+            || proof
+        let verdict: SenseVerdict
+        if letters == "verticales" {
+            verdict = .sideways
+        } else if let l = ltr, let d = unrollsDown {
+            if l && d {
+                verdict = .upright
+            } else {
+                // !l && !d : le portrait franc de l'envers.
+                // Signaux mixtes : l'envers brouille l'un
+                // des deux — demi-tour, la boucle reteste.
+                verdict = .upsideDown
+            }
+        } else if wordsStrong {
+            verdict = .upright
+        } else {
+            verdict = .sideways
+        }
+        var score: Float = Float(wordHits) * 500
+        if merchant != nil { score += 5_000 }
+        if dateHit { score += 2_000 }
+        if proof { score += 100_000 }
+        if verdict == .upright { score += 50_000 }
+        let summary = "lexique \(wordHits), commerce "
+            + (merchant?.name ?? "—")
+            + ", lettres \(letters), déroulement "
+            + (unrollsDown == nil ? "?"
+               : (unrollsDown! ? "haut→bas" : "bas→haut"))
+            + ", preuve \(proof ? "OUI" : "non") → "
+            + (verdict == .upright ? "À L'ENDROIT"
+               : verdict == .upsideDown ? "À L'ENVERS"
+               : "DE CÔTÉ")
+        let status = verdict == .upright
+            ? "texte à l'endroit ✓ (mots lus : \(wordHits))"
+            : verdict == .upsideDown
+                ? "texte à l'envers → rotation de 180°"
+                : "texte de côté → rotation de 90°"
+        return (verdict, score, summary, status)
     }
 
     // MARK: - Lecture du scan (OCR précis + champs, affichage seulement)
