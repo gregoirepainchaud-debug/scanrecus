@@ -1,0 +1,4 @@
+223:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1592:5: error: expected declaration
+229:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1592:5: error: expected declaration
+235:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1592:5: error: Expected declaration
+245:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1592:5: error: Expected declaration
