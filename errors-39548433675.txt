@@ -1,0 +1,1 @@
+535:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:1611:48: error: type 'CGImageAlphaInfo' has no member 'only'
