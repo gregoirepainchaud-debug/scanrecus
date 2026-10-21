@@ -657,20 +657,25 @@ final class CompositeScanner: NSObject,
                 y: -image.extent.minY))
         }
 
-        // Étape 1 — on FLIPPE l'image : miroir gauche-droite
-        // (la rotation de 180° autour de l'axe vertical de
-        // l'image qui la met en miroir — précisée par
-        // Grégoire le 2026-10-21). Toutes les étapes
-        // suivantes travaillent sur cette image flippée.
-        var work = atOrigin(sample.transformed(
-            by: CGAffineTransform(scaleX: -1, y: 1)))
-        trace.append("Étape 1 — image flippée (miroir)")
-        guard showStep(work, "Étape 1 — image flippée (miroir)")
+        // Étape 1 — l'image de départ, TELLE QUELLE.
+        // (Le flip-miroir essayé au build 65 est retiré :
+        // Grégoire a vu DEUX flips à l'écran — celui de
+        // l'aperçu et celui-ci — et l'image brute n'a en
+        // fait jamais eu besoin d'être flippée pour être
+        // lue. Build 67.)
+        var work = atOrigin(sample)
+        trace.append("Étape 1 — image de départ (sans flip)")
+        guard showStep(work, "Étape 1 — image de départ")
         else { return }
 
-        // Étape 2 — on cherche la forme rectangulaire aux
-        // bords blancs (le papier), surlignée en jaune.
-        var quad = findPaperQuad(in: work)
+        // Étape 2 — on cherche la forme aux bords blancs
+        // (le papier) et on la REFERME en un rectangle
+        // parfait qui l'affleure (la détection brute rend
+        // des trapèzes) ; c'est ce rectangle qui est
+        // surligné en jaune et qui sert aux mesures.
+        var quad = findPaperQuad(in: work).map {
+            rectifyQuad($0, imageSize: work.extent.size)
+        }
         if let quad {
             trace.append(
                 "Étape 2 — rectangle aux bords blancs trouvé")
@@ -970,6 +975,48 @@ final class CompositeScanner: NSObject,
             return best.quad
         }
         return passing.max { $0.area < $1.area }?.quad
+    }
+
+    /// Referme une forme détectée en un rectangle PARFAIT
+    /// qui l'affleure (demande de Grégoire, 2026-10-21 :
+    /// la boîte « doit demeurer parfaitement rectangulaire
+    /// et se refermer sur l'objet détecté en l'affleurant
+    /// au mieux de ses capacités de détection » — la
+    /// détection brute rend des trapèzes dès que le papier
+    /// est vu en perspective). Méthode : tourner les coins
+    /// de l'angle du bord supérieur autour du centroïde,
+    /// prendre la boîte englobante dans ce repère, ramener
+    /// ses coins dans l'image. Rend les coins normalisés
+    /// [haut-gauche, haut-droit, bas-droit, bas-gauche].
+    private func rectifyQuad(_ quad: [CGPoint],
+                             imageSize: CGSize) -> [CGPoint] {
+        let pts = quad.map {
+            CGPoint(x: $0.x * imageSize.width,
+                    y: $0.y * imageSize.height)
+        }
+        let angle = quadEdges(quad, imageSize: imageSize)
+            .topAngle
+        let c = centroid(pts)
+        func rot(_ p: CGPoint, _ a: CGFloat) -> CGPoint {
+            let dx = p.x - c.x, dy = p.y - c.y
+            return CGPoint(
+                x: c.x + dx * cos(a) - dy * sin(a),
+                y: c.y + dx * sin(a) + dy * cos(a))
+        }
+        let flat = pts.map { rot($0, -angle) }
+        let minX = flat.map(\.x).min() ?? 0
+        let maxX = flat.map(\.x).max() ?? 0
+        let minY = flat.map(\.y).min() ?? 0
+        let maxY = flat.map(\.y).max() ?? 0
+        let corners = [CGPoint(x: minX, y: maxY),
+                       CGPoint(x: maxX, y: maxY),
+                       CGPoint(x: maxX, y: minY),
+                       CGPoint(x: minX, y: minY)]
+        return corners.map { p in
+            let q = rot(p, angle)
+            return CGPoint(x: q.x / imageSize.width,
+                           y: q.y / imageSize.height)
+        }
     }
 
     /// Les bords « du haut » et « de droite » d'un
