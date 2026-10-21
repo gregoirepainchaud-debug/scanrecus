@@ -1,0 +1,1 @@
+524:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:381:39: error: cannot find type 'CIContext' in scope
