@@ -757,7 +757,11 @@ final class CompositeScanner: NSObject,
             }
             let r = readability(of: current)
             trace.append("Étape 5.\(i + 1) — lisibilité : "
-                + "\(r.amounts) montant(s), score \(Int(r.score))"
+                + "\(r.amounts) montant(s), preuve "
+                + "\(r.proof ? "OUI" : "non"), commerce "
+                + "\(r.merchant ? "OUI" : "non"), date "
+                + "\(r.date ? "OUI" : "non"), score "
+                + "\(Int(r.score))"
                 + " → \(r.readable ? "LISIBLE" : "illisible")")
             if r.score > bestScore {
                 bestScore = r.score
@@ -1056,8 +1060,13 @@ final class CompositeScanner: NSObject,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast
                 .rawValue) else { return nil }
         ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        // Le contexte Quartz est en y MONTANT, comme
+        // l'espace normalisé des coins : aucun retournement
+        // ici — le (1 - y) du build 65 dessinait la boîte
+        // MIROITÉE à la verticale (Grégoire, build 67 : la
+        // boîte « au-dessus de l'objet », angle à l'envers).
         let pts = quad.map {
-            CGPoint(x: $0.x * w, y: (1 - $0.y) * h)
+            CGPoint(x: $0.x * w, y: $0.y * h)
         }
         ctx.setStrokeColor(red: 1, green: 0.85, blue: 0,
                            alpha: 1)
@@ -1072,14 +1081,20 @@ final class CompositeScanner: NSObject,
 
     /// Test « le texte est-il lisible par un humain ? » —
     /// le choix du test a été laissé à Muse par Grégoire
-    /// (2026-10-21) : une lecture précise sur copie réduite ;
-    /// lisible si elle rapporte au moins 2 montants (le
-    /// signal le plus fort d'un reçu à l'endroit) et un
-    /// texte suivi raisonnable (confiance × longueur). Le
-    /// score sert à garder le meilleur sens si aucun ne
-    /// passe franchement.
+    /// (2026-10-21). CORRIGÉ au build 68 : les montants ne
+    /// suffisent pas — Vision lit les chiffres à l'envers
+    /// étonnamment bien (build 67 : 9 montants et « LISIBLE »
+    /// sur un reçu presque complètement à l'envers, vu par
+    /// Grégoire). Le test est donc STRUCTUREL : lisible si
+    /// la lecture produit la PREUVE fiscale du total
+    /// (impossible à l'envers : les parties de la preuve se
+    /// retrouvent sous le total), ou le commerce du
+    /// répertoire ET la date ensemble. Le score (qui sert à
+    /// garder le meilleur sens si aucun ne passe) reflète
+    /// la même hiérarchie.
     private func readability(of image: CIImage)
-    -> (readable: Bool, score: Float, amounts: Int) {
+    -> (readable: Bool, score: Float, amounts: Int,
+        proof: Bool, merchant: Bool, date: Bool) {
         let targetWidth: CGFloat = 720
         let k = targetWidth / max(image.extent.width, 1)
         let small = k < 1
@@ -1092,7 +1107,7 @@ final class CompositeScanner: NSObject,
         let handler = VNImageRequestHandler(ciImage: small,
                                             options: [:])
         guard (try? handler.perform([request])) != nil
-        else { return (false, 0, 0) }
+        else { return (false, 0, 0, false, false, false) }
         var weighted: Float = 0
         var text = ""
         for obs in request.results ?? [] {
@@ -1102,9 +1117,19 @@ final class CompositeScanner: NSObject,
             }
         }
         let amounts = ReceiptParser.allAmounts(text).count
-        let readable = amounts >= 2 && weighted >= 60
-        return (readable, weighted + Float(amounts) * 1000,
-                amounts)
+        let proof = ReceiptParser.parseTotalVerified(text) != nil
+        let merchantHit = ReceiptParser
+            .parseMerchantMatch(text) != nil
+        let dateHit = ReceiptParser.parseDate(text) != nil
+        var score = weighted + Float(amounts) * 1000
+        if proof { score += 100_000 }
+        if merchantHit { score += 5_000 }
+        if dateHit { score += 2_000 }
+        let readable = proof
+            || (merchantHit && dateHit && amounts >= 2)
+            || (merchantHit && amounts >= 4 && weighted >= 300)
+        return (readable, score, amounts, proof, merchantHit,
+                dateHit)
     }
 
     // MARK: - Lecture du scan (OCR précis + champs, affichage seulement)
