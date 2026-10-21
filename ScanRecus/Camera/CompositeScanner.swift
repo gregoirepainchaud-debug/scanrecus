@@ -137,6 +137,7 @@ final class CompositeScanner: NSObject,
     /// l'amélioration), ajoutées aux statistiques par buildStats().
     private var finishInfo: String?
     private var lastArbiterSummary = ""
+    private var lastQuadSummary = ""
 
     // Statistiques
     private var framesSeen = 0
@@ -680,14 +681,16 @@ final class CompositeScanner: NSObject,
         }
         if let quad {
             trace.append(
-                "Étape 2 — rectangle aux bords blancs trouvé")
+                "Étape 2 — rectangle aux bords blancs trouvé "
+                + "(\(lastQuadSummary))")
             let shown = drawQuad(quad, on: work)
                 .map { CIImage(cgImage: $0) } ?? work
             guard showStep(shown,
                 "Étape 2 — rectangle du reçu (surligné en jaune)")
             else { return }
         } else {
-            trace.append("Étape 2 — aucun rectangle blanc trouvé")
+            trace.append("Étape 2 — aucun rectangle blanc "
+                + "trouvé (\(lastQuadSummary))")
             guard showStep(work,
                 "Étape 2 — aucun rectangle blanc trouvé, "
                 + "on continue sans")
@@ -1013,19 +1016,56 @@ final class CompositeScanner: NSObject,
         for quad in candidates {
             let ev = paperEvidence(frame: image, quad: quad,
                                    textBoxes: textBoxes)
-            if ev.ok {
+            if ev.ok, ev.textCount >= 3 {
                 passing.append((quad, ev.textCount,
                                 abs(shoelace(quad))))
             }
         }
-        let withText = passing.filter { $0.texts >= 3 }
-        if let best = withText.sorted(by: { a, b in
-            a.texts != b.texts ? a.texts > b.texts
-                               : a.area < b.area
-        }).first {
-            return best.quad
+        guard !passing.isEmpty else {
+            lastQuadSummary = "\(candidates.count) rectangle(s) "
+                + "détecté(s), aucun ne passe la preuve papier"
+            return nil
         }
-        return passing.max { $0.area < $1.area }?.quad
+        // LE critère des bons builds (extractReceipt, corrigé
+        // le 2026-10-19 après qu'un rectangle de scène eut
+        // « redressé toute la scène ») : le reçu est le papier
+        // qui porte PRESQUE TOUT le texte de l'image, pour la
+        // plus petite surface. Le pré-filtre « presque tout le
+        // texte » est l'essentiel — le rituel l'avait perdu,
+        // et un fragment dense (boîte imprimée dans le reçu,
+        // étiquette) gagnait par la petite surface (build 71
+        // au journal : découpages de 219 × 125 px). Garde
+        // « scan partiel » reprise elle aussi : le gagnant ne
+        // doit pas laisser le texte dehors.
+        let totalTexts = textBoxes.count
+        let minTexts = max(3, (totalTexts + 1) / 2)
+        let maxTexts = passing.map(\.texts).max() ?? 0
+        let pool = passing.filter {
+            $0.texts >= max(minTexts, maxTexts - 1)
+        }
+        func coversText(_ quad: [CGPoint]) -> Bool {
+            let xs = quad.map(\.x), ys = quad.map(\.y)
+            let bbox = CGRect(
+                x: xs.min() ?? 0, y: ys.min() ?? 0,
+                width: (xs.max() ?? 0) - (xs.min() ?? 0),
+                height: (ys.max() ?? 0) - (ys.min() ?? 0))
+            let outside = textBoxes.filter {
+                !bbox.contains(CGPoint(x: $0.midX, y: $0.midY))
+            }.count
+            return outside < 2
+                || Double(outside) / Double(max(totalTexts, 1))
+                    <= 0.15
+        }
+        let covering = pool.filter { coversText($0.quad) }
+        guard let winner = (covering.isEmpty ? pool : covering)
+            .min(by: { $0.area < $1.area }) else { return nil }
+        lastQuadSummary = "candidats papier : "
+            + passing.map {
+                "\(Int($0.area * 100)) %/\($0.texts) textes"
+            }.joined(separator: ", ")
+            + " → gardé \(Int(winner.area * 100)) % "
+            + "(\(winner.texts) textes)"
+        return winner.quad
     }
 
     /// Referme une forme détectée en un rectangle PARFAIT
