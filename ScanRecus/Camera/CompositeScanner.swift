@@ -633,6 +633,32 @@ final class CompositeScanner: NSObject,
         return (request.results ?? []).map { $0.boundingBox }
     }
 
+    /// Meilleure détection de texte d'une image, quel que soit
+    /// le sens de présentation : le sens verrouillé du scan
+    /// d'abord, puis les autres ; les boîtes sont toujours
+    /// ramenées dans l'espace de l'image d'origine. Depuis que
+    /// les reçus se présentent DE CÔTÉ, la détection telle
+    /// quelle est presque aveugle sur l'image brute — et la
+    /// localisation du reçu repose entièrement sur ces boîtes
+    /// (journal du 2026-10-20 : 1-2 zones détectées, le critère
+    /// du papier éliminé d'office, découpes de 15 × 101 px).
+    private func bestTextBoxes(in image: CIImage) -> [CGRect] {
+        var order: [CGImagePropertyOrientation] = [scanTextOrientation]
+        for o in [CGImagePropertyOrientation.up, .right, .left]
+        where o != scanTextOrientation {
+            order.append(o)
+        }
+        var best: [CGRect] = []
+        for o in order {
+            let boxes = o == .up
+                ? detectTextBoxes(in: image)
+                : detectTextBoxes(in: image, orientation: o)
+            if boxes.count > best.count { best = boxes }
+            if boxes.count >= 5 { break }
+        }
+        return best
+    }
+
     /// Les preuves « papier + texte » pour un quadrilatère d'une
     /// image : intérieur clair ET uniforme (le papier — voir le
     /// percentile 10 plus bas) et zones de texte dedans (≥ 3, ou
@@ -1460,7 +1486,7 @@ final class CompositeScanner: NSObject,
     private func extractReceipt(from composite: CIImage)
     -> (image: CIImage, how: String) {
         let extent = composite.extent
-        let textBoxes = detectTextBoxes(in: composite)
+        let textBoxes = bestTextBoxes(in: composite)
         let candidates = detectRectangles(
             handler: VNImageRequestHandler(ciImage: composite,
                                            options: [:]))
@@ -1540,8 +1566,17 @@ final class CompositeScanner: NSObject,
                               y: extent.minY + union.minY * extent.height,
                               width: pw, height: ph)
                 .insetBy(dx: -0.12 * pw, dy: -0.12 * ph)
-            return (composite.cropped(to: rect),
-                    "zone de texte seule (\(textBoxes.count) zones)")
+            // Garde-fou (journal du 2026-10-20) : une union
+            // minuscule — quelques boîtes égarées — produisait
+            // des découpes de quelques dizaines de pixels,
+            // pires que pas de localisation du tout. En dessous
+            // de 10 % de l'image, on laisse tomber au cas
+            // « aucune localisation » (image entière).
+            if rect.width * rect.height
+                >= 0.10 * extent.width * extent.height {
+                return (composite.cropped(to: rect),
+                        "zone de texte seule (\(textBoxes.count) zones)")
+            }
         }
         return (composite, "composite entier (aucune localisation)")
     }
