@@ -613,22 +613,16 @@ final class CompositeScanner: NSObject,
             if let frozen { self.livePreview = frozen }
         }
 
-        // Le reçu est localisé dans l'image retenue — une
-        // image fixe, où la détection est bien plus fiable que
-        // sur le flux vivant — puis redressé et lu. Pendant le
-        // scan, aucune boîte n'a rien décidé.
-        let t0 = CFAbsoluteTimeGetCurrent()
-        // Source de l'extraction, dite honnêtement dans le
-        // récap : le composite par homographies s'il a réellement
-        // fusionné des vues ; sinon la moyenne recalée du chemin
-        // stable, moins bruitée qu'une image seule ; sinon le
-        // composite, qui ne contient que la référence.
-        // NOUVELLE MÉTHODE (build 48, demande de Grégoire) :
-        // la source est L'IMAGE UNIQUE LA PLUS NETTE des
-        // échantillons — plus de fusion, plus de moyenne, plus
-        // de composite. L'extraction travaille sur elle comme
-        // avant sur le composite : localisation par les bords
-        // blancs du papier, aplatissement par ses coins.
+        // REDRESSEMENT PAR ÉTAPES (algorithme de Grégoire,
+        // 2026-10-21) — phase de test : on manipule l'image
+        // successivement jusqu'à trouver le bon sens, CHAQUE
+        // étape affichée 2 secondes pour être VUE travailler,
+        // et l'analyse s'arrête là (les algorithmes
+        // d'extraction, qui fonctionnent quand l'image est
+        // bien placée, sont suspendus, pas touchés). Que le
+        // papier soit vertical (la grande majorité des
+        // reçus) ou horizontal (cas rares), la boucle de
+        // lisibilité finit sur un texte horizontal lisible.
         guard let sample = bestSample else {
             DispatchQueue.main.async { [weak self] in
                 self?.statusText = "Aucun échantillon — réessayez."
@@ -641,133 +635,171 @@ final class CompositeScanner: NSObject,
             + ", \(sampledFrames) échantillon(s)"
             + (earlySharpExit ? ", prise dès qu'elle était nette" : "")
             + ")"
-        // PREMIÈRE CHOSE, avant toute lecture (demande de
-        // Grégoire, 2026-10-20, 23 h 25) : redresser le reçu
-        // à la verticale dans l'image stable. L'angle du
-        // texte est MESURÉ sur les glyphes (cercle complet :
-        // le sens de côté ET l'inclinaison d'un seul tenant)
-        // et l'image est tournée de son contraire — les
-        // caractères se retrouvent horizontaux, à l'endroit.
-        // Tout le reste (localisation, orientation, lecture)
-        // travaille ensuite sur un texte droit, au lieu de
-        // devoir deviner le sens à partir de lectures faites
-        // sur un texte de travers — la source des montants
-        // farfelus des scans inclinés.
-        var frame = sample
-        var straightened = false
-        var straightenNote = ""
-        let measure = straightenMeasure(for: frame)
-        if let r = measure.rotation {
-            frame = rotateKeepingExtent(frame, by: r)
-            straightened = true
-            straightenNote = String(
-                format: " · reçu redressé à la verticale "
-                    + "d'emblée : %+.1f° (mesuré sur le texte)",
-                Double(r) * 180 / .pi)
-        } else {
-            straightenNote = " · redressement d'emblée : "
-                + "mesure non concluante (glyphes par quart "
-                + "de tour : "
-                + measure.counts.map { String($0) }
-                    .joined(separator: "/")
-                + ")"
-        }
-        var (extracted, how) = extractReceipt(
-            from: frame, straightened: straightened)
-        how += straightenNote
-        let tLoc = CFAbsoluteTimeGetCurrent()
-        var image = extracted
-        // Ramener l'origine à (0, 0) pour la suite.
-        image = image.transformed(by: CGAffineTransform(
-            translationX: -image.extent.minX, y: -image.extent.minY))
-        // Orientation : tourner pour que les caractères soient à l'endroit.
-        image = upright(image)
-        let tUpright = CFAbsoluteTimeGetCurrent()
-        // Redressement fin (nouvelle méthode) : la rotation
-        // exacte qui rend les lignes horizontales — le reçu de
-        // côté et un peu croche demande par exemple 75°, pas
-        // un multiple de 90°.
-        let (deskewedImage, skewAngle, seeded) = deskew(
-            image, maxDegrees: how.contains("rectangle") ? 3 : 20)
-        image = deskewedImage
-        if abs(skewAngle) >= 0.3 * .pi / 180 {
-            how += String(format: " · redressement fin : %+.1f°",
-                          Double(skewAngle) * 180 / .pi)
-            if seeded { how += " (mesuré sur le texte)" }
-        }
-        let tOrient = CFAbsoluteTimeGetCurrent()
-        // Arbitre d'orientation (demande de Grégoire, 2026-10-20 :
-        // le scan final DOIT s'afficher dans un sens qui fait du
-        // sens à l'œil humain) : la lecture précise dans les deux
-        // sens — celle qui sert à l'extraction — décide aussi de
-        // l'affichage. Si le texte se lit mieux à l'envers, on
-        // retourne l'image pour de vrai avant tout le reste.
-        let outcome = recognizeBestText(
-            image: sharpenForReading(image))
-        let tRead = CFAbsoluteTimeGetCurrent()
-        if outcome.correction != .up {
-            image = image.oriented(outcome.correction)
-        }
-        // Amélioration automatique LÉGÈRE : le test « image
-        // brute » (2026-10-19, 23 h 41) a donné de bonnes
-        // lectures, et Grégoire a ensuite demandé « un brin de
-        // contraste, juste un peu » (23 h 58) — enhanceDocument
-        // est réglée douce (voir plus bas) et c'est elle qui est
-        // affichée et lue ; la brute reste publiée pour comparer.
-        let rawCG = ciContext.createCGImage(image, from: image.extent)
-        let enhanced = enhanceDocument(image)
-        let finalCG = ciContext.createCGImage(enhanced.image,
-                                              from: enhanced.image.extent)
-        let tEnh = CFAbsoluteTimeGetCurrent()
-        let timing = "localisation \(String(format: "%.2f", tLoc - t0)) s"
-            + " · orientation \(String(format: "%.2f", tUpright - tLoc)) s"
-            + " · redressement fin \(String(format: "%.2f", tOrient - tUpright)) s"
-            + " · lecture \(String(format: "%.2f", tRead - tOrient)) s"
-            + " · amélioration \(String(format: "%.2f", tEnh - tRead)) s"
-        finishInfo = "Image finale : \(sourceHow)\nReçu localisé : \(how)"
-            + "\nScan final : \(Int(image.extent.width)) × \(Int(image.extent.height)) px"
-            + "\nAmélioration auto : \(enhanced.summary)"
-            + "\nAnalyse : \(timing)"
-            + "\nOrientation : \(lastArbiterSummary)"
-
-        // Lecture du scan figé (première brique de l'étape 2,
-        // demandée par Grégoire le 2026-10-19 : « voir les
-        // informations que le programme peut extraire ») : OCR
-        // précis dans les deux sens + champs extraits par
-        // ReceiptParser. Affichage seulement — rien en base.
-        var extraction = extractFields(from: outcome)
-        // Extraits des régions surlignées, découpés dans le
-        // scan final : la vue les ressort en encadrés zoomés
-        // à côté de l'image (demande de Grégoire, 2026-10-20).
-        // (finalCG est optionnel : le déballer avant de mesurer —
-        // erreur CI du 2026-10-20.)
-        if let finalCG {
-            let fw = CGFloat(finalCG.width)
-            let fh = CGFloat(finalCG.height)
-            func crop(_ box: CGRect) -> CGImage {
-                let rect = CGRect(
-                    x: box.minX * fw,
-                    y: (1 - box.maxY) * fh,
-                    width: box.width * fw,
-                    height: box.height * fh).integral
-                    .intersection(CGRect(x: 0, y: 0,
-                                         width: fw, height: fh))
-                return finalCG.cropping(to: rect) ?? finalCG
+        var trace: [String] = []
+        // Affiche une étape (image + statut) et la laisse à
+        // l'écran 2 secondes. Rend false si le scan a été
+        // remplacé entre-temps.
+        func showStep(_ image: CIImage, _ status: String) -> Bool {
+            let cg = self.ciContext.createCGImage(
+                image, from: image.extent)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.scanToken == token
+                else { return }
+                self.livePreview = cg
+                self.statusText = status
             }
-            extraction.answerCrops = extraction.answerBoxes.map(crop)
+            Thread.sleep(forTimeInterval: 2)
+            return self.scanToken == token
         }
+        func atOrigin(_ image: CIImage) -> CIImage {
+            image.transformed(by: CGAffineTransform(
+                translationX: -image.extent.minX,
+                y: -image.extent.minY))
+        }
+
+        // Étape 1 — on FLIPPE l'image : miroir gauche-droite
+        // (la rotation de 180° autour de l'axe vertical de
+        // l'image qui la met en miroir — précisée par
+        // Grégoire le 2026-10-21). Toutes les étapes
+        // suivantes travaillent sur cette image flippée.
+        var work = atOrigin(sample.transformed(
+            by: CGAffineTransform(scaleX: -1, y: 1)))
+        trace.append("Étape 1 — image flippée (miroir)")
+        guard showStep(work, "Étape 1 — image flippée (miroir)")
+        else { return }
+
+        // Étape 2 — on cherche la forme rectangulaire aux
+        // bords blancs (le papier), surlignée en jaune.
+        var quad = findPaperQuad(in: work)
+        if let quad {
+            trace.append(
+                "Étape 2 — rectangle aux bords blancs trouvé")
+            let shown = drawQuad(quad, on: work)
+                .map { CIImage(cgImage: $0) } ?? work
+            guard showStep(shown,
+                "Étape 2 — rectangle du reçu (surligné en jaune)")
+            else { return }
+        } else {
+            trace.append("Étape 2 — aucun rectangle blanc trouvé")
+            guard showStep(work,
+                "Étape 2 — aucun rectangle blanc trouvé, "
+                + "on continue sans")
+            else { return }
+        }
+
+        // Étape 3 — si la bordure supérieure est plus longue
+        // que la bordure de droite, le papier est couché :
+        // rotation de 90° (les coins suivent l'image).
+        if let q = quad {
+            let e = quadEdges(q, imageSize: work.extent.size)
+            if e.topLength > e.rightLength {
+                work = rotateKeepingExtent(work, by: .pi / 2)
+                quad = q.map { CGPoint(x: 1 - $0.y, y: $0.x) }
+                trace.append("Étape 3 — bord supérieur plus "
+                    + "long que le bord droit : rotation de 90°")
+                guard showStep(work, "Étape 3 — bord supérieur "
+                    + "plus long que le bord droit : "
+                    + "rotation de 90°")
+                else { return }
+            } else {
+                trace.append("Étape 3 — bord supérieur déjà "
+                    + "le plus court : pas de rotation")
+                guard showStep(work, "Étape 3 — le bord "
+                    + "supérieur est déjà le plus court")
+                else { return }
+            }
+        }
+
+        // Étape 4 — l'angle du rectangle : penché de +X° ?
+        // on tourne de −X°.
+        if let q = quad {
+            let angle = quadEdges(q, imageSize: work.extent.size)
+                .topAngle
+            if abs(angle) > 0.1 * .pi / 180 {
+                work = rotateKeepingExtent(work, by: -angle)
+                trace.append(String(
+                    format: "Étape 4 — rectangle penché de "
+                        + "%+.1f° : rotation de %+.1f°",
+                    Double(angle) * 180 / .pi,
+                    Double(-angle) * 180 / .pi))
+                guard showStep(work, String(
+                    format: "Étape 4 — rectangle penché de "
+                        + "%+.1f° : rotation contraire",
+                    Double(angle) * 180 / .pi))
+                else { return }
+            } else {
+                trace.append("Étape 4 — rectangle déjà horizontal")
+                guard showStep(work,
+                    "Étape 4 — le rectangle est déjà horizontal")
+                else { return }
+            }
+        }
+
+        // Étape 5 — le texte est-il lisible par un humain ?
+        // Sinon on tourne de 180°, on reteste ; sinon de
+        // 90°, on reteste ; sinon de 180°, on reteste : les
+        // quatre sens y passent. (Le choix du test de
+        // lisibilité a été laissé à Muse : voir readability.)
+        let turns: [CGFloat] = [0, .pi, .pi / 2, .pi]
+        var current = work
+        var bestImage = work
+        var bestScore: Float = -1
+        var placed = false
+        for i in turns.indices {
+            if turns[i] != 0 {
+                current = rotateKeepingExtent(current,
+                                              by: turns[i])
+            }
+            let r = readability(of: current)
+            trace.append("Étape 5.\(i + 1) — lisibilité : "
+                + "\(r.amounts) montant(s), score \(Int(r.score))"
+                + " → \(r.readable ? "LISIBLE" : "illisible")")
+            if r.score > bestScore {
+                bestScore = r.score
+                bestImage = current
+            }
+            guard showStep(current, "Étape 5.\(i + 1) — texte "
+                + "\(r.readable ? "lisible ✓" : "illisible") "
+                + "(\(r.amounts) montants)")
+            else { return }
+            if r.readable {
+                work = current
+                placed = true
+                break
+            }
+        }
+        if !placed {
+            work = bestImage
+            trace.append("Étape 5 — aucun sens franchement "
+                + "lisible : on garde le meilleur score")
+        }
+
+        // Fin de la phase de test : l'image redressée reste
+        // affichée ; l'analyse au-delà est suspendue.
+        let finalCG = ciContext.createCGImage(work,
+                                              from: work.extent)
+        finishInfo = "Image finale : \(sourceHow)"
+            + "\nRedressement par étapes (phase de test) :\n"
+            + trace.joined(separator: "\n")
+            + "\nScan final : \(Int(work.extent.width)) × "
+            + "\(Int(work.extent.height)) px"
+            + "\nAnalyse suspendue après le redressement."
         let stats = buildStats()
-        appendToJournal(stats: stats, extraction: extraction)
+        appendRitualToJournal(stats: stats, trace: trace)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             guard self.scanToken == token else { return }
             self.state = .done
-            self.statusText = "Scan terminé — voici le scan."
+            self.statusText = placed
+                ? "Reçu redressé, texte lisible — analyse "
+                    + "suspendue (phase de test)"
+                : "Reçu redressé au mieux — analyse suspendue "
+                    + "(phase de test)"
             self.progress = 1
             self.finalImage = finalCG
-            self.rawFinalImage = rawCG
+            self.rawFinalImage = finalCG
             self.livePreview = finalCG
-            self.extraction = extraction
+            self.extraction = nil
             self.statsText = stats
         }
     }
@@ -890,6 +922,124 @@ final class CompositeScanner: NSObject,
             }
         }
         return (composite, "image entière (aucune localisation)")
+    }
+
+    /// Le rectangle du reçu : forme rectangulaire aux bords
+    /// BLANCS (intérieur clair et uniforme — la preuve
+    /// « papier » existante) portant le texte. Rend les
+    /// coins normalisés dans l'espace de l'image, ou nil.
+    private func findPaperQuad(in image: CIImage) -> [CGPoint]? {
+        let candidates = detectRectangles(
+            handler: VNImageRequestHandler(ciImage: image,
+                                           options: [:]))
+        guard !candidates.isEmpty else { return nil }
+        let textBoxes = bestTextBoxes(in: image)
+        var passing: [(quad: [CGPoint], texts: Int,
+                       area: CGFloat)] = []
+        for quad in candidates {
+            let ev = paperEvidence(frame: image, quad: quad,
+                                   textBoxes: textBoxes)
+            if ev.ok {
+                passing.append((quad, ev.textCount,
+                                abs(shoelace(quad))))
+            }
+        }
+        let withText = passing.filter { $0.texts >= 3 }
+        if let best = withText.sorted(by: { a, b in
+            a.texts != b.texts ? a.texts > b.texts
+                               : a.area < b.area
+        }).first {
+            return best.quad
+        }
+        return passing.max { $0.area < $1.area }?.quad
+    }
+
+    /// Les bords « du haut » et « de droite » d'un
+    /// quadrilatère (coins normalisés, espace image à y
+    /// montant), mesurés en PIXELS de l'image : le bord du
+    /// haut relie les deux coins les plus hauts, de gauche à
+    /// droite — son angle est l'inclinaison du rectangle.
+    private func quadEdges(_ quad: [CGPoint], imageSize: CGSize)
+    -> (topLength: CGFloat, rightLength: CGFloat,
+        topAngle: CGFloat) {
+        let pts = quad.map {
+            CGPoint(x: $0.x * imageSize.width,
+                    y: $0.y * imageSize.height)
+        }
+        let byY = pts.sorted { $0.y > $1.y }
+        let top = Array(byY.prefix(2)).sorted { $0.x < $1.x }
+        let byX = pts.sorted { $0.x > $1.x }
+        let right = Array(byX.prefix(2))
+        func len(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+            hypot(b.x - a.x, b.y - a.y)
+        }
+        return (len(top[0], top[1]), len(right[0], right[1]),
+                atan2(top[1].y - top[0].y, top[1].x - top[0].x))
+    }
+
+    /// Copie d'affichage avec le quadrilatère tracé en jaune
+    /// épais — le rectangle « surligné » de l'étape 2.
+    private func drawQuad(_ quad: [CGPoint], on image: CIImage)
+    -> CGImage? {
+        guard let cg = ciContext.createCGImage(
+            image, from: image.extent) else { return nil }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        guard let ctx = CGContext(
+            data: nil, width: cg.width, height: cg.height,
+            bitsPerComponent: 8, bytesPerRow: 0,
+            space: rgbSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast
+                .rawValue) else { return nil }
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let pts = quad.map {
+            CGPoint(x: $0.x * w, y: (1 - $0.y) * h)
+        }
+        ctx.setStrokeColor(red: 1, green: 0.85, blue: 0,
+                           alpha: 1)
+        ctx.setLineWidth(max(4, w * 0.006))
+        ctx.beginPath()
+        ctx.move(to: pts[0])
+        for pt in pts.dropFirst() { ctx.addLine(to: pt) }
+        ctx.closePath()
+        ctx.strokePath()
+        return ctx.makeImage()
+    }
+
+    /// Test « le texte est-il lisible par un humain ? » —
+    /// le choix du test a été laissé à Muse par Grégoire
+    /// (2026-10-21) : une lecture précise sur copie réduite ;
+    /// lisible si elle rapporte au moins 2 montants (le
+    /// signal le plus fort d'un reçu à l'endroit) et un
+    /// texte suivi raisonnable (confiance × longueur). Le
+    /// score sert à garder le meilleur sens si aucun ne
+    /// passe franchement.
+    private func readability(of image: CIImage)
+    -> (readable: Bool, score: Float, amounts: Int) {
+        let targetWidth: CGFloat = 720
+        let k = targetWidth / max(image.extent.width, 1)
+        let small = k < 1
+            ? image.transformed(
+                by: CGAffineTransform(scaleX: k, y: k))
+            : image
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.recognitionLanguages = ["fr-FR", "en-US"]
+        let handler = VNImageRequestHandler(ciImage: small,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil
+        else { return (false, 0, 0) }
+        var weighted: Float = 0
+        var text = ""
+        for obs in request.results ?? [] {
+            if let c = obs.topCandidates(1).first {
+                weighted += c.confidence * Float(c.string.count)
+                text += c.string + "\n"
+            }
+        }
+        let amounts = ReceiptParser.allAmounts(text).count
+        let readable = amounts >= 2 && weighted >= 60
+        return (readable, weighted + Float(amounts) * 1000,
+                amounts)
     }
 
     // MARK: - Lecture du scan (OCR précis + champs, affichage seulement)
@@ -1859,6 +2009,44 @@ final class CompositeScanner: NSObject,
         else { return }
         DispatchQueue.main.async { [weak self] in
             self?.livePreview = cg
+        }
+    }
+
+    /// Journal, version « redressement par étapes »
+    /// (phase de test, 2026-10-21) : statistiques de capture
+    /// et trace des étapes, sans extraction (suspendue).
+    private func appendRitualToJournal(stats: String,
+                                       trace: [String]) {
+        let url = journalFileURL()
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        df.locale = Locale(identifier: "fr_CA")
+        var entry = "\n\n===== SCAN \(df.string(from: Date())) · "
+            + "\(BuildInfo.stamp) =====\n"
+        entry += stats
+        if !stats.hasSuffix("\n") { entry += "\n" }
+        entry += "--- Redressement par étapes "
+            + "(phase de test) ---\n"
+        entry += trace.joined(separator: "\n") + "\n"
+        entry += "Analyse suspendue après le redressement.\n"
+        do {
+            let fm = FileManager.default
+            try fm.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            if fm.fileExists(atPath: url.path),
+               let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: Data(entry.utf8))
+            } else {
+                let header = "# Journal ScanReçus — données de "
+                    + "contrôle des scans, pour analyse par Muse.\n"
+                try (header + entry).write(to: url, atomically: true,
+                                           encoding: .utf8)
+            }
+        } catch {
+            // Silencieux par design (comme appendToJournal).
         }
     }
 
