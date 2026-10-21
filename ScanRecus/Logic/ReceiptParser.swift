@@ -148,9 +148,32 @@ enum ReceiptParser {
             }
             return (verified.value, verified.lineIndex)
         }
-        if let best = totalCandidates(text)
-            .max(by: { $0.lineIndex < $1.lineIndex }) {
-            return best
+        let candidates = totalCandidates(text)
+        if !candidates.isEmpty {
+            // La ligne qui dit « TOTAL » prime sur les autres
+            // lignes à mot-clé : DÉBIT porte le même montant, une
+            // ligne plus bas (journal du 2026-10-20 : le carré
+            // jaune entourait DÉBIT). La preuve tranche déjà
+            // ainsi par son score ; le repli fait pareil, pour
+            // le montant comme pour la ligne rapportée (le carré).
+            let receiptLines = text.components(
+                separatedBy: .newlines)
+            func isTotalLine(_ i: Int) -> Bool {
+                guard receiptLines.indices.contains(i)
+                else { return false }
+                let f = removeAccents(receiptLines[i]).lowercased()
+                return f.contains("total")
+                    && !f.contains("sous-total")
+                    && !f.contains("sous total")
+                    && !f.contains("subtotal")
+                    && !f.contains("economis")
+            }
+            let pool = candidates.filter {
+                isTotalLine($0.lineIndex)
+            }
+            let chosen = (pool.isEmpty ? candidates : pool)
+                .max(by: { $0.lineIndex < $1.lineIndex })
+            if let chosen { return chosen }
         }
         var best: Double?
         for match in amountRegex.matches(in: text, range: text.nsRange) {
@@ -272,6 +295,43 @@ enum ReceiptParser {
         return out
     }
 
+    /// Montants FRAGMENTÉS par l'OCR entre deux lignes (« 21 »
+    /// puis « ,60 ») — invisibles au motif strict comme aux
+    /// montants espacés, qui travaillent ligne par ligne. Vu au
+    /// journal du 2026-10-20 sur le reçu Postes Canada : le
+    /// sous-total coupé en deux tuait la preuve d'addition, et
+    /// sans preuve l'arbitre d'orientation perdait son meilleur
+    /// critère. Réservés à la preuve, comme les montants
+    /// espacés : un faux positif devrait encore compléter une
+    /// somme exacte pour nuire. L'index rapporté est celui de
+    /// la ligne des unités.
+    static func fragmentAmounts(_ text: String)
+    -> [(value: Double, lineIndex: Int)] {
+        guard !text.isEmpty else { return [] }
+        let wholeRe = try! NSRegularExpression(
+            pattern: #"^\s*\$?\s*(\d{1,6})\s*$"#)
+        let fracRe = try! NSRegularExpression(
+            pattern: #"^\s*[.,](\d{2})(?:\s*\$)?\s*$"#)
+        var out: [(value: Double, lineIndex: Int)] = []
+        let lines = text.components(separatedBy: .newlines)
+        guard lines.count > 1 else { return out }
+        for i in 0..<(lines.count - 1) {
+            let a = lines[i], b = lines[i + 1]
+            guard let ma = wholeRe.firstMatch(in: a,
+                                              range: a.nsRange),
+                  let ra = Range(ma.range(at: 1), in: a),
+                  let mb = fracRe.firstMatch(in: b,
+                                             range: b.nsRange),
+                  let rb = Range(mb.range(at: 1), in: b),
+                  let whole = Double(a[ra]),
+                  let cents = Double(b[rb])
+            else { continue }
+            let v = whole + cents / 100
+            if v > 0, v < 100_000 { out.append((v, i)) }
+        }
+        return out
+    }
+
     /// Le total par la PREUVE D'ADDITION — doctrine de Grégoire
     /// (2026-10-20) : « on force l'addition des taxes pour trouver
     /// le total… des fois l'info est mal extraite, l'addition des
@@ -288,7 +348,8 @@ enum ReceiptParser {
     -> (value: Double, lineIndex: Int,
         parts: [(value: Double, lineIndex: Int)],
         structured: Bool)? {
-        let amounts = (allAmounts(text) + spacedAmounts(text))
+        let amounts = (allAmounts(text) + spacedAmounts(text)
+                       + fragmentAmounts(text))
             .filter { $0.value > 0 && $0.value < 100_000 }
         guard amounts.count >= 3 else { return nil }
         let lines = text.components(separatedBy: .newlines)
@@ -298,12 +359,23 @@ enum ReceiptParser {
         }
         let taxRe = try! NSRegularExpression(
             pattern: #"\b(tps|gst|tvq|qst)\b"#)
+        /// L'étiquette qui gouverne un montant : le texte plié
+        /// de sa propre ligne — ou, quand le montant siège SEUL
+        /// sur sa ligne (l'OCR sépare souvent les colonnes
+        /// étiquette et montant des reçus étroits — journal du
+        /// 2026-10-20 : « TPS/GST » au-dessus de « 1,08 » nu),
+        /// celui de la ligne juste au-dessus.
+        func labelFolded(_ i: Int) -> String {
+            let own = folded(i)
+            if own.contains(where: { $0.isLetter }) { return own }
+            return i > 0 ? folded(i - 1) : own
+        }
         func isTaxLine(_ i: Int) -> Bool {
-            let f = folded(i)
+            let f = labelFolded(i)
             return taxRe.firstMatch(in: f, range: f.nsRange) != nil
         }
         func isSubLine(_ i: Int) -> Bool {
-            let f = folded(i)
+            let f = labelFolded(i)
             return f.contains("sous-total") || f.contains("sous total")
                 || f.contains("subtotal")
         }
@@ -318,12 +390,12 @@ enum ReceiptParser {
         let partBlockRe = try! NSRegularExpression(
             pattern: #"\b(argent|monnaie|remis|rendu|change|comptant|cash|tender|carte|visa|mastercard|amex|interac|debit|paye|rabais|remise|escompte|coupon)\b"#)
         func isPaymentLine(_ i: Int) -> Bool {
-            let f = folded(i)
+            let f = labelFolded(i)
             return paymentRe.firstMatch(in: f, range: f.nsRange)
                 != nil
         }
         func isPartBlockedLine(_ i: Int) -> Bool {
-            let f = folded(i)
+            let f = labelFolded(i)
             return partBlockRe.firstMatch(in: f, range: f.nsRange)
                 != nil
         }
@@ -389,7 +461,7 @@ enum ReceiptParser {
             // ligne « TOTAL » bat celui de la ligne « DÉBIT »
             // (même montant, juste en dessous — constaté au test
             // du 2026-10-20 : la boîte entourait DÉBIT).
-            let totalFolded = folded(amounts[totalIdx].lineIndex)
+            let totalFolded = labelFolded(amounts[totalIdx].lineIndex)
             if totalFolded.contains("total"),
                !isSubLine(amounts[totalIdx].lineIndex) {
                 score += 30

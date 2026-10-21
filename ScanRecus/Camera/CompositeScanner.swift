@@ -787,8 +787,20 @@ final class CompositeScanner: NSObject,
                 filter.setValue(CIVector(cgPoint: corners[3]),
                                 forKey: "inputBottomLeft")
                 if let corrected = filter.outputImage {
-                    return (corrected,
-                            "rectangle du reçu (\(best.texts) zones de texte)")
+                    // Garde-fou (journal du 2026-10-20 : un scan
+                    // « réussi » de 689 × 3334 px dont le total
+                    // était le sous-total) : un rectangle mal
+                    // apparié peut produire une bande absurde ;
+                    // un vrai reçu cadré ne dépasse guère 4:1.
+                    // Au-delà, on n'y croit pas et on retombe
+                    // sur l'union des zones de texte.
+                    let e = corrected.extent
+                    let longSide = max(e.width, e.height)
+                    let shortSide = max(1, min(e.width, e.height))
+                    if longSide / shortSide <= 4 {
+                        return (corrected,
+                                "rectangle du reçu (\(best.texts) zones de texte)")
+                    }
                 }
             }
         }

@@ -484,6 +484,100 @@ check(cutoffC.year == 2016 && cutoffC.month == 10
       && cutoffC.day == 20,
       "QH/seuil 10 ans")
 
+// — 14. Journal du 2026-10-20 : le reçu Postes Canada réel,
+// tel que l'OCR le rend quand le scan fatigue.
+
+// Étiquettes et montants sur des lignes séparées, sous-total
+// COUPÉ (« 21 » / « ,60 ») : la preuve doit quand même se
+// former — c'est elle qui fait gagner le bon sens à
+// l'arbitre d'orientation.
+let fragmente = """
+Postes Canada/Canada Post
+FJC574 PHARMACIA MYRIAM CHAPUT
+302-2700 BOUL LAURIER
+QUEBEC, QC GIV 2MO
+TPS/GST#119321495
+TVQ/QST#1006393299
+2026/09/30
+14:19:25
+1 @ 19,60 $
+19,60 $
+PP XP REG MOYEN/PP XP REG MEDIUM
+2,00 $
+AUTOC DEM. SIGN/SIGN, REQ STICKER
+SOUS-TOTAL/SUBTL
+21
+,60
+TPS/GST
+1,08
+$
+TVQ/QST
+2,16 $
+TOTAL
+24,84 $
+Débit/Debit
+24,84 $
+"""
+expectTotal(fragmente, 24.84, verified: true, "Journal/fragmenté")
+expectDate(fragmente, 2026, 9, 30, "Journal/fragmenté")
+if let proof = ReceiptParser.parseTotalVerified(fragmente) {
+    let parts = proof.parts.map(\.value)
+    check(parts.count == 3
+          && abs(parts[0] - 21.60) < 0.001
+          && abs(parts[1] - 1.08) < 0.001
+          && abs(parts[2] - 2.16) < 0.001,
+          "Journal/fragmenté : parties attendues "
+          + "[21.60, 1.08, 2.16], obtenues \(parts)")
+    check(proof.lineIndex == 22,
+          "Journal/fragmenté : le total doit siéger sur le "
+          + "montant sous TOTAL (22), pas celui sous Débit "
+          + "— obtenu \(proof.lineIndex)")
+    check(proof.structured,
+          "Journal/fragmenté : la preuve doit être structurée "
+          + "(étiquettes voisines reconnues)")
+} else {
+    check(false, "Journal/fragmenté : aucune preuve trouvée")
+}
+
+// Le même reçu lu À L'ENVERS (le scan fautif du journal) :
+// aucune preuve ne doit pouvoir se former — l'arbitre
+// d'orientation s'appuie sur cette asymétrie.
+let renverse = """
+WWW.POSTESCANADA.CA/WWW.CANADAPOST.CA
+2124-10106288-1-5241837-68
+Reçu requis pour tous les retours
+24,84 $
+Débit/Debit
+24,84 $
+TOTAL
+2,16
+TVQ/QST
+1,08
+TPS/GST
+21,60
+SOUS-TOTAL/SUBTL
+2,00 $
+19,60 $
+Postes Canada/Canada Post
+"""
+check(ReceiptParser.parseTotalVerified(renverse) == nil,
+      "Journal/renversé : aucune preuve ne doit se former "
+      + "sur un texte lu de bas en haut")
+
+// Sans preuve possible, la ligne TOTAL doit battre la ligne
+// DÉBIT (même montant) — pour le total ET pour son carré.
+let debitNu = """
+KIOSQUE
+ARTICLE 5,00
+TOTAL 24,84
+DÉBIT 24,84
+"""
+expectTotal(debitNu, 24.84, verified: false, "Journal/DÉBIT nu")
+check(ReceiptParser.parseTotal(debitNu)?.lineIndex == 2,
+      "Journal/DÉBIT nu : la ligne du total doit être TOTAL "
+      + "(2), obtenue "
+      + "\(ReceiptParser.parseTotal(debitNu)?.lineIndex ?? -1)")
+
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,
       "allAmounts : un montant dans « TOTAL 24,84 »")
