@@ -7,29 +7,71 @@ import Observation
 
 // MARK: - Banque de matériel d'entraînement (2026-10-21)
 
-/// Une photo coffrée dans la banque : l'image elle-même vit
-/// dans le coffre, adressée par l'empreinte SHA-256 de son
-/// fichier (une reprise du même reçu ne stocke l'image
-/// qu'une fois).
-struct BankPhoto: Codable, Identifiable {
+/// Une photo coffrée dans la banque.
+/// NOMMAGE (règle de Grégoire) : les fichiers s'appellent
+/// Photo<number>.01 (l'original) — rien dans le nom ne doit
+/// suggérer à une IA l'angle ou une quelconque étiquette ;
+/// les étiquettes vivent dans le manifeste seulement.
+struct BankPhoto: Identifiable {
     var id: String
+    /// Numéro séquentiel du scan (1, 2, 3…), celui du nom
+    /// de fichier.
+    var number: Int
     /// Numéro du reçu auquel la photo appartient (les photos
-    /// d'un même reçu sont groupées : 5 par reçu, typiquement).
+    /// d'un même reçu sont groupées : 5 par reçu,
+    /// typiquement).
     var group: Int
     var sha256: String
-    /// Nom du fichier dans le coffre (images/<2 car.>/<file>).
+    /// Chemin RELATIF au dossier images/ du coffre
+    /// (« Photo1.01.heic » ; les entrées du build 77 sont en
+    /// « <sha>.heic » rangées par préfixe — voir resolveURL).
     var file: String
     var width: Int
     var height: Int
     var ts: String
 }
 
+extension BankPhoto: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case id, number, group, sha256, file, width, height, ts
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        // Les lignes du build 77 n'ont pas de numéro.
+        number = try c.decodeIfPresent(Int.self, forKey: .number) ?? 0
+        group = try c.decode(Int.self, forKey: .group)
+        sha256 = try c.decode(String.self, forKey: .sha256)
+        file = try c.decode(String.self, forKey: .file)
+        width = try c.decode(Int.self, forKey: .width)
+        height = try c.decode(Int.self, forKey: .height)
+        ts = try c.decode(String.self, forKey: .ts)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(number, forKey: .number)
+        try c.encode(group, forKey: .group)
+        try c.encode(sha256, forKey: .sha256)
+        try c.encode(file, forKey: .file)
+        try c.encode(width, forKey: .width)
+        try c.encode(height, forKey: .height)
+        try c.encode(ts, forKey: .ts)
+    }
+}
+
 /// Une copie TOURNÉE générée à partir d'une photo coffrée
 /// (30 par photo, à « Next scan ») : rotation à toile
 /// élargie — le reçu n'est JAMAIS coupé, les coins ne
-/// sortent pas de l'image générée. L'angle appliqué est
-/// enregistré : c'est l'étiquette de géométrie de la copie,
-/// gratuite par construction.
+/// sortent pas de l'image générée. Son fichier s'appelle
+/// Photo<number>.NN (NN de 02 à 31), numéroté dans l'ordre
+/// ALÉATOIRE de génération — jamais par angle croissant,
+/// pour que le numéro ne trahisse pas l'angle. L'angle
+/// appliqué n'existe que dans le manifeste : c'est
+/// l'étiquette de géométrie de la copie, gratuite par
+/// construction.
 struct BankDerived: Codable, Identifiable {
     var id: String
     /// La photo source (BankPhoto.id).
@@ -46,16 +88,17 @@ struct BankDerived: Codable, Identifiable {
 
 /// La banque de matériel du GÉNÉRATEUR (menu « Générer
 /// matériel ») : les frames figées de la webcam y sont
-/// coffrées telles quelles, groupées par reçu. C'est la
-/// matière première de l'entraînement des IA — les
-/// étiquettes viendront plus tard, sur ces images.
+/// coffrées telles quelles, groupées par reçu, puis chaque
+/// scan enfante 30 copies tournées à « Next scan ». C'est
+/// la matière première de l'entraînement des IA.
 ///
 /// Stockage (décisions de Muse, budget 20 Go de Grégoire) :
 /// - coffre local : ~/Library/Application Support/
 ///   ScanRecus/Atelier/ (jamais synchronisé — les images
 ///   restent sur le Mac) ;
 /// - image master HEIF (repli JPEG), plafond 1600 px ;
-/// - stockage adressé par SHA-256 (dédup gratuite) ;
+/// - empreinte SHA-256 de chaque fichier au manifeste
+///   (vérification), sans servir de nom ;
 /// - manifeste banque.jsonl APPEND-ONLY au coffre, miroité
 ///   dans le dossier du journal (Drive « Codage ») pour que
 ///   Muse puisse vérifier la banque après les sessions.
@@ -69,17 +112,17 @@ final class TrainingBank {
     /// Note de génération en cours (affichée au panneau).
     private(set) var generationNote = ""
 
-    var totalMaterial: Int { photos.count + derived.count }
-
-    func derived(for photo: BankPhoto) -> [BankDerived] {
-        derived.filter { $0.sourceId == photo.id }
-    }
-
     var receiptCount: Int { Set(photos.map(\.group)).count }
+
+    var totalMaterial: Int { photos.count + derived.count }
 
     var sizeText: String {
         ByteCountFormatter.string(fromByteCount: Int64(totalBytes),
                                   countStyle: .file)
+    }
+
+    func derived(for photo: BankPhoto) -> [BankDerived] {
+        derived.filter { $0.sourceId == photo.id }
     }
 
     private let root: URL
@@ -98,6 +141,22 @@ final class TrainingBank {
         try? FileManager.default.createDirectory(
             at: imagesDir, withIntermediateDirectories: true)
         load()
+    }
+
+    /// Résout le fichier d'une entrée : les noms PhotoN.NN
+    /// sont à plat dans images/ ; les fichiers du build 77
+    /// (nommés par empreinte) sont rangés par préfixe.
+    private func resolveURL(file: String, sha: String) -> URL {
+        if file.contains("/") {
+            return imagesDir.appendingPathComponent(file)
+        }
+        let flat = imagesDir.appendingPathComponent(file)
+        if FileManager.default.fileExists(atPath: flat.path) {
+            return flat
+        }
+        return imagesDir
+            .appendingPathComponent(String(sha.prefix(2)))
+            .appendingPathComponent(file)
     }
 
     // MARK: Manifeste (append-only)
@@ -198,6 +257,13 @@ final class TrainingBank {
             }
         }
         photos = order.compactMap { byId[$0] }
+        // Les entrées du build 77 n'ont pas de numéro de
+        // scan : les leur attribuer dans l'ordre d'arrivée.
+        var nextNumber = photos.map(\.number).max() ?? 0
+        for i in photos.indices where photos[i].number == 0 {
+            nextNumber += 1
+            photos[i].number = nextNumber
+        }
         // Les copies d'une photo retirée ne comptent plus.
         derived = derives.filter { byId[$0.sourceId] != nil }
         currentGroup = group
@@ -211,6 +277,7 @@ final class TrainingBank {
     /// photo enregistrée, ou nil si l'écriture a échoué.
     @discardableResult
     func bank(cgImage: CGImage) -> BankPhoto? {
+        let number = (photos.map(\.number).max() ?? 0) + 1
         let scaled = Self.downscale(cgImage, maxWidth: 1600)
         let tmp = root.appendingPathComponent(
             "tmp-\(UUID().uuidString)")
@@ -228,23 +295,17 @@ final class TrainingBank {
         }
         let sha = SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }.joined()
-        let name = "\(sha).\(ext)"
-        let sub = imagesDir.appendingPathComponent(
-            String(sha.prefix(2)), isDirectory: true)
-        try? FileManager.default.createDirectory(
-            at: sub, withIntermediateDirectories: true)
-        let dest = sub.appendingPathComponent(name)
+        let name = "Photo\(number).01.\(ext)"
+        let dest = imagesDir.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: dest.path) {
-            // Déjà coffrée (reprise à l'identique) : on
-            // référence le même fichier, on ne le recopie pas.
             try? FileManager.default.removeItem(at: tmp)
         } else {
             try? FileManager.default.moveItem(at: tmp, to: dest)
         }
         let photo = BankPhoto(
-            id: UUID().uuidString, group: currentGroup,
-            sha256: sha, file: name, width: scaled.width,
-            height: scaled.height,
+            id: UUID().uuidString, number: number,
+            group: currentGroup, sha256: sha, file: name,
+            width: scaled.width, height: scaled.height,
             ts: ISO8601DateFormatter().string(from: Date()))
         appendManifest(ManifestLine(type: "photo", photo: photo))
         photos.append(photo)
@@ -261,50 +322,30 @@ final class TrainingBank {
     }
 
     /// Retire la dernière photo coffrée (ligne de retrait au
-    /// manifeste — l'historique reste append-only ; le
-    /// fichier image est supprimé si plus aucune photo ne le
-    /// référence).
+    /// manifeste — l'historique reste append-only ; ses
+    /// copies tournées partent avec elle).
     func removeLast() {
         guard let last = photos.last else { return }
         appendManifest(ManifestLine(type: "retrait",
                                     photoId: last.id))
         photos.removeLast()
-        // Ses copies tournées partent avec elle.
         let orphans = derived.filter { $0.sourceId == last.id }
         derived.removeAll { $0.sourceId == last.id }
-        if !photos.contains(where: { $0.sha256 == last.sha256 }) {
-            deleteFile(sha: last.sha256, name: last.file)
-        }
-        for orphan in orphans
-        where !derived.contains(where: {
-            $0.sha256 == orphan.sha256 })
-            && !photos.contains(where: {
-                $0.sha256 == orphan.sha256 }) {
-            deleteFile(sha: orphan.sha256, name: orphan.file)
+        try? FileManager.default.removeItem(
+            at: resolveURL(file: last.file, sha: last.sha256))
+        for orphan in orphans {
+            try? FileManager.default.removeItem(
+                at: resolveURL(file: orphan.file,
+                               sha: orphan.sha256))
         }
         refreshBytes()
     }
 
-    private func deleteFile(sha: String, name: String) {
-        let path = imagesDir
-            .appendingPathComponent(String(sha.prefix(2)))
-            .appendingPathComponent(name)
-        try? FileManager.default.removeItem(at: path)
-    }
-
-    private func vaultURL(sha: String, name: String) -> URL {
-        imagesDir.appendingPathComponent(String(sha.prefix(2)))
-            .appendingPathComponent(name)
-    }
-
     private func refreshBytes() {
         var total = 0
-        var seen = Set<String>()
         for (sha, name) in photos.map({ ($0.sha256, $0.file) })
-            + derived.map({ ($0.sha256, $0.file) })
-        where !seen.contains(sha) {
-            seen.insert(sha)
-            let path = vaultURL(sha: sha, name: name)
+            + derived.map({ ($0.sha256, $0.file) }) {
+            let path = resolveURL(file: name, sha: sha)
             if let attrs = try? FileManager.default
                 .attributesOfItem(atPath: path.path),
                let size = attrs[.size] as? Int {
@@ -318,10 +359,12 @@ final class TrainingBank {
 
     /// Génère `count` copies tournées d'une photo coffrée
     /// (défaut : 30, demandé par Grégoire), en arrière-plan.
-    /// Angles aléatoires distincts au 0,1° sur 360°. Chaque
-    /// copie est une rotation à TOILE ÉLARGIE : le reçu
-    /// entier reste dans l'image, aucun coin coupé. Sans
-    /// effet si la photo a déjà ses copies.
+    /// Angles aléatoires distincts au 0,1° sur 360°, fichiers
+    /// numérotés dans l'ordre aléatoire de génération
+    /// (PhotoN.02 à PhotoN.31). Chaque copie est une rotation
+    /// à TOILE ÉLARGIE : le reçu entier reste dans l'image,
+    /// aucun coin coupé. Sans effet si la photo a déjà ses
+    /// copies.
     func generateDerived(for photo: BankPhoto, count: Int = 30) {
         ioLock.lock()
         if generationRunning
@@ -334,8 +377,8 @@ final class TrainingBank {
         ioLock.unlock()
         generationNote = "Génération des \(count) copies "
             + "tournées du reçu nº \(photo.group)…"
-        let sourceURL = vaultURL(sha: photo.sha256,
-                                 name: photo.file)
+        let sourceURL = resolveURL(file: photo.file,
+                                   sha: photo.sha256)
         generationQueue.async { [weak self] in
             guard let self else { return }
             var made: [BankDerived] = []
@@ -344,19 +387,24 @@ final class TrainingBank {
                 while tenths.count < count {
                     tenths.insert(Int.random(in: 0..<3600))
                 }
+                // Ordre ALÉATOIRE : le numéro de fichier ne
+                // doit pas trahir le rang de l'angle.
+                let angles = Array(tenths).shuffled()
+                    .map { Double($0) / 10.0 }
                 let context = CIContext()
-                for tenth in tenths.sorted() {
-                    let angle = Double(tenth) / 10.0
+                for (index, angle) in angles.enumerated() {
                     if let entry = self.makeDerived(
                         source: source, photo: photo,
-                        angleDegrees: angle, context: context) {
+                        angleDegrees: angle,
+                        copyIndex: index + 2,
+                        context: context) {
                         made.append(entry)
                     }
-                    let done = made.count
                     DispatchQueue.main.async { [weak self] in
                         self?.generationNote =
                             "Génération des copies du reçu "
-                            + "nº \(photo.group)… \(done)/\(count)"
+                            + "nº \(photo.group)… "
+                            + "\(made.count)/\(count)"
                     }
                 }
             }
@@ -375,10 +423,11 @@ final class TrainingBank {
     }
 
     /// Fabrique UNE copie tournée : rotation à toile élargie,
-    /// plafond 1600 px au plus grand côté, HEIF, coffrage
-    /// adressé par empreinte, ligne au manifeste.
+    /// plafond 1600 px au plus grand côté, HEIF, fichier
+    /// Photo<number>.<NN>, ligne au manifeste avec l'angle.
     private func makeDerived(source: CGImage, photo: BankPhoto,
                              angleDegrees: Double,
+                             copyIndex: Int,
                              context: CIContext)
         -> BankDerived? {
         let radians = CGFloat(angleDegrees * .pi / 180)
@@ -421,11 +470,9 @@ final class TrainingBank {
         }
         let sha = SHA256.hash(data: data)
             .map { String(format: "%02x", $0) }.joined()
-        let name = "\(sha).\(ext)"
-        let dest = vaultURL(sha: sha, name: name)
-        try? FileManager.default.createDirectory(
-            at: dest.deletingLastPathComponent(),
-            withIntermediateDirectories: true)
+        let suffix = String(format: "%02d", copyIndex)
+        let name = "Photo\(photo.number).\(suffix).\(ext)"
+        let dest = imagesDir.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: dest.path) {
             try? FileManager.default.removeItem(at: tmp)
         } else {
