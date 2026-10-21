@@ -114,6 +114,10 @@ final class CompositeScanner: NSObject,
     private var lastProcessStart: CFTimeInterval = 0
 
     private var phase: State = .searching
+    /// Jeton du scan en cours : posé à chaque capture, changé
+    /// à chaque reset — un résultat d'analyse publié après un
+    /// « Next scan » est périmé et se reconnaît à son jeton.
+    private var scanToken = UUID()
     // Déclencheur « scène entière » : zones de texte de l'image
     // précédente et compteur de stabilité (voir
     // updateSceneStability) — plus aucun suivi d'objet.
@@ -178,6 +182,7 @@ final class CompositeScanner: NSObject,
             self.sampleScores = []
             self.earlySharpExit = false
             self.framesSeen = 0
+            self.scanToken = UUID()
             self.state = .searching
             self.statusText = "Présentez un reçu à la caméra…"
             self.quad = nil
@@ -353,6 +358,7 @@ final class CompositeScanner: NSObject,
 
     private func startCapture() {
         phase = .capturing
+        scanToken = UUID()
         captureStart = CFAbsoluteTimeGetCurrent()
         scanTextOrientation = preferredTextOrientation
         bestSample = nil
@@ -585,8 +591,19 @@ final class CompositeScanner: NSObject,
         // précise, amélioration) : le dire, sinon l'attente a
         // l'air d'un temps de capture qui s'éternise (remarque de
         // Grégoire le 2026-10-20).
+        // L'état FIGÉ est publié DÈS MAINTENANT, avec la meilleure
+        // image retenue en attendant le résultat : la vue réagit
+        // en COUPANT la caméra (demande de Grégoire, 2026-10-20 —
+        // plus besoin de tenir le reçu pendant le traitement).
+        let token = scanToken
+        let frozen = bestSample.flatMap {
+            ciContext.createCGImage($0, from: $0.extent)
+        }
         DispatchQueue.main.async { [weak self] in
-            self?.statusText = "Analyse du scan…"
+            guard let self, self.scanToken == token else { return }
+            self.state = .done
+            self.statusText = "Analyse du scan…"
+            if let frozen { self.livePreview = frozen }
         }
 
         // Le reçu est localisé dans l'image retenue — une
@@ -701,6 +718,7 @@ final class CompositeScanner: NSObject,
         appendToJournal(stats: stats, extraction: extraction)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.scanToken == token else { return }
             self.state = .done
             self.statusText = "Scan terminé — voici le scan."
             self.progress = 1

@@ -14,14 +14,16 @@ import AppKit  // NSApplication, pour le bouton Exit
 ///   que la scène est stable ~0,5 s, le scan démarre tout seul.
 ///   Aucune boîte de sélection : le reçu est localisé APRÈS la
 ///   capture, dans le composite figé.
-/// - CAPTURE (0,5 s) : le flux reste affiché, une barre de progression
-///   montre la fenêtre ; à droite, le composite s'assemble en direct
-///   (tuiles remplies, remplissage du rectangle englobant).
-/// - FIGÉ : le flux caméra COUPE à l'écran (la session reste en
-///   marche, voir CameraManager) et le scan
-///   redressé, caractères à l'endroit, remplit l'écran sur fond noir.
-///   Le panneau du bas montre alors ce que le programme LIT du
-///   scan (champs extraits + texte brut), sans rien sauvegarder.
+/// - CAPTURE (1,2 s) : le flux reste affiché, une barre de
+///   progression montre la fenêtre d'échantillonnage ; la
+///   meilleure image est retenue, les autres sont jetées.
+/// - FIGÉ : dès l'échantillonnage terminé, la session caméra
+///   COUPE pour vrai (plus besoin de tenir le reçu pendant
+///   l'analyse) et l'écran montre l'image retenue, puis le scan
+///   redressé, caractères à l'endroit, qui remplit la zone sur
+///   fond noir. Le panneau du bas montre alors ce que le
+///   programme LIT du scan (champs extraits + texte brut),
+///   sans rien sauvegarder.
 ///
 /// Boutons toujours visibles : « Next scan » abandonne le test en
 /// cours et repart en recherche (pour enchaîner les scénarios) ;
@@ -35,13 +37,15 @@ struct CompositeScanView: View {
     /// Ne concerne que l'aperçu pendant la recherche/capture — le scan
     /// final est toujours affiché à l'endroit.
     @AppStorage("previewMirrored") private var previewMirrored = true
-    /// Éclairage de scan : pendant la recherche et la capture, tout
-    /// ce qui entoure l'aperçu devient blanc — l'écran lui-même sert
-    /// de panneau d'éclairage
-    /// pour le reçu, présenté face à lui (demandé par Grégoire le
-    /// 2026-10-19 : le scan manquait de lumière). Aucune API publique
-    /// ne permet à une app de monter la luminosité système ; le
-    /// blanc plein écran est le levier fiable.
+    /// Éclairage de scan : pendant la recherche et la capture, le
+    /// panneau du bas devient blanc — l'écran sert de panneau
+    /// d'éclairage pour le reçu, présenté face à lui (demandé par
+    /// Grégoire le 2026-10-19 : le scan manquait de lumière).
+    /// Avant le 2026-10-20, un champ blanc entourait aussi la
+    /// visée ; la visée occupe maintenant toute la zone (sa
+    /// demande du même jour), il ne reste que le panneau.
+    /// Aucune API publique ne permet à une app de monter la
+    /// luminosité système ; le blanc est le levier fiable.
     @AppStorage("scanLighting") private var scanLighting = true
     /// En mode figé : afficher le scan AMÉLIORÉ (par défaut) ou
     /// l'original brut, pour comparer l'effet de l'amélioration.
@@ -54,27 +58,71 @@ struct CompositeScanView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            GeometryReader { outer in
+            GeometryReader { geo in
                 ZStack {
-                    // Champ d'éclairage blanc (ou fond noir du mode
-                    // figé) sur toute la zone. La fenêtre de visée
-                    // centrale reste modeste — environ la moitié de
-                    // l'écran : assez pour enligner le reçu, et tout
-                    // le reste est de la lumière (précision de
-                    // Grégoire, 2026-10-19). Une fois le scan figé,
-                    // la fenêtre reprend toute la place : le scan
-                    // s'affiche bien gros au centre.
-                    lightPanelActive ? Color.white : Color.black
-                    GeometryReader { geo in
+                    Color.black
+                    // L'aperçu caméra occupe TOUTE la zone et
+                    // reste TOUJOURS dans la hiérarchie (demande
+                    // de Grégoire, 2026-10-20 : maximiser la vue,
+                    // étiquettes par-dessus l'image). Il est
+                    // seulement COUVERT par le scan figé — le
+                    // reconstruire à chaque bascule pendant que
+                    // la session s'arrête et redémarre, c'est ce
+                    // qui plantait (2026-10-19) ; le garder en
+                    // place rend la coupure du flux sûre. Le champ
+                    // d'éclairage blanc autour de la visée
+                    // disparaît : la lumière vient du panneau du
+                    // bas, resté blanc en mode éclairage.
+                    CameraPreviewView(session: camera.session)
+                        .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
+                                     anchor: .center)
+                    if !isDone {
+                        ScanOverlayView(quad: scanner.quad,
+                                        totalBox: nil,
+                                        hoverRect: nil,
+                                        mirrored: previewMirrored,
+                                        size: geo.size)
+                        // Étiquette d'état par-dessus l'image.
+                        VStack {
+                            HStack {
+                                Text(scanner.statusText)
+                                    .font(.system(size: 14,
+                                                  weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        Color.black.opacity(0.55))
+                                    .cornerRadius(8)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                    }
+                    if scanner.state == .capturing {
+                        VStack {
+                            Spacer()
+                            ProgressView(value: scanner.progress)
+                                .progressViewStyle(.linear)
+                                .tint(.yellow)
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 14)
+                        }
+                    }
+                    if isDone {
+                        // Le scan figé, par-dessus l'aperçu
+                        // (caméra déjà coupée) : d'abord la
+                        // meilleure image retenue pendant que
+                        // l'analyse court, puis le scan redressé
+                        // avec ses carrés jaunes et ses extraits
+                        // ZOOMÉS (ZoomReviewView).
                         ZStack {
                             Color.black
-                            if isDone, let image = (showEnhanced
+                            if let image = (showEnhanced
                                 ? scanner.finalImage
-                                : scanner.rawFinalImage) ?? scanner.finalImage {
-                                // Le scan final, toujours à
-                                // l'endroit, ses carrés jaunes, et
-                                // les extraits ZOOMÉS des régions
-                                // encadrées (ZoomReviewView).
+                                : scanner.rawFinalImage)
+                                ?? scanner.finalImage {
                                 ZoomReviewView(
                                     image: image,
                                     boxes: scanner.extraction?
@@ -82,32 +130,15 @@ struct CompositeScanView: View {
                                     crops: scanner.extraction?
                                         .answerCrops ?? [])
                                 .padding(10)
-                            } else {
-                                CameraPreviewView(session: camera.session)
-                                    .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
-                                                 anchor: .center)
-                                ScanOverlayView(quad: scanner.quad,
-                                                totalBox: nil,
-                                                hoverRect: nil,
-                                                mirrored: previewMirrored,
-                                                size: geo.size)
-                                if scanner.state == .capturing {
-                                    VStack {
-                                        Spacer()
-                                        ProgressView(value: scanner.progress)
-                                            .progressViewStyle(.linear)
-                                            .tint(lightPanelActive ? .orange : .yellow)
-                                            .padding(.horizontal, 24)
-                                            .padding(.bottom, 14)
-                                    }
-                                }
+                            } else if let frozen = scanner.livePreview {
+                                Image(frozen, scale: 1,
+                                      label: Text("Scan en analyse"))
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding(10)
                             }
                         }
                     }
-                    .frame(width: lightPanelActive
-                           ? outer.size.width * 0.52 : outer.size.width,
-                           height: lightPanelActive
-                           ? outer.size.height * 0.62 : outer.size.height)
                 }
             }
             .frame(minHeight: 220)
@@ -168,23 +199,6 @@ struct CompositeScanView: View {
                         }
                     }
 
-                    // Le composite en train de s'assembler (capture) —
-                    // en mode figé il est déjà affiché en grand.
-                    if scanner.state == .capturing,
-                       let preview = scanner.livePreview {
-                        VStack(spacing: 4) {
-                            Text("Composite en cours")
-                                .font(.system(size: 11.5))
-                                .foregroundColor(.secondary)
-                            Image(preview, scale: 1,
-                                  label: Text("Composite en cours"))
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 210, height: 130)
-                                .background(Color.black)
-                                .cornerRadius(6)
-                        }
-                    }
                 }
             }
             .padding(14)
@@ -203,11 +217,20 @@ struct CompositeScanView: View {
             enterFullScreen()
         }
         .onDisappear { camera.stop() }
-        // Pas d'arrêt de session quand le scan se fige : la vue
-        // bascule sur l'image finale (le flux « coupe » à l'écran),
-        // mais la session reste en marche — l'arrêter puis la
-        // redémarrer au « Next scan » a causé un plantage (course
-        // avec la reconstruction du calque d'aperçu, 2026-10-19).
+        // La caméra coupe dès que le scan se fige — l'état .done
+        // est publié dès le DÉBUT de l'analyse — et redémarre au
+        // retour en recherche (demande de Grégoire, 2026-10-20).
+        // L'arrêt au figé avait causé un plantage en 2026-10-19
+        // (course avec la reconstruction du calque d'aperçu) ;
+        // le calque n'est plus jamais reconstruit (il reste sous
+        // le scan figé), donc la coupure est sûre.
+        .onChange(of: scanner.state) { _, newState in
+            if newState == .done {
+                camera.stop()
+            } else if newState == .searching {
+                camera.start(delegate: scanner)
+            }
+        }
     }
 
     /// Panneau « Ce que je lis » : les champs extraits du scan
@@ -323,8 +346,9 @@ struct CompositeScanView: View {
     /// Abandonne le test en cours (quel que soit l'état) et repart
     /// en recherche pour le scénario suivant.
     private func nextScan() {
+        // Le redémarrage de la caméra suit l'état (onChange) :
+        // reset() republie .searching, qui relance la session.
         scanner.reset()
-        camera.start(delegate: scanner)
     }
 
     /// Passe la fenêtre en plein écran (à l'ouverture de l'app —
