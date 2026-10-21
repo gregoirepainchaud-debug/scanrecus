@@ -899,7 +899,7 @@ final class CompositeScanner: NSObject,
     -> RecognitionOutcome {
         func pass(_ candidateImage: CIImage)
         -> (lines: [RecognizedLine], score: Float, amounts: Int,
-            proven: Bool) {
+            proof: Int) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["fr-FR", "en-US"]
@@ -907,7 +907,7 @@ final class CompositeScanner: NSObject,
             let handler = VNImageRequestHandler(
                 ciImage: candidateImage, options: [:])
             guard (try? handler.perform([request])) != nil
-            else { return ([], -1, 0, false) }
+            else { return ([], -1, 0, 0) }
             var lines: [RecognizedLine] = []
             var score: Float = 0
             for obs in request.results ?? [] {
@@ -935,17 +935,25 @@ final class CompositeScanner: NSObject,
             // hallucination de chiffres (build 42 : 10 contre 10,
             // score même supérieur), pas une addition de taxes
             // cohérente.
-            let proven = ReceiptParser.parseTotalVerified(text) != nil
+            // Niveaux de preuve : 2 = structurée (forme
+            // fiscale), 1 = somme nue (les articles peuvent la
+            // fabriquer — journal du 2026-10-20), 0 = aucune.
+            // L'arbitre compare les niveaux, pas un booléen :
+            // une preuve faible ne doit pas faire retourner un
+            // reçu dont l'autre sens a la vraie structure.
+            let verified = ReceiptParser.parseTotalVerified(text)
+            let proof = verified == nil ? 0
+                : (verified!.structured ? 2 : 1)
             return (lines, Float(amounts) * 1000 + score, amounts,
-                    proven)
+                    proof)
         }
         /// Les critères de l'arbitre, dans l'ordre : preuve
         /// d'addition, nombre de montants, score.
         func isBetter(_ a: (lines: [RecognizedLine], score: Float,
-                            amounts: Int, proven: Bool),
+                            amounts: Int, proof: Int),
                       than b: (lines: [RecognizedLine], score: Float,
-                               amounts: Int, proven: Bool)) -> Bool {
-            if a.proven != b.proven { return a.proven }
+                               amounts: Int, proof: Int)) -> Bool {
+            if a.proof != b.proof { return a.proof > b.proof }
             if a.amounts != b.amounts { return a.amounts > b.amounts }
             return a.score > b.score
         }
@@ -958,8 +966,8 @@ final class CompositeScanner: NSObject,
         // coûte plus cher que l'inverse — plus jamais de
         // décision au point près).
         let flipped: Bool
-        if down.proven != up.proven {
-            flipped = down.proven
+        if down.proof != up.proof {
+            flipped = down.proof > up.proof
         } else if down.amounts != up.amounts {
             flipped = down.amounts > up.amounts
         } else {
@@ -978,7 +986,7 @@ final class CompositeScanner: NSObject,
         // récurrents de Grégoire, pleins d'erreurs de lecture.
         // On lit alors les deux sens perpendiculaires, et le
         // meilleur des quatre gagne, mêmes critères.
-        if !winner.proven, winner.amounts < 2 {
+        if winner.proof == 0, winner.amounts < 2 {
             let sideA = pass(image.oriented(.left))
             let sideB = pass(image.oriented(.right))
             var bestResult = sideA
@@ -992,18 +1000,22 @@ final class CompositeScanner: NSObject,
                 correction = bestOrientation
                 rescueNote = " · secours perpendiculaire : "
                     + "\(winner.amounts) montants"
-                    + (winner.proven ? " + preuve" : "")
+                    + proofTag(winner.proof)
             } else {
                 rescueNote = " · perpendiculaires écartés"
             }
         }
+        func proofTag(_ level: Int) -> String {
+            level == 2 ? " + preuve"
+                : level == 1 ? " + preuve faible" : ""
+        }
         let verdict = correction == .down ? "renversé"
             : correction == .up ? "droit" : "pivoté"
         lastArbiterSummary = "droit : \(up.amounts) montants"
-            + (up.proven ? " + preuve" : "")
+            + proofTag(up.proof)
             + ", score \(Int(up.score)) · renversé : "
             + "\(down.amounts) montants"
-            + (down.proven ? " + preuve" : "")
+            + proofTag(down.proof)
             + ", score \(Int(down.score))"
             + rescueNote
             + " → \(verdict)"
@@ -1029,10 +1041,26 @@ final class CompositeScanner: NSObject,
         // (ReceiptParser.parseTotalVerified — la doctrine de
         // Grégoire) ; sinon, la voie classique du parseur.
         let verifiedHit = ReceiptParser.parseTotalVerified(text)
-        let plainHit = verifiedHit == nil
-            ? ReceiptParser.parseTotal(text) : nil
-        let total = verifiedHit?.value ?? plainHit?.value
-        let totalLine = verifiedHit?.lineIndex ?? plainHit?.lineIndex
+        // Une preuve NON structurée peut être fabriquée par
+        // les articles eux-mêmes (19,60 + 2,00 = le sous-total,
+        // journal du 2026-10-20) : parseTotal la soumet au veto
+        // de la ligne TOTAL, l'extraction fait de même — si le
+        // veto donne un autre montant, c'est lui qui fait foi
+        // et la « preuve » tombe.
+        var proof = verifiedHit
+        var plainHit: (value: Double, lineIndex: Int)?
+        if let v = verifiedHit {
+            if !v.structured,
+               let checked = ReceiptParser.parseTotal(text),
+               abs(checked.value - v.value) > 0.005 {
+                proof = nil
+                plainHit = checked
+            }
+        } else {
+            plainHit = ReceiptParser.parseTotal(text)
+        }
+        let total = proof?.value ?? plainHit?.value
+        let totalLine = proof?.lineIndex ?? plainHit?.lineIndex
 
         // Carrés jaunes (demande de Grégoire, 2026-10-20) : les
         // boîtes des lignes d'où viennent les TROIS réponses —
@@ -1094,8 +1122,8 @@ final class CompositeScanner: NSObject,
             date: foundDate ?? QuarterHelper.previousQuarterStart(),
             dateIsDefault: foundDate == nil,
             total: total,
-            totalVerified: verifiedHit != nil,
-            totalParts: verifiedHit?.parts.map(\.value) ?? [],
+            totalVerified: proof != nil,
+            totalParts: proof?.parts.map(\.value) ?? [],
             answerBoxes: boxes,
             readUpsideDown: outcome.upsideDown)
     }

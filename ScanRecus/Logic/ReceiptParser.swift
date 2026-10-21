@@ -138,9 +138,7 @@ enum ReceiptParser {
                             receiptLines[candidate.lineIndex])
                             .lowercased()
                         return f.contains("total")
-                            && !f.contains("sous-total")
-                            && !f.contains("sous total")
-                            && !f.contains("subtotal")
+                            && !isSubtotalLine(f)
                             && !f.contains("economis")
                     }
                     .max(by: { $0.lineIndex < $1.lineIndex })
@@ -163,9 +161,7 @@ enum ReceiptParser {
                 else { return false }
                 let f = removeAccents(receiptLines[i]).lowercased()
                 return f.contains("total")
-                    && !f.contains("sous-total")
-                    && !f.contains("sous total")
-                    && !f.contains("subtotal")
+                    && !isSubtotalLine(f)
                     && !f.contains("economis")
             }
             let pool = candidates.filter {
@@ -192,6 +188,18 @@ enum ReceiptParser {
         return best.map { ($0, -1) }
     }
 
+    /// Ligne de sous-total : l'OCR écrit parfois « SOUS -TOTAL »
+    /// (espace avant le tiret — journal du 2026-10-20) ; on
+    /// normalise les tirets avant de comparer, partout où le
+    /// sous-total est testé.
+    static func isSubtotalLine(_ folded: String) -> Bool {
+        let n = folded
+            .replacingOccurrences(of: " -", with: "-")
+            .replacingOccurrences(of: "- ", with: "-")
+        return n.contains("sous-total") || n.contains("sous total")
+            || n.contains("subtotal")
+    }
+
     /// Montants portés par une ligne à mot-clé « total », hors
     /// « sous-total »/« subtotal » (qui contient « total » mais n'est
     /// justement PAS le total).
@@ -202,8 +210,7 @@ enum ReceiptParser {
         let lines = text.components(separatedBy: .newlines)
         for (i, line) in lines.enumerated() {
             let folded = removeAccents(line).lowercased()
-            if folded.contains("sous-total") || folded.contains("sous total")
-                || folded.contains("subtotal")
+            if isSubtotalLine(folded)
                 || folded.contains("economis")
                 || folded.contains("taxable") {
                 continue
@@ -349,7 +356,8 @@ enum ReceiptParser {
     /// (2026-10-20) : « on force l'addition des taxes pour trouver
     /// le total… des fois l'info est mal extraite, l'addition des
     /// chiffres probables est la preuve finale ». On cherche un
-    /// montant qui est la somme de 2 ou 3 autres montants situés
+    /// montant qui est la somme de 2 à 4 autres montants situés
+    /// (4 seulement si la somme est structurée)
     /// AU-DESSUS de lui (à 10 lignes près), en préférant les
     /// sommes qui passent par les lignes d'impôts (TPS/TVQ) et de
     /// sous-total — la structure québécoise classique
@@ -403,9 +411,7 @@ enum ReceiptParser {
         // ses taxes ou son étiquette entre les deux) — c'est
         // ce qui disqualifie le faux total fragmenté.
         func isSubLine(_ i: Int) -> Bool {
-            let f = labelFolded(i)
-            return f.contains("sous-total") || f.contains("sous total")
-                || f.contains("subtotal")
+            isSubtotalLine(labelFolded(i))
         }
         // Lignes de PAIEMENT (audit du 2026-10-20) : la somme
         // tendue et la monnaie rendue ne sont pas des montants
@@ -455,6 +461,20 @@ enum ReceiptParser {
         }
         var best: Solution?
         func consider(totalIdx: Int, partIdxs: [Int]) {
+            // Une somme de 4 parties n'est recevable que
+            // STRUCTURÉE (un impôt ou un sous-total parmi les
+            // parties) : à 4 nombres, les coïncidences entre
+            // articles deviennent plausibles — la structure
+            // fiscale reste la preuve (journal du 2026-10-20 :
+            // reçu au sous-total illisible, articles + TPS +
+            // TVQ étaient la seule preuve possible).
+            if partIdxs.count == 4,
+               !partIdxs.contains(where: {
+                   partIsTaxLine(amounts[$0].lineIndex)
+                       || isSubLine(amounts[$0].lineIndex)
+               }) {
+                return
+            }
             var score = partIdxs.count * 5
                 + amounts[totalIdx].lineIndex
             if partIdxs.contains(
@@ -537,6 +557,27 @@ enum ReceiptParser {
                                           minLine: minLine),
                        amounts[k].value < total.value {
                         consider(totalIdx: ti, partIdxs: [i, j, k])
+                    }
+                    // Somme de 4 parties : a + b + c + autre.
+                    for k in amounts.indices
+                    where k != i && k != j {
+                        let c = amounts[k]
+                        guard c.lineIndex <= total.lineIndex,
+                              c.lineIndex >= minLine,
+                              c.value < total.value,
+                              !isPartBlockedLine(c.lineIndex)
+                        else { continue }
+                        let rest3 = rest2
+                            - Int((c.value * 100).rounded())
+                        if rest3 > 0,
+                           let m = findAmount(
+                            cents: rest3, notIn: [ti, i, j, k],
+                            aboveLine: total.lineIndex,
+                            minLine: minLine),
+                           amounts[m].value < total.value {
+                            consider(totalIdx: ti,
+                                     partIdxs: [i, j, k, m])
+                        }
                     }
                 }
             }

@@ -329,7 +329,11 @@ TOTAL 2 008 102,00
 check(ReceiptParser.parseTotal(monstre) == nil,
       "Audit/monstre : rien ne doit sortir d'un montant ≥ 100 000")
 
-// M4 — Consigne : 4 parties exigées, repli mot-clé propre.
+// M4 — Consigne : la preuve exige les 4 parties (bière +
+// consigne + TPS + TVQ). Le plafond était de 3 à l'audit ;
+// il est passé à 4 (structurées seulement) le 2026-10-20 —
+// un vrai reçu du journal (sous-total illisible) n'avait
+// pas d'autre preuve possible.
 let consigne = """
 DÉPANNEUR
 BIÈRE 10,00
@@ -338,7 +342,7 @@ TPS 0,53
 TVQ 1,06
 TOTAL 12,19
 """
-expectTotal(consigne, 12.19, verified: false, "Audit/consigne")
+expectTotal(consigne, 12.19, verified: true, "Audit/consigne")
 
 // M5 — « TOTAL ÉCONOMISÉ » (ligne la plus basse) ne doit pas
 // gagner contre le vrai total quand la preuve est cassée.
@@ -604,6 +608,76 @@ if let proof = ReceiptParser.parseTotalVerified(virguleUn) {
           + "montant sous TOTAL (10) — obtenu \(proof.lineIndex)")
 } else {
     check(false, "Journal/virgule-1 : aucune preuve trouvée")
+}
+
+// — 16. Journal du 2026-10-20 (build 58) : deux scans réels
+// du reçu Postes Canada qui ont fait mentir la preuve.
+
+// TPS détruite (« 1,08 » lu « 1508 $ ») et « SOUS -TOTAL »
+// écrit avec une espace : la fausse preuve des articles
+// (19,60 + 2,00 = le sous-total) ne doit même plus naître —
+// le sous-total est disqualifié comme total malgré
+// l'espace — et le repli donne le vrai total.
+let tpsDetruite = """
+MAGASIN
+T 0 19,60 $
+19,60 $
+1 0 2,00 $
+2,00 $
+SOUS -TOTAL/SUBTL
+21,60 $
+TPS/GST
+1508 $
+TVQ/QST
+2,16 $
+TOTAL
+24,84
+Débit/Debit
+24,84 $
+"""
+check(ReceiptParser.parseTotalVerified(tpsDetruite) == nil,
+      "Journal/TPS détruite : aucune preuve ne doit naître "
+      + "(sous-total disqualifié malgré « SOUS -TOTAL »)")
+expectTotal(tpsDetruite, 24.84, verified: false,
+            "Journal/TPS détruite")
+
+// La ligne des unités du sous-total a disparu ; il ne reste
+// que « ,60 » orphelin. La preuve passe alors par les QUATRE
+// parties (articles + TPS + TVQ) — admise parce que
+// structurée (un impôt parmi les parties).
+let unitesPerdues = """
+MAGASIN
+1 0 19,60 $
+19,60 $
+1 0 2,00 $
+2,00 $
+SOUS - TOTAL/SUBTL
+,60
+TPS/GST
+1,08
+TVQ/QST
+2,16
+TOTAL
+24,84 $
+Débit/Debit
+24,84 $
+"""
+expectTotal(unitesPerdues, 24.84, verified: true,
+            "Journal/unités perdues")
+if let proof = ReceiptParser.parseTotalVerified(unitesPerdues) {
+    let parts = proof.parts.map(\.value)
+    check(parts.count == 4
+          && abs(parts[0] - 19.60) < 0.001
+          && abs(parts[1] - 2.00) < 0.001
+          && abs(parts[2] - 1.08) < 0.001
+          && abs(parts[3] - 2.16) < 0.001,
+          "Journal/unités perdues : parties attendues "
+          + "[19.60, 2.00, 1.08, 2.16], obtenues \(parts)")
+    check(proof.lineIndex == 12,
+          "Journal/unités perdues : total sur la ligne du "
+          + "montant sous TOTAL (12) — obtenu \(proof.lineIndex)")
+} else {
+    check(false, "Journal/unités perdues : aucune preuve")
 }
 
 // — Sanité de base des montants.
