@@ -313,7 +313,9 @@ struct CompositeScanView: View {
     /// coffrée automatiquement) ; ici on groupe les photos
     /// par reçu et on surveille la banque.
     private var materielPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let inGroup = bank.photos
+            .filter { $0.group == bank.currentGroup }.count
+        return VStack(alignment: .leading, spacing: 6) {
             Text("Présentez un reçu : la photo se fige et se "
                 + "coffre toute seule. Groupez les photos par "
                 + "reçu — « Reçu suivant » quand vous changez "
@@ -321,9 +323,7 @@ struct CompositeScanView: View {
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
             Text("Reçu nº \(bank.currentGroup)"
-                + " · photos de ce reçu : "
-                + "\(bank.photos.filter { "
-                + "$0.group == bank.currentGroup }.count)")
+                + " · photos de ce reçu : \(inGroup)")
                 .font(.system(size: 14, weight: .medium))
             Text("Scans uniques dans le répertoire : "
                 + "\(bank.photos.count)"
