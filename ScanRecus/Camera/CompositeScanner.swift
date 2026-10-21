@@ -483,10 +483,17 @@ final class CompositeScanner: NSObject,
     /// localisation du reçu repose entièrement sur ces boîtes
     /// (journal du 2026-10-20 : 1-2 zones détectées, le critère
     /// du papier éliminé d'office, découpes de 15 × 101 px).
-    private func bestTextBoxes(in image: CIImage) -> [CGRect] {
-        var order: [CGImagePropertyOrientation] = [scanTextOrientation]
+    private func bestTextBoxes(in image: CIImage,
+                               straightened: Bool = false)
+    -> [CGRect] {
+        // Image déjà redressée à la verticale : le sens
+        // naturel (.up) d'abord — le sens pivoté verrouillé
+        // ne doit pas rafler la mise avec des boîtes lues
+        // dans le mauvais espace.
+        var order: [CGImagePropertyOrientation] = straightened
+            ? [.up, scanTextOrientation] : [scanTextOrientation]
         for o in [CGImagePropertyOrientation.up, .right, .left]
-        where o != scanTextOrientation {
+        where o != scanTextOrientation && !order.contains(o) {
             order.append(o)
         }
         var best: [CGRect] = []
@@ -634,7 +641,32 @@ final class CompositeScanner: NSObject,
             + ", \(sampledFrames) échantillon(s)"
             + (earlySharpExit ? ", prise dès qu'elle était nette" : "")
             + ")"
-        var (extracted, how) = extractReceipt(from: sample)
+        // PREMIÈRE CHOSE, avant toute lecture (demande de
+        // Grégoire, 2026-10-20, 23 h 25) : redresser le reçu
+        // à la verticale dans l'image stable. L'angle du
+        // texte est MESURÉ sur les glyphes (cercle complet :
+        // le sens de côté ET l'inclinaison d'un seul tenant)
+        // et l'image est tournée de son contraire — les
+        // caractères se retrouvent horizontaux, à l'endroit.
+        // Tout le reste (localisation, orientation, lecture)
+        // travaille ensuite sur un texte droit, au lieu de
+        // devoir deviner le sens à partir de lectures faites
+        // sur un texte de travers — la source des montants
+        // farfelus des scans inclinés.
+        var frame = sample
+        var straightened = false
+        var straightenNote = ""
+        if let theta = textAngle(frame) {
+            frame = rotateKeepingExtent(frame, by: -theta)
+            straightened = true
+            straightenNote = String(
+                format: " · reçu redressé à la verticale "
+                    + "d'emblée : %+.1f° (mesuré sur le texte)",
+                Double(-theta) * 180 / .pi)
+        }
+        var (extracted, how) = extractReceipt(
+            from: frame, straightened: straightened)
+        how += straightenNote
         let tLoc = CFAbsoluteTimeGetCurrent()
         var image = extracted
         // Ramener l'origine à (0, 0) pour la suite.
@@ -740,10 +772,12 @@ final class CompositeScanner: NSObject,
     ///    des zones de texte, élargie de 12 %) — pas de
     ///    redressement, mais le contenu est là ;
     /// 3. à défaut, le composite entier.
-    private func extractReceipt(from composite: CIImage)
+    private func extractReceipt(from composite: CIImage,
+                                straightened: Bool = false)
     -> (image: CIImage, how: String) {
         let extent = composite.extent
-        let textBoxes = bestTextBoxes(in: composite)
+        let textBoxes = bestTextBoxes(in: composite,
+                                      straightened: straightened)
         let candidates = detectRectangles(
             handler: VNImageRequestHandler(ciImage: composite,
                                            options: [:]))
@@ -1450,15 +1484,19 @@ final class CompositeScanner: NSObject,
         return score >= 7 && score >= 1.3 * median
     }
 
-    /// Inclinaison du texte MESURÉE sur les glyphes : Vision
+    /// Angle du texte MESURÉ sur les glyphes : Vision
     /// rapporte pour chaque caractère une boîte qui SUIT la
-    /// ligne (coins tournés) ; la pente médiane de ces boîtes
-    /// est l'angle du texte, lisible même à 15-20° — là où le
-    /// profil de projection s'aplatit (reçu tenu de travers :
-    /// les deux échecs du 2026-10-20 au soir étaient deux
-    /// scans SANS redressement). Rend la pente (radians) ou
-    /// nil si trop peu de caractères sont lisibles.
-    private func textSlopeAngle(_ image: CIImage) -> CGFloat? {
+    /// ligne (coins tournés) ; la direction médiane de ces
+    /// boîtes est l'angle du texte dans l'image — cercle
+    /// complet : ~0° à l'endroit, ~±90° de côté, ~180° à
+    /// l'envers, plus l'inclinaison quand le reçu est tenu
+    /// de travers. Médiane CIRCULAIRE : les angles sont
+    /// déballés autour de leur direction moyenne avant la
+    /// médiane, sinon une grappe à cheval sur ±180° (texte
+    /// à l'envers) s'effondrerait vers 0. Rend l'angle
+    /// (radians, dans ]-π, π]) ou nil si le texte lisible
+    /// est trop rare ou trop dispersé pour conclure.
+    private func textAngle(_ image: CIImage) -> CGFloat? {
         guard let cg = ciContext.createCGImage(
             image, from: image.extent) else { return nil }
         let request = VNDetectTextRectanglesRequest()
@@ -1478,8 +1516,41 @@ final class CompositeScanner: NSObject,
             }
         }
         guard angles.count >= 12 else { return nil }
-        angles.sort()
-        return angles[angles.count / 2]
+        var sx = 0.0, sy = 0.0
+        for a in angles {
+            sx += cos(Double(a))
+            sy += sin(Double(a))
+        }
+        let concentration = (sx * sx + sy * sy).squareRoot()
+            / Double(angles.count)
+        guard concentration >= 0.3 else { return nil }
+        let mean = CGFloat(atan2(sy, sx))
+        let unwrapped = angles.map { a -> CGFloat in
+            var d = a - mean
+            while d > .pi { d -= 2 * .pi }
+            while d <= -.pi { d += 2 * .pi }
+            return mean + d
+        }.sorted()
+        var median = unwrapped[unwrapped.count / 2]
+        while median > .pi { median -= 2 * .pi }
+        while median <= -.pi { median += 2 * .pi }
+        return median
+    }
+
+    /// Rotation d'une image autour de son centre, en
+    /// gardant TOUT son contenu : l'étendue résultante est
+    /// celle de l'image tournée (les dimensions s'échangent
+    /// à ~90°), ramenée à l'origine (0, 0).
+    private func rotateKeepingExtent(_ image: CIImage,
+                                     by angle: CGFloat)
+    -> CIImage {
+        let cx = image.extent.midX, cy = image.extent.midY
+        var t = CGAffineTransform(translationX: cx, y: cy)
+        t = t.rotated(by: angle)
+        t = t.translatedBy(x: -cx, y: -cy)
+        let r = image.transformed(by: t)
+        return r.transformed(by: CGAffineTransform(
+            translationX: -r.extent.minX, y: -r.extent.minY))
     }
 
     /// Redressement fin : rend les lignes de texte
@@ -1539,7 +1610,7 @@ final class CompositeScanner: NSObject,
         // sans faire confiance au repère les yeux fermés.
         var centre: CGFloat = 0
         var seeded = false
-        if let slope = textSlopeAngle(image),
+        if let slope = textAngle(image),
            abs(slope) <= 25 * deg {
             let s1 = profileScore(rotated(image, -slope))
             let s2 = profileScore(rotated(image, slope))
