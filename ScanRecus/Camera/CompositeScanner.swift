@@ -656,13 +656,21 @@ final class CompositeScanner: NSObject,
         var frame = sample
         var straightened = false
         var straightenNote = ""
-        if let theta = textAngle(frame) {
-            frame = rotateKeepingExtent(frame, by: -theta)
+        let measure = straightenMeasure(for: frame)
+        if let r = measure.rotation {
+            frame = rotateKeepingExtent(frame, by: r)
             straightened = true
             straightenNote = String(
                 format: " · reçu redressé à la verticale "
                     + "d'emblée : %+.1f° (mesuré sur le texte)",
-                Double(-theta) * 180 / .pi)
+                Double(r) * 180 / .pi)
+        } else {
+            straightenNote = " · redressement d'emblée : "
+                + "mesure non concluante (glyphes par quart "
+                + "de tour : "
+                + measure.counts.map { String($0) }
+                    .joined(separator: "/")
+                + ")"
         }
         var (extracted, how) = extractReceipt(
             from: frame, straightened: straightened)
@@ -1484,27 +1492,22 @@ final class CompositeScanner: NSObject,
         return score >= 7 && score >= 1.3 * median
     }
 
-    /// Angle du texte MESURÉ sur les glyphes : Vision
-    /// rapporte pour chaque caractère une boîte qui SUIT la
-    /// ligne (coins tournés) ; la direction médiane de ces
-    /// boîtes est l'angle du texte dans l'image — cercle
-    /// complet : ~0° à l'endroit, ~±90° de côté, ~180° à
-    /// l'envers, plus l'inclinaison quand le reçu est tenu
-    /// de travers. Médiane CIRCULAIRE : les angles sont
-    /// déballés autour de leur direction moyenne avant la
-    /// médiane, sinon une grappe à cheval sur ±180° (texte
-    /// à l'envers) s'effondrerait vers 0. Rend l'angle
-    /// (radians, dans ]-π, π]) ou nil si le texte lisible
-    /// est trop rare ou trop dispersé pour conclure.
-    private func textAngle(_ image: CIImage) -> CGFloat? {
+    /// Angles bruts des glyphes d'une image : pour chaque
+    /// caractère détecté, la direction de son bord supérieur
+    /// (radians, espace de l'image). Détection pure — aucune
+    /// lecture. ATTENTION : sur un texte de côté, ces boîtes
+    /// ne suivent pas la ligne et leurs angles mentent (au
+    /// build 63, un reçu de côté « mesurait » −0,0°) ; elles
+    /// ne disent vrai que sur un texte presque horizontal.
+    private func characterAngles(_ image: CIImage) -> [CGFloat] {
         guard let cg = ciContext.createCGImage(
-            image, from: image.extent) else { return nil }
+            image, from: image.extent) else { return [] }
         let request = VNDetectTextRectanglesRequest()
         request.reportCharacterBoxes = true
         let handler = VNImageRequestHandler(cgImage: cg,
                                             options: [:])
         guard (try? handler.perform([request])) != nil
-        else { return nil }
+        else { return [] }
         var angles: [CGFloat] = []
         for obs in request.results ?? [] {
             for box in obs.characterBoxes ?? [] {
@@ -1515,6 +1518,17 @@ final class CompositeScanner: NSObject,
                 }
             }
         }
+        return angles
+    }
+
+    /// Médiane CIRCULAIRE d'angles de glyphes : les angles
+    /// sont déballés autour de leur direction moyenne avant
+    /// la médiane, sinon une grappe à cheval sur ±180°
+    /// (texte à l'envers) s'effondrerait vers 0. Nil si les
+    /// glyphes sont trop rares (< 12) ou trop dispersés
+    /// (concentration < 0,3) pour conclure.
+    private func circularMedian(_ angles: [CGFloat])
+    -> CGFloat? {
         guard angles.count >= 12 else { return nil }
         var sx = 0.0, sy = 0.0
         for a in angles {
@@ -1535,6 +1549,74 @@ final class CompositeScanner: NSObject,
         while median > .pi { median -= 2 * .pi }
         while median <= -.pi { median += 2 * .pi }
         return median
+    }
+
+    /// Angle du texte d'une image au texte presque
+    /// horizontal (usage : amorce du redressement fin).
+    private func textAngle(_ image: CIImage) -> CGFloat? {
+        circularMedian(characterAngles(image))
+    }
+
+    /// Mesure du redressement à la verticale, pour l'image
+    /// brute où le texte est DE CÔTÉ : on mesure dans des
+    /// copies tournées d'un quart de tour — là où le texte
+    /// redevient horizontal, les boîtes de glyphes disent
+    /// vrai, et les deux copies horizontales (à l'endroit,
+    /// à l'envers) désignent le MÊME angle du texte dans
+    /// l'image. Le groupe de candidats le mieux peuplé
+    /// gagne ; la rotation retenue est ensuite VÉRIFIÉE sur
+    /// l'image tournée (à l'envers → demi-tour de plus ;
+    /// encore de côté → on ne touche à rien). Rend la
+    /// rotation à appliquer (radians, ]-π, π]) et, pour le
+    /// journal, le nombre de glyphes vus par quart de tour.
+    private func straightenMeasure(for frame: CIImage)
+    -> (rotation: CGFloat?, counts: [Int]) {
+        let scale = min(1, 1100 / max(frame.extent.width, 1))
+        let small = scale < 1
+            ? frame.transformed(
+                by: CGAffineTransform(scaleX: scale, y: scale))
+            : frame
+        let betas: [CGFloat] = [0, .pi / 2, -.pi / 2, .pi]
+        var counts: [Int] = []
+        var candidates: [(theta: CGFloat, count: Int)] = []
+        for beta in betas {
+            let copy = beta == 0 ? small
+                : rotateKeepingExtent(small, by: beta)
+            let angles = characterAngles(copy)
+            counts.append(angles.count)
+            if angles.count >= 40,
+               let phi = circularMedian(angles) {
+                candidates.append((theta: phi - beta,
+                                   count: angles.count))
+            }
+        }
+        var winner: (theta: CGFloat, total: Int)?
+        for c in candidates {
+            var total = 0
+            for other in candidates {
+                var d = abs(other.theta - c.theta)
+                    .truncatingRemainder(dividingBy: 2 * .pi)
+                if d > .pi { d = 2 * .pi - d }
+                if d <= 10 * .pi / 180 { total += other.count }
+            }
+            if winner == nil || total > winner!.total {
+                winner = (c.theta, total)
+            }
+        }
+        guard let winner else { return (nil, counts) }
+        var rotation = -winner.theta
+        let turned = rotateKeepingExtent(small, by: rotation)
+        if let check = circularMedian(characterAngles(turned)) {
+            let a = abs(check)
+            if a >= 155 * .pi / 180 {
+                rotation += .pi
+            } else if a > 25 * .pi / 180 {
+                return (nil, counts)
+            }
+        }
+        while rotation > .pi { rotation -= 2 * .pi }
+        while rotation <= -.pi { rotation += 2 * .pi }
+        return (rotation, counts)
     }
 
     /// Rotation d'une image autour de son centre, en
