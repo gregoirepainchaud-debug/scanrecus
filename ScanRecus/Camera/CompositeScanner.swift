@@ -618,14 +618,15 @@ final class CompositeScanner: NSObject,
         // 2026-10-21) : on manipule l'image successivement
         // jusqu'à trouver le bon sens, CHAQUE étape affichée
         // 2 secondes pour être VUE travailler, puis le reçu
-        // est découpé et ENFIN analysé. Étapes : 1. l'image de
-        // départ ; 2. le rectangle blanc du papier, refermé
-        // et surligné ; 3. l'inclinaison corrigée D'ABORD ;
-        // 4. le sens jugé sur les MOTS (direction des lettres
-        // et déroulement des lignes — le test couvre aussi le
-        // cas « de côté », la règle des bords a été retirée
-        // au build 71 : un seul juge) ; 5. le découpage ;
-        // 6. l'analyse (compagnie, date, total).
+        // est découpé et ENFIN analysé. Étapes : 1. l'image
+        // de départ ; 2. la ZONE LA PLUS BLANCHE (le papier —
+        // seuil relatif, gribouillis noirs dedans absorbés),
+        // tout l'extérieur devient NOIR ; 3. la DÉVIATION
+        // mesurée par les BORDS de la zone (deux lignes à
+        // 90°) et corrigée ; 4. le sens jugé sur les MOTS
+        // (direction des lettres, déroulement des lignes) ;
+        // 5. le découpage sur la zone blanche ; 6. l'analyse
+        // (compagnie, date, total).
         guard let sample = bestSample else {
             DispatchQueue.main.async { [weak self] in
                 self?.statusText = "Aucun échantillon — réessayez."
@@ -671,57 +672,61 @@ final class CompositeScanner: NSObject,
         guard showStep(work, "Étape 1 — image de départ")
         else { return }
 
-        // Étape 2 — on cherche la forme aux bords blancs
-        // (le papier) et on la REFERME en un rectangle
-        // parfait qui l'affleure (la détection brute rend
-        // des trapèzes) ; c'est ce rectangle qui est
-        // surligné en jaune et qui sert aux mesures.
-        var quad = findPaperQuad(in: work).map {
-            rectifyQuad($0, imageSize: work.extent.size)
-        }
-        if let quad {
-            trace.append(
-                "Étape 2 — rectangle aux bords blancs trouvé "
-                + "(\(lastQuadSummary))")
-            let shown = drawQuad(quad, on: work)
-                .map { CIImage(cgImage: $0) } ?? work
-            guard showStep(shown,
-                "Étape 2 — rectangle du reçu (surligné en jaune)")
+        // Étape 2 — la ZONE LA PLUS BLANCHE (méthode de
+        // Grégoire, 2026-10-21) : le papier est la zone la
+        // plus blanche DISPONIBLE dans l'image (seuil
+        // relatif) ; les gribouillis noirs dedans (le texte
+        // imprimé) sont absorbés — dilatation, plus grande
+        // composante, trous remplis. Tout ce qui est À
+        // L'EXTÉRIEUR devient NOIR : il ne reste que le
+        // papier et ses bords, nets, pour la mesure.
+        let zone = findWhiteZone(in: work)
+        if let zone {
+            work = maskedToZone(work, zone: zone)
+            trace.append("Étape 2 — zone la plus blanche : "
+                + "\(Int(zone.coverage * 100)) % du cadre "
+                + "(seuil \(zone.threshold)), extérieur en noir")
+            guard showStep(work, "Étape 2 — la zone la plus "
+                + "blanche, tout le reste en noir")
             else { return }
         } else {
-            trace.append("Étape 2 — aucun rectangle blanc "
-                + "trouvé (\(lastQuadSummary))")
-            guard showStep(work,
-                "Étape 2 — aucun rectangle blanc trouvé, "
-                + "on continue sans")
+            trace.append("Étape 2 — aucune zone blanche "
+                + "dominante (\(lastZoneSummary))")
+            guard showStep(work, "Étape 2 — aucune zone "
+                + "blanche dominante, on continue sans masque")
             else { return }
         }
 
-        // Étape 3 — l'INCLINAISON d'abord (ordre inversé à
-        // la demande de Grégoire, 2026-10-21) : l'angle du
-        // bord supérieur, et l'image tourne de son contraire.
-        // Le rectangle suivi tourne avec l'image.
-        if let q = quad {
-            let angle = quadEdges(q, imageSize: work.extent.size)
-                .topAngle
-            if abs(angle) > 0.1 * .pi / 180 {
-                let oldSize = work.extent.size
-                work = rotateKeepingExtent(work, by: -angle)
-                quad = mapQuad(q, oldSize: oldSize, angle: -angle)
-                trace.append(String(
-                    format: "Étape 3 — inclinaison %+.1f° : "
-                        + "rotation de %+.1f°",
-                    Double(angle) * 180 / .pi,
-                    Double(-angle) * 180 / .pi))
-                guard showStep(work, String(
-                    format: "Étape 3 — inclinaison de %+.1f° "
-                        + "corrigée",
-                    Double(angle) * 180 / .pi))
-                else { return }
+        // Étape 3 — la DÉVIATION par les BORDS : deux lignes
+        // qui se croisent à 90° ajustées sur les bords de la
+        // zone (axe principal, raffiné par les côtés) ; la
+        // déviation vs la verticale/l'horizontale est
+        // corrigée d'un coup.
+        if let zone {
+            if let dev = measureDeviation(zone: zone) {
+                if abs(dev) > 0.2 * .pi / 180 {
+                    work = rotateKeepingExtent(work, by: -dev)
+                    trace.append(String(
+                        format: "Étape 3 — bords : déviation "
+                            + "de %+.1f°, rotation de %+.1f°",
+                        Double(dev) * 180 / .pi,
+                        Double(-dev) * 180 / .pi))
+                    guard showStep(work, String(
+                        format: "Étape 3 — déviation de %+.1f° "
+                            + "corrigée",
+                        Double(dev) * 180 / .pi))
+                    else { return }
+                } else {
+                    trace.append("Étape 3 — bords déjà alignés "
+                        + "(déviation < 0,2°)")
+                    guard showStep(work, "Étape 3 — les bords "
+                        + "sont déjà alignés")
+                    else { return }
+                }
             } else {
-                trace.append("Étape 3 — aucune inclinaison")
-                guard showStep(work,
-                    "Étape 3 — le rectangle est déjà horizontal")
+                trace.append("Étape 3 — déviation non mesurable")
+                guard showStep(work, "Étape 3 — déviation non "
+                    + "mesurable, on continue")
                 else { return }
             }
         }
@@ -740,15 +745,15 @@ final class CompositeScanner: NSObject,
         // de 90°), retestés à chaque position.
         var placed = false
         var attempts = 0
-        var bestSense: (image: CIImage, quad: [CGPoint]?,
-                        score: Float) = (work, quad, -1)
+        var bestSense: (image: CIImage, score: Float)
+            = (work, -1)
         while attempts < 4 {
             attempts += 1
             let sense = wordSense(of: work)
             trace.append("Étape 4.\(attempts) — mots : "
                 + sense.summary)
             if sense.score > bestSense.score {
-                bestSense = (work, quad, sense.score)
+                bestSense = (work, sense.score)
             }
             guard showStep(work, "Étape 4.\(attempts) — "
                 + sense.status)
@@ -759,49 +764,51 @@ final class CompositeScanner: NSObject,
             }
             let turn: CGFloat = sense.verdict == .upsideDown
                 ? .pi : .pi / 2
-            let oldSize = work.extent.size
             work = rotateKeepingExtent(work, by: turn)
-            if let q = quad {
-                quad = mapQuad(q, oldSize: oldSize, angle: turn)
-            }
             trace.append("Étape 4.\(attempts) — rotation de "
                 + "\(turn == .pi ? "180" : "90")°")
         }
         if !placed {
             work = bestSense.image
-            quad = bestSense.quad
             trace.append("Étape 4 — aucun sens concluant : "
                 + "meilleur score de mots gardé")
         }
 
-        // Étape 5 — le reçu est DÉCOUPÉ sur son rectangle
-        // (suivi à travers toutes les rotations) pour
-        // éliminer le fond.
-        if let q = quad {
+        // Étape 5 — on élimine le noir qui reste À
+        // L'EXTÉRIEUR de la zone blanche : la zone est
+        // recherchée à nouveau sur l'image orientée, et le
+        // reçu est découpé sur elle — il occupe alors le
+        // maximum de l'écran disponible.
+        if let zone2 = findWhiteZone(in: work) {
             let ext = work.extent
             var rect = CGRect(
-                x: ext.minX + (q.map(\.x).min() ?? 0) * ext.width,
-                y: ext.minY + (q.map(\.y).min() ?? 0) * ext.height,
-                width: ((q.map(\.x).max() ?? 0)
-                        - (q.map(\.x).min() ?? 0)) * ext.width,
-                height: ((q.map(\.y).max() ?? 0)
-                         - (q.map(\.y).min() ?? 0)) * ext.height)
+                x: ext.minX + zone2.bboxNorm.minX * ext.width,
+                y: ext.minY + zone2.bboxNorm.minY * ext.height,
+                width: zone2.bboxNorm.width * ext.width,
+                height: zone2.bboxNorm.height * ext.height)
             rect = rect.insetBy(dx: -0.01 * rect.width,
                                 dy: -0.01 * rect.height)
                 .intersection(ext)
             if rect.width > 40, rect.height > 40 {
                 work = atOrigin(work.cropped(to: rect))
-                trace.append("Étape 5 — reçu découpé "
-                    + "(fond éliminé)")
+                trace.append("Étape 5 — reçu découpé sur sa "
+                    + "zone blanche (qui couvrait "
+                    + "\(Int(zone2.coverage * 100)) % du cadre)")
+                guard showStep(work, "Étape 5 — reçu découpé, "
+                    + "le noir extérieur est éliminé")
+                else { return }
+            } else {
+                trace.append("Étape 5 — zone trop petite, "
+                    + "pas de découpage")
                 guard showStep(work,
-                    "Étape 5 — reçu découpé, fond éliminé")
+                    "Étape 5 — pas de découpage (zone minuscule)")
                 else { return }
             }
         } else {
-            trace.append("Étape 5 — pas de rectangle : "
-                + "pas de découpage")
+            trace.append("Étape 5 — zone blanche non "
+                + "retrouvée (\(lastZoneSummary))")
             guard showStep(work, "Étape 5 — pas de découpage "
-                + "(aucun rectangle)")
+                + "(zone non retrouvée)")
             else { return }
         }
 
@@ -1403,6 +1410,322 @@ final class CompositeScanner: NSObject,
                 ? "texte à l'envers → rotation de 180°"
                 : "texte de côté → rotation de 90°"
         return (verdict, score, summary, status)
+    }
+
+    // MARK: - Zone blanche (méthode de Grégoire, 2026-10-21)
+
+    /// La zone la plus blanche d'une image : masque binaire
+    /// (tampon réduit, rangée 0 = haut de l'image), sa boîte
+    /// en coordonnées normalisées (y montant), son seuil et
+    /// sa part du cadre.
+    private struct WhiteZone {
+        var mask: [UInt8]
+        var w: Int
+        var h: Int
+        var threshold: Int
+        var coverage: Double
+        var bboxNorm: CGRect
+    }
+
+    private var lastZoneSummary = ""
+
+    /// Cherche la zone la plus blanche DISPONIBLE : seuil
+    /// d'Otsu sur l'histogramme (relatif à l'image, jamais un
+    /// blanc absolu), dilatation pour absorber les
+    /// gribouillis noirs DANS la zone (le texte imprimé),
+    /// plus grande composante connexe, trous remplis.
+    private func findWhiteZone(in image: CIImage) -> WhiteZone? {
+        guard let (px, w, h) = grayBuffer(image,
+                                          maxWidth: 512)
+        else {
+            lastZoneSummary = "tampon gris indisponible"
+            return nil
+        }
+        let total = w * h
+        var hist = [Int](repeating: 0, count: 256)
+        for v in px { hist[Int(v)] += 1 }
+        var sumAll = 0.0
+        for i in 0..<256 { sumAll += Double(i * hist[i]) }
+        var sumB = 0.0, countB = 0, best = -1.0, level = 128
+        for i in 0..<256 {
+            countB += hist[i]
+            if countB == 0 { continue }
+            let countF = total - countB
+            if countF == 0 { break }
+            sumB += Double(i * hist[i])
+            let mB = sumB / Double(countB)
+            let mF = (sumAll - sumB) / Double(countF)
+            let between = Double(countB) * Double(countF)
+                * (mB - mF) * (mB - mF)
+            if between > best { best = between; level = i }
+        }
+        var mask = [UInt8](repeating: 0, count: total)
+        for i in 0..<total where px[i] >= UInt8(level) {
+            mask[i] = 255
+        }
+        mask = dilateMask(mask, w: w, h: h, passes: 2)
+        mask = largestComponent(mask, w: w, h: h)
+        mask = fillHoles(mask, w: w, h: h)
+        var count = 0
+        var minC = w, maxC = -1, minR = h, maxR = -1
+        for r in 0..<h {
+            for c in 0..<w where mask[r * w + c] > 0 {
+                count += 1
+                if c < minC { minC = c }
+                if c > maxC { maxC = c }
+                if r < minR { minR = r }
+                if r > maxR { maxR = r }
+            }
+        }
+        let coverage = Double(count) / Double(total)
+        guard maxC >= 0, coverage >= 0.04, coverage <= 0.97
+        else {
+            lastZoneSummary = "seuil \(level), zone de "
+                + "\(Int(coverage * 100)) % — hors limites"
+            return nil
+        }
+        let bbox = CGRect(
+            x: CGFloat(minC) / CGFloat(w),
+            y: 1 - CGFloat(maxR + 1) / CGFloat(h),
+            width: CGFloat(maxC - minC + 1) / CGFloat(w),
+            height: CGFloat(maxR - minR + 1) / CGFloat(h))
+        return WhiteZone(mask: mask, w: w, h: h,
+                         threshold: level, coverage: coverage,
+                         bboxNorm: bbox)
+    }
+
+    /// Dilatation binaire (voisinage 4) : la zone blanche
+    /// grandit dans les gribouillis noirs qu'elle contient.
+    private func dilateMask(_ mask: [UInt8], w: Int, h: Int,
+                            passes: Int) -> [UInt8] {
+        var cur = mask
+        for _ in 0..<passes {
+            var out = cur
+            for r in 0..<h {
+                for c in 0..<w where cur[r * w + c] == 0 {
+                    if (c > 0 && cur[r * w + c - 1] > 0)
+                        || (c < w - 1 && cur[r * w + c + 1] > 0)
+                        || (r > 0 && cur[(r - 1) * w + c] > 0)
+                        || (r < h - 1
+                            && cur[(r + 1) * w + c] > 0) {
+                        out[r * w + c] = 255
+                    }
+                }
+            }
+            cur = out
+        }
+        return cur
+    }
+
+    /// Ne garde que la plus grande composante connexe
+    /// (voisinage 4) du masque.
+    private func largestComponent(_ mask: [UInt8], w: Int,
+                                  h: Int) -> [UInt8] {
+        var labels = [Int](repeating: -1, count: w * h)
+        var sizes: [Int] = []
+        var stack: [Int] = []
+        for start in 0..<(w * h)
+        where mask[start] > 0 && labels[start] < 0 {
+            let id = sizes.count
+            var size = 0
+            labels[start] = id
+            stack = [start]
+            while let idx = stack.popLast() {
+                size += 1
+                let r = idx / w, c = idx % w
+                if c > 0, mask[idx - 1] > 0,
+                   labels[idx - 1] < 0 {
+                    labels[idx - 1] = id
+                    stack.append(idx - 1)
+                }
+                if c < w - 1, mask[idx + 1] > 0,
+                   labels[idx + 1] < 0 {
+                    labels[idx + 1] = id
+                    stack.append(idx + 1)
+                }
+                if r > 0, mask[idx - w] > 0,
+                   labels[idx - w] < 0 {
+                    labels[idx - w] = id
+                    stack.append(idx - w)
+                }
+                if r < h - 1, mask[idx + w] > 0,
+                   labels[idx + w] < 0 {
+                    labels[idx + w] = id
+                    stack.append(idx + w)
+                }
+            }
+            sizes.append(size)
+        }
+        guard let bestId = sizes.indices
+            .max(by: { sizes[$0] < sizes[$1] })
+        else { return mask }
+        var out = [UInt8](repeating: 0, count: w * h)
+        for i in 0..<(w * h) where labels[i] == bestId {
+            out[i] = 255
+        }
+        return out
+    }
+
+    /// Remplit les trous : tout pixel hors zone qui n'est
+    /// pas relié au bord de l'image fait partie de la zone
+    /// (gribouillis refermés, boucles de lettres…).
+    private func fillHoles(_ mask: [UInt8], w: Int, h: Int)
+    -> [UInt8] {
+        var outside = [Bool](repeating: false, count: w * h)
+        var stack: [Int] = []
+        func seed(_ idx: Int) {
+            if mask[idx] == 0, !outside[idx] {
+                outside[idx] = true
+                stack.append(idx)
+            }
+        }
+        for c in 0..<w { seed(c); seed((h - 1) * w + c) }
+        for r in 0..<h { seed(r * w); seed(r * w + w - 1) }
+        while let idx = stack.popLast() {
+            let r = idx / w, c = idx % w
+            if c > 0 { seed(idx - 1) }
+            if c < w - 1 { seed(idx + 1) }
+            if r > 0 { seed(idx - w) }
+            if r < h - 1 { seed(idx + w) }
+        }
+        var out = mask
+        for i in 0..<(w * h)
+        where mask[i] == 0 && !outside[i] {
+            out[i] = 255
+        }
+        return out
+    }
+
+    /// L'image dont tout ce qui est hors de la zone blanche
+    /// devient NOIR (masque alpha étiré au cadre, fondu).
+    private func maskedToZone(_ image: CIImage,
+                              zone: WhiteZone) -> CIImage {
+        let bytes = zone.mask
+        guard let provider = CGDataProvider(
+                data: Data(bytes) as CFData),
+              let cg = CGImage(
+                width: zone.w, height: zone.h,
+                bitsPerComponent: 8, bitsPerPixel: 8,
+                bytesPerRow: zone.w, space: graySpace,
+                bitmapInfo: CGBitmapInfo(
+                    rawValue: CGImageAlphaInfo.only.rawValue),
+                provider: provider, decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent)
+        else { return image }
+        let ext = image.extent
+        let t = CGAffineTransform(
+            a: ext.width / CGFloat(zone.w), b: 0, c: 0,
+            d: ext.height / CGFloat(zone.h),
+            tx: ext.minX, ty: ext.minY)
+        let maskImage = CIImage(cgImage: cg).transformed(by: t)
+        guard let blend = CIFilter(name: "CIBlendWithMask")
+        else { return image }
+        blend.setValue(image, forKey: kCIInputImageKey)
+        blend.setValue(CIImage(color: .black).cropped(to: ext),
+                       forKey: kCIInputBackgroundImageKey)
+        blend.setValue(maskImage, forKey: kCIInputMaskImageKey)
+        return blend.outputImage?.cropped(to: ext) ?? image
+    }
+
+    /// La déviation de la zone vs la verticale et
+    /// l'horizontale, PAR LES BORDS : axe principal de la
+    /// zone (covariance des pixels), raffiné par des lignes
+    /// ajustées sur les quatre côtés dans le repère de l'axe
+    /// — les deux familles de côtés se croisent à 90° par
+    /// construction, et chacune donne la même déviation.
+    /// Rend l'angle signé (radians, repère image y montant)
+    /// dont la zone penche vs l'axe cardinal le plus proche.
+    private func measureDeviation(zone: WhiteZone)
+    -> CGFloat? {
+        let w = zone.w, h = zone.h, mask = zone.mask
+        var n = 0.0, sx = 0.0, sy = 0.0
+        for r in 0..<h {
+            for c in 0..<w where mask[r * w + c] > 0 {
+                n += 1
+                sx += (Double(c) + 0.5) / Double(w)
+                sy += 1 - (Double(r) + 0.5) / Double(h)
+            }
+        }
+        guard n > 100 else { return nil }
+        let mx = sx / n, my = sy / n
+        var cxx = 0.0, cyy = 0.0, cxy = 0.0
+        for r in 0..<h {
+            for c in 0..<w where mask[r * w + c] > 0 {
+                let dx = (Double(c) + 0.5) / Double(w) - mx
+                let dy = 1 - (Double(r) + 0.5) / Double(h) - my
+                cxx += dx * dx
+                cyy += dy * dy
+                cxy += dx * dy
+            }
+        }
+        // Angle de l'axe principal (le grand côté du papier).
+        let phi = 0.5 * atan2(2 * cxy, cxx - cyy)
+        let e1x = cos(phi), e1y = sin(phi)
+        let e2x = -sin(phi), e2y = cos(phi)
+        // Points de BORD dans le repère (u = grand axe,
+        // v = petit axe).
+        var us: [Double] = [], vs: [Double] = []
+        for r in 0..<h {
+            for c in 0..<w where mask[r * w + c] > 0 {
+                let isBorder = (c == 0 || mask[r * w + c - 1] == 0)
+                    || (c == w - 1 || mask[r * w + c + 1] == 0)
+                    || (r == 0 || mask[(r - 1) * w + c] == 0)
+                    || (r == h - 1 || mask[(r + 1) * w + c] == 0)
+                guard isBorder else { continue }
+                let dx = (Double(c) + 0.5) / Double(w) - mx
+                let dy = 1 - (Double(r) + 0.5) / Double(h) - my
+                us.append(dx * e1x + dy * e1y)
+                vs.append(dx * e2x + dy * e2y)
+            }
+        }
+        var gamma = 0.0
+        if us.count >= 40,
+           let umin = us.min(), let umax = us.max(),
+           let vmin = vs.min(), let vmax = vs.max(),
+           umax - umin > 0.05, vmax - vmin > 0.05 {
+            let ur = umax - umin, vr = vmax - vmin
+            // Ajuste B = α + β·A par moindres carrés ; rend β.
+            func slope(_ pairs: [(a: Double, b: Double)])
+            -> Double? {
+                guard pairs.count >= 8 else { return nil }
+                let m = Double(pairs.count)
+                let ma = pairs.reduce(0) { $0 + $1.a } / m
+                let mb = pairs.reduce(0) { $0 + $1.b } / m
+                var num = 0.0, den = 0.0
+                for p in pairs {
+                    num += (p.a - ma) * (p.b - mb)
+                    den += (p.a - ma) * (p.a - ma)
+                }
+                return den > 0 ? num / den : nil
+            }
+            var estimates: [Double] = []
+            // Longs côtés : v en fonction de u.
+            let top = zip(us, vs).filter { $0.1 > vmax - 0.15 * vr }
+                .map { (a: $0.0, b: $0.1) }
+            let bottom = zip(us, vs)
+                .filter { $0.1 < vmin + 0.15 * vr }
+                .map { (a: $0.0, b: $0.1) }
+            if let b = slope(top) { estimates.append(atan(b)) }
+            if let b = slope(bottom) { estimates.append(atan(b)) }
+            // Courts côtés : u en fonction de v — leur
+            // inclinaison donne la même déviation.
+            let left = zip(us, vs).filter { $0.0 < umin + 0.15 * ur }
+                .map { (a: $0.1, b: $0.0) }
+            let right = zip(us, vs).filter { $0.0 > umax - 0.15 * ur }
+                .map { (a: $0.1, b: $0.0) }
+            if let b = slope(left) { estimates.append(atan(b)) }
+            if let b = slope(right) { estimates.append(atan(b)) }
+            if !estimates.isEmpty {
+                gamma = estimates.reduce(0, +)
+                    / Double(estimates.count)
+            }
+        }
+        let longDeg = (phi + gamma) * 180 / .pi
+        let devDeg = abs(longDeg) <= 45
+            ? longDeg
+            : longDeg - (longDeg > 0 ? 90 : -90)
+        return CGFloat(devDeg * .pi / 180)
     }
 
     // MARK: - Lecture du scan (OCR précis + champs, affichage seulement)
