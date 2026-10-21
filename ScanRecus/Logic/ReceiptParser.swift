@@ -371,9 +371,24 @@ enum ReceiptParser {
             return i > 0 ? folded(i - 1) : own
         }
         func isTaxLine(_ i: Int) -> Bool {
+            let f = folded(i)
+            return taxRe.firstMatch(in: f, range: f.nsRange) != nil
+        }
+        /// Variante « partie de preuve » de isTaxLine :
+        /// l'étiquette voisine compte (un impôt lu seul sous
+        /// son étiquette doit être reconnu comme impôt). La
+        /// GARDE du total, elle, reste sur la ligne propre :
+        /// un total nu sous une ligne TVQ existe (reçu « QTÉ »
+        /// de l'audit) et ne doit pas être disqualifié.
+        func partIsTaxLine(_ i: Int) -> Bool {
             let f = labelFolded(i)
             return taxRe.firstMatch(in: f, range: f.nsRange) != nil
         }
+        // Le sous-total, lui, garde l'étiquette voisine même
+        // pour la garde : un montant nu sous l'étiquette
+        // « SOUS-TOTAL » EST le sous-total (le total a toujours
+        // ses taxes ou son étiquette entre les deux) — c'est
+        // ce qui disqualifie le faux total fragmenté.
         func isSubLine(_ i: Int) -> Bool {
             let f = labelFolded(i)
             return f.contains("sous-total") || f.contains("sous total")
@@ -430,7 +445,7 @@ enum ReceiptParser {
             var score = partIdxs.count * 5
                 + amounts[totalIdx].lineIndex
             if partIdxs.contains(
-                where: { isTaxLine(amounts[$0].lineIndex) }) {
+                where: { partIsTaxLine(amounts[$0].lineIndex) }) {
                 score += 100
             }
             if partIdxs.contains(
@@ -523,7 +538,7 @@ enum ReceiptParser {
         // fiscal. Sinon, elle reste suspecte (veto possible
         // dans parseTotal).
         let structured = parts.contains {
-            isTaxLine($0.lineIndex) || isSubLine($0.lineIndex)
+            partIsTaxLine($0.lineIndex) || isSubLine($0.lineIndex)
         }
         return (total.value, total.lineIndex, parts, structured)
     }
