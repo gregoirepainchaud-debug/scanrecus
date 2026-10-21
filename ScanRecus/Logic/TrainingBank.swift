@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import CoreImage
 import ImageIO
 import CryptoKit
 import Observation
