@@ -128,7 +128,11 @@ struct CompositeScanView: View {
                                     boxes: scanner.extraction?
                                         .answerBoxes ?? [],
                                     crops: scanner.extraction?
-                                        .answerCrops ?? [])
+                                        .answerCrops ?? [],
+                                    proofBoxes: scanner.extraction?
+                                        .proofBoxes ?? [],
+                                    proofCrops: scanner.extraction?
+                                        .proofCrops ?? [])
                                 .padding(10)
                             } else if let frozen = scanner.livePreview {
                                 Image(frozen, scale: 1,
@@ -373,40 +377,84 @@ struct CompositeScanView: View {
 }
 
 
+/// Trait de marqueur (demande de Grégoire, 2026-10-20) : le
+/// même « mouvement » pour toutes les régions — une bande aux
+/// bords légèrement courbes et aux extrémités effilées, plutôt
+/// qu'une étiquette rectangulaire parfaite. Aucune animation :
+/// la forme est fixe, seule sa taille suit la région.
+private struct MarkerStroke: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.minX + x * w, y: rect.minY + y * h)
+        }
+        var p = Path()
+        p.move(to: pt(0.012, 0.30))
+        p.addQuadCurve(to: pt(0.988, 0.16), control: pt(0.5, 0.0))
+        p.addQuadCurve(to: pt(1.0, 0.58), control: pt(1.0, 0.38))
+        p.addQuadCurve(to: pt(0.02, 0.84), control: pt(0.5, 1.0))
+        p.addQuadCurve(to: pt(0.0, 0.44), control: pt(0.0, 0.62))
+        p.closeSubpath()
+        return p
+    }
+}
+
 /// Vue de révision du scan final (demande de Grégoire,
-/// 2026-10-20) : l'image au centre avec ses carrés jaunes, et
-/// chaque région encadrée ressort en EXTRAIT AGRANDI dans les
-/// colonnes latérales — en alternance droite, gauche, droite…
-/// (donc deux à droite et un à gauche pour trois régions) —
-/// reliée à sa boîte d'origine par un trait jaune. Le but :
-/// lire les réponses du programme sans plisser les yeux.
+/// 2026-10-20) : l'image au centre, ses régions SURLIGNÉES
+/// comme au marqueur — les réponses (commerce, date, total)
+/// en VERT, les montants de la preuve (sous-total, TPS, TVQ)
+/// en JAUNE — et chaque région ressort en EXTRAIT AGRANDI
+/// dans les colonnes latérales, en alternance droite, gauche,
+/// droite… reliée à sa région par un trait de sa couleur.
+/// Le but : lire les réponses du programme sans plisser les
+/// yeux, et VOIR la preuve, pas seulement la lire.
 struct ZoomReviewView: View {
     let image: CGImage
     let boxes: [CGRect]
     let crops: [CGImage]
+    let proofBoxes: [CGRect]
+    let proofCrops: [CGImage]
 
-    // Hauteur d'une carte extrait : largeur de colonne, aspect
-    // du découpage conservé. Ce sont des MÉTHODES de la
-    // structure : les fermetures @ViewBuilder (GeometryReader)
-    // n'acceptent pas de fonctions locales — erreur CI du
-    // 2026-10-20 (« cannot use explicit return in ViewBuilder »).
-    private func cardH(_ i: Int, colW: CGFloat) -> CGFloat {
-        let c = crops[i]
-        guard c.width > 0 else { return 30 }
+    /// Une région à surligner : sa boîte, son extrait agrandi
+    /// (s'il a pu être découpé) et sa couleur de marqueur.
+    private struct Item {
+        let box: CGRect
+        let crop: CGImage?
+        let color: Color
+    }
+
+    private var items: [Item] {
+        var out = boxes.indices.map {
+            Item(box: boxes[$0],
+                 crop: crops.indices.contains($0) ? crops[$0] : nil,
+                 color: .green)
+        }
+        out += proofBoxes.indices.map {
+            Item(box: proofBoxes[$0],
+                 crop: proofCrops.indices.contains($0)
+                    ? proofCrops[$0] : nil,
+                 color: .yellow)
+        }
+        return out
+    }
+
+    private func cardH(_ item: Item, colW: CGFloat) -> CGFloat {
+        guard let c = item.crop, c.width > 0 else { return 30 }
         return max(20, colW * CGFloat(c.height) / CGFloat(c.width))
     }
 
     // Ordonnée du haut d'une carte dans sa colonne (pile
-    // centrée verticalement).
-    private func stackY(_ idxs: [Int], _ i: Int,
+    // centrée verticalement) ; les cartes sont repérées par
+    // leur rang dans la liste complète des régions.
+    private func stackY(_ col: [(Int, Item)], _ rank: Int,
                         colW: CGFloat, height: CGFloat) -> CGFloat {
-        let total = idxs.reduce(0) {
-            $0 + cardH($1, colW: colW) + 18
+        let total = col.reduce(0) {
+            $0 + cardH($1.1, colW: colW) + 18
         } - 18
         var y = max(0, (height - total) / 2)
-        for j in idxs {
-            if j == i { break }
-            y += cardH(j, colW: colW) + 18
+        for (r, item) in col {
+            if r == rank { break }
+            y += cardH(item, colW: colW) + 18
         }
         return y
     }
@@ -416,7 +464,11 @@ struct ZoomReviewView: View {
             let size = geo.size
             let iw = CGFloat(image.width)
             let ih = CGFloat(image.height)
-            let hasCrops = !boxes.isEmpty && crops.count == boxes.count
+            let all = items
+            let cards = all.enumerated()
+                .filter { $0.element.crop != nil }
+                .map { ($0.offset, $0.element) }
+            let hasCrops = !cards.isEmpty
             let colW: CGFloat = hasCrops
                 ? min(380, size.width * 0.26) : 0
             let gap: CGFloat = hasCrops ? 30 : 0
@@ -426,66 +478,66 @@ struct ZoomReviewView: View {
             let dh = ih * fit
             let imgX = colW + gap + (areaW - dw) / 2
             let imgY = (size.height - dh) / 2
-            let rightIdx = boxes.indices.filter { $0 % 2 == 0 }
-            let leftIdx = boxes.indices.filter { $0 % 2 == 1 }
+            let rightCards = cards.filter { $0.0 % 2 == 0 }
+            let leftCards = cards.filter { $0.0 % 2 == 1 }
 
             ZStack(alignment: .topLeading) {
-                // Traits de liaison boîte → extrait.
-                Path { path in
-                    if hasCrops {
-                        for i in boxes.indices {
-                            let b = boxes[i]
-                            let onRight = i % 2 == 0
-                            let cardX: CGFloat = onRight
-                                ? size.width - colW : 0
-                            let cy = stackY(onRight ? rightIdx : leftIdx,
-                                            i, colW: colW,
-                                            height: size.height)
-                                + cardH(i, colW: colW) / 2
-                            let bx = imgX
-                                + (onRight ? b.maxX : b.minX) * dw
-                            let by = imgY + (1 - b.midY) * dh
+                // Traits de liaison région → extrait, chacun
+                // de la couleur de sa région.
+                if hasCrops {
+                    ForEach(cards, id: \.0) { rank, item in
+                        let onRight = rank % 2 == 0
+                        let col = onRight ? rightCards : leftCards
+                        let cardX: CGFloat = onRight
+                            ? size.width - colW : 0
+                        let cy = stackY(col, rank, colW: colW,
+                                        height: size.height)
+                            + cardH(item, colW: colW) / 2
+                        let bx = imgX
+                            + (onRight ? item.box.maxX
+                                       : item.box.minX) * dw
+                        let by = imgY + (1 - item.box.midY) * dh
+                        Path { path in
                             path.move(to: CGPoint(x: bx, y: by))
                             path.addLine(to: CGPoint(
                                 x: onRight ? cardX : cardX + colW,
                                 y: cy))
                         }
+                        .stroke(item.color, lineWidth: 1.5)
                     }
                 }
-                .stroke(Color.yellow, lineWidth: 1.5)
 
-                // Image principale et ses carrés jaunes.
+                // Image principale et ses surlignages marqueur.
                 Image(image, scale: 1, label: Text("Scan du reçu"))
                     .resizable()
                     .frame(width: dw, height: dh)
                     .offset(x: imgX, y: imgY)
-                ForEach(boxes.indices, id: \.self) { i in
-                    let b = boxes[i]
-                    Rectangle()
-                        .stroke(Color.yellow, lineWidth: 2)
-                        .background(Color.yellow.opacity(0.10))
+                ForEach(all.indices, id: \.self) { i in
+                    let b = all[i].box
+                    MarkerStroke()
+                        .fill(all[i].color.opacity(0.38))
                         .frame(width: b.width * dw,
                                height: b.height * dh)
                         .offset(x: imgX + b.minX * dw,
                                 y: imgY + (1 - b.maxY) * dh)
                 }
 
-                // Extraits zoomés, encadrés de jaune.
+                // Extraits zoomés, encadrés de leur couleur.
                 if hasCrops {
-                    ForEach(boxes.indices, id: \.self) { i in
-                        let onRight = i % 2 == 0
+                    ForEach(cards, id: \.0) { rank, item in
+                        let onRight = rank % 2 == 0
+                        let col = onRight ? rightCards : leftCards
                         let cardX: CGFloat = onRight
                             ? size.width - colW : 0
-                        let cy = stackY(onRight ? rightIdx : leftIdx,
-                                        i, colW: colW,
+                        let cy = stackY(col, rank, colW: colW,
                                         height: size.height)
-                        Image(crops[i], scale: 1,
+                        Image(item.crop!, scale: 1,
                               label: Text("Extrait agrandi"))
                             .resizable()
                             .frame(width: colW,
-                                   height: cardH(i, colW: colW))
+                                   height: cardH(item, colW: colW))
                             .overlay(Rectangle().stroke(
-                                Color.yellow, lineWidth: 2))
+                                item.color, lineWidth: 2))
                             .offset(x: cardX, y: cy)
                     }
                 }

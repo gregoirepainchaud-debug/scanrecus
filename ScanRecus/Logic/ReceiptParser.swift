@@ -592,6 +592,55 @@ enum ReceiptParser {
                 }
             }
         }
+        // Chemin INVERSE (demande de Grégoire, 2026-10-20) :
+        // quand le total est FERME (il siège sur une ligne
+        // « TOTAL »), on en DÉRIVE le bloc fiscal attendu —
+        // sous-total = total / 1,14975 (TPS 5 % + TVQ 9,975 %,
+        // toutes deux sur le sous-total), TPS = sous-total
+        // × 0,05, TVQ = sous-total × 0,09975 — et on vérifie
+        // que ces montants EXISTENT au-dessus (± 2 ¢ : les
+        // terminaux arrondissent par article). La somme
+        // directe et la dérivation se complètent : chacune
+        // attrape des cas que l'autre rate.
+        for ti in amounts.indices {
+            let t = amounts[ti]
+            let f = labelFolded(t.lineIndex)
+            guard f.contains("total"), !isSubLine(t.lineIndex),
+                  !isTaxLine(t.lineIndex),
+                  !isPaymentLine(t.lineIndex) else { continue }
+            let minL = t.lineIndex - 20
+            let sExact = t.value / 1.14975
+            let targets = [Int((sExact * 100).rounded()),
+                           Int((sExact * 5).rounded()),
+                           Int((sExact * 9.975).rounded())]
+            var found: [Int] = []
+            var complete = true
+            for target in targets {
+                var hit: Int?
+                for (idx, a) in amounts.enumerated()
+                where idx != ti
+                    && a.lineIndex <= t.lineIndex
+                    && a.lineIndex >= minL
+                    && !found.contains(idx)
+                    && !isPartBlockedLine(a.lineIndex) {
+                    if abs(Int((a.value * 100).rounded())
+                            - target) <= 2 {
+                        hit = idx
+                        break
+                    }
+                }
+                if let hit { found.append(hit) }
+                else { complete = false; break }
+            }
+            if complete, found.count == 3 {
+                let sum = found.reduce(0.0) {
+                    $0 + amounts[$1].value
+                }
+                if abs(sum - t.value) <= 0.025 {
+                    consider(totalIdx: ti, partIdxs: found)
+                }
+            }
+        }
         guard let best else { return nil }
         let parts = best.partIdxs
             .map { amounts[$0] }
@@ -604,7 +653,26 @@ enum ReceiptParser {
         let structured = parts.contains {
             partIsTaxLine($0.lineIndex) || isSubLine($0.lineIndex)
         }
-        return (total.value, total.lineIndex, parts, structured)
+        // Le siège rapporté pour le total : la PREMIÈRE
+        // occurrence du montant gagnant qui arrive APRÈS la
+        // dernière partie de la preuve et qui puisse être un
+        // total (ni impôt, ni sous-total, ni paiement) — « le
+        // prochain chiffre après la TVQ » (demande de
+        // Grégoire, 2026-10-20) : le même montant répété plus
+        // bas, sur la ligne DÉBIT, ne vole plus le siège.
+        let lastPartLine = parts.map(\.lineIndex).max()
+            ?? total.lineIndex
+        var seat = total
+        for a in amounts
+        where abs(a.value - total.value) < 0.005
+            && a.lineIndex >= lastPartLine
+            && a.lineIndex < seat.lineIndex
+            && !isTaxLine(a.lineIndex)
+            && !isSubLine(a.lineIndex)
+            && !isPaymentLine(a.lineIndex) {
+            seat = a
+        }
+        return (total.value, seat.lineIndex, parts, structured)
     }
 
     /// Preuve par addition : vrai si `total` est la somme de 2 ou 3

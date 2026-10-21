@@ -695,15 +695,15 @@ final class CompositeScanner: NSObject,
         // précis dans les deux sens + champs extraits par
         // ReceiptParser. Affichage seulement — rien en base.
         var extraction = extractFields(from: outcome)
-        // Extraits des régions encadrées en jaune, découpés dans
-        // le scan final : la vue les ressort en encadrés zoomés
+        // Extraits des régions surlignées, découpés dans le
+        // scan final : la vue les ressort en encadrés zoomés
         // à côté de l'image (demande de Grégoire, 2026-10-20).
         // (finalCG est optionnel : le déballer avant de mesurer —
         // erreur CI du 2026-10-20.)
         if let finalCG {
             let fw = CGFloat(finalCG.width)
             let fh = CGFloat(finalCG.height)
-            extraction.answerCrops = extraction.answerBoxes.map { box in
+            func crop(_ box: CGRect) -> CGImage {
                 let rect = CGRect(
                     x: box.minX * fw,
                     y: (1 - box.maxY) * fh,
@@ -713,6 +713,8 @@ final class CompositeScanner: NSObject,
                                          width: fw, height: fh))
                 return finalCG.cropping(to: rect) ?? finalCG
             }
+            extraction.answerCrops = extraction.answerBoxes.map(crop)
+            extraction.proofCrops = extraction.proofBoxes.map(crop)
         }
         let stats = buildStats()
         appendToJournal(stats: stats, extraction: extraction)
@@ -861,6 +863,11 @@ final class CompositeScanner: NSObject,
         var totalParts: [Double]
         var answerBoxes: [CGRect]
         var answerCrops: [CGImage] = []
+        /// Boîtes des montants de la preuve (sous-total, TPS,
+        /// TVQ) — surlignées en jaune, quand les réponses sont
+        /// en vert (demande de Grégoire, 2026-10-20).
+        var proofBoxes: [CGRect] = []
+        var proofCrops: [CGImage] = []
         var readUpsideDown: Bool
     }
 
@@ -1116,6 +1123,23 @@ final class CompositeScanner: NSObject,
         }
         addBox(lineIndex: amountLine(totalLine, value: total))
 
+        // Boîtes des montants de la PREUVE (sous-total, TPS,
+        // TVQ — et l'article éventuel d'une preuve à 4) :
+        // surlignées en jaune, à côté des réponses en vert
+        // (demande de Grégoire, 2026-10-20). Les parties de la
+        // preuve portent l'index de la ligne du montant même.
+        var proofBoxes: [CGRect] = []
+        if let proof {
+            for part in proof.parts {
+                if lines.indices.contains(part.lineIndex) {
+                    let b = lines[part.lineIndex].box
+                    if !proofBoxes.contains(b) {
+                        proofBoxes.append(b)
+                    }
+                }
+            }
+        }
+
         return ScanExtraction(
             text: text,
             merchant: merchant,
@@ -1125,6 +1149,7 @@ final class CompositeScanner: NSObject,
             totalVerified: proof != nil,
             totalParts: proof?.parts.map(\.value) ?? [],
             answerBoxes: boxes,
+            proofBoxes: proofBoxes,
             readUpsideDown: outcome.upsideDown)
     }
 

@@ -768,6 +768,67 @@ if let proof = ReceiptParser.parseTotalVerified(etire) {
     check(false, "Journal/étiré : aucune preuve trouvée")
 }
 
+// — 18. Demandes de Grégoire (2026-10-20, soir) : le siège
+// du total et le chemin inverse.
+
+// Le montant du total lu AVANT son étiquette (colonne des
+// montants décalée) : le siège rapporté doit être ce
+// prochain chiffre après la TVQ — pas le même montant
+// répété sous TOTAL, et surtout pas celui sous DÉBIT.
+let siege = """
+MAGASIN
+ARTICLE 19,60
+ARTICLE 2,00
+SOUS-TOTAL 21,60
+TPS 1,08
+TVQ 2,16
+24,84
+TOTAL
+24,84
+Débit/Debit
+24,84
+"""
+expectTotal(siege, 24.84, verified: true, "Siège/après-TVQ")
+check(ReceiptParser.parseTotalVerified(siege)?.lineIndex == 6,
+      "Siège/après-TVQ : le siège doit être le montant juste "
+      + "après la TVQ (6) — obtenu "
+      + "\(ReceiptParser.parseTotalVerified(siege)?.lineIndex ?? -1)")
+
+// Chemin inverse : la TVQ est lue 2,18 (3 ¢ de trop) — la
+// somme directe rate, mais la dérivation depuis le total
+// ferme (sous-total = total / 1,14975, taxes dérivées,
+// montants présents à ± 2 ¢) forme la preuve.
+let inverse = """
+BOUTIQUE
+SOUS-TOTAL 21,60
+TPS 1,08
+TVQ 2,18
+TOTAL 24,84
+"""
+expectTotal(inverse, 24.84, verified: true, "Inverse/TVQ +3¢")
+if let proof = ReceiptParser.parseTotalVerified(inverse) {
+    let parts = proof.parts.map(\.value)
+    check(parts.count == 3
+          && abs(parts[2] - 2.18) < 0.001,
+          "Inverse/TVQ +3¢ : la partie TVQ doit être le "
+          + "montant LU (2,18), pas le montant dérivé — "
+          + "obtenues \(parts)")
+} else {
+    check(false, "Inverse/TVQ +3¢ : aucune preuve trouvée")
+}
+
+// Les ratios ne tiennent pas (TPS de 3,00 sur 21,60) : ni
+// somme ni dérivation ne doivent fabriquer de preuve.
+let ratiosFaux = """
+BOUTIQUE
+SOUS-TOTAL 21,60
+TPS 3,00
+TVQ 2,16
+TOTAL 24,84
+"""
+check(ReceiptParser.parseTotalVerified(ratiosFaux) == nil,
+      "Inverse/ratios faux : aucune preuve ne doit naître")
+
 // — Sanité de base des montants.
 check(ReceiptParser.allAmounts("TOTAL 24,84").count == 1,
       "allAmounts : un montant dans « TOTAL 24,84 »")
