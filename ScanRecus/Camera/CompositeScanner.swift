@@ -929,9 +929,27 @@ final class CompositeScanner: NSObject,
     /// « papier » existante) portant le texte. Rend les
     /// coins normalisés dans l'espace de l'image, ou nil.
     private func findPaperQuad(in image: CIImage) -> [CGPoint]? {
-        let candidates = detectRectangles(
-            handler: VNImageRequestHandler(ciImage: image,
-                                           options: [:]))
+        // Détection DÉDIÉE au rituel, tolérante sur la forme
+        // (Grégoire, 2026-10-21 : « la forme n'a pas besoin
+        // d'être parfaitement rectangulaire, il doit y avoir
+        // un seuil de tolérance ») : écart d'angle permis au
+        // maximum (45°) — un papier un peu gondolé ou vu en
+        // légère perspective reste candidat ; c'est la
+        // preuve « papier blanc » qui tranche ensuite.
+        let request = VNDetectRectanglesRequest()
+        request.minimumAspectRatio = 0.1
+        request.maximumAspectRatio = 1.0
+        request.minimumSize = 0.08
+        request.maximumObservations = 10
+        request.minimumConfidence = 0.2
+        request.quadratureTolerance = 45
+        let handler = VNImageRequestHandler(ciImage: image,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil
+        else { return nil }
+        let candidates = (request.results ?? []).map {
+            [$0.topLeft, $0.topRight, $0.bottomRight, $0.bottomLeft]
+        }
         guard !candidates.isEmpty else { return nil }
         let textBoxes = bestTextBoxes(in: image)
         var passing: [(quad: [CGPoint], texts: Int,
