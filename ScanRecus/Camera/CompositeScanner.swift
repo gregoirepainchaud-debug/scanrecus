@@ -1600,15 +1600,26 @@ final class CompositeScanner: NSObject,
     /// devient NOIR (masque alpha étiré au cadre, fondu).
     private func maskedToZone(_ image: CIImage,
                               zone: WhiteZone) -> CIImage {
-        let bytes = zone.mask
+        // Masque RGBA explicite : blanc OPAQUE dans la
+        // zone, transparent dehors — le fondu suit l'alpha,
+        // sans dépendre d'un masque « alpha seulement ».
+        var rgba = [UInt8](repeating: 0,
+                           count: zone.w * zone.h * 4)
+        for i in 0..<(zone.w * zone.h) where zone.mask[i] > 0 {
+            rgba[i * 4] = 255
+            rgba[i * 4 + 1] = 255
+            rgba[i * 4 + 2] = 255
+            rgba[i * 4 + 3] = 255
+        }
         guard let provider = CGDataProvider(
-                data: Data(bytes) as CFData),
+                data: Data(rgba) as CFData),
               let cg = CGImage(
                 width: zone.w, height: zone.h,
-                bitsPerComponent: 8, bitsPerPixel: 8,
-                bytesPerRow: zone.w, space: graySpace,
-                bitmapInfo: CGBitmapInfo(
-                    rawValue: CGImageAlphaInfo.only.rawValue),
+                bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: zone.w * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue:
+                    CGImageAlphaInfo.premultipliedLast.rawValue),
                 provider: provider, decode: nil,
                 shouldInterpolate: false,
                 intent: .defaultIntent)
