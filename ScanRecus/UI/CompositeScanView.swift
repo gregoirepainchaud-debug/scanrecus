@@ -130,9 +130,7 @@ struct CompositeScanView: View {
                                     crops: scanner.extraction?
                                         .answerCrops ?? [],
                                     proofBoxes: scanner.extraction?
-                                        .proofBoxes ?? [],
-                                    proofCrops: scanner.extraction?
-                                        .proofCrops ?? [])
+                                        .proofBoxes ?? [])
                                 .padding(10)
                             } else if let frozen = scanner.livePreview {
                                 Image(frozen, scale: 1,
@@ -403,9 +401,12 @@ private struct MarkerStroke: Shape {
 /// 2026-10-20) : l'image au centre, ses régions SURLIGNÉES
 /// comme au marqueur — les réponses (commerce, date, total)
 /// en VERT, les montants de la preuve (sous-total, TPS, TVQ)
-/// en JAUNE — et chaque région ressort en EXTRAIT AGRANDI
+/// en JAUNE — et chaque RÉPONSE ressort en EXTRAIT AGRANDI
 /// dans les colonnes latérales, en alternance droite, gauche,
-/// droite… reliée à sa région par un trait de sa couleur.
+/// droite… reliée à sa région par un trait de sa couleur ;
+/// l'extrait porte une étiquette rectangulaire de surlignage
+/// verte. La preuve, elle, n'est pas agrandie : son jaune
+/// reste sur le reçu seulement.
 /// Le but : lire les réponses du programme sans plisser les
 /// yeux, et VOIR la preuve, pas seulement la lire.
 struct ZoomReviewView: View {
@@ -413,7 +414,6 @@ struct ZoomReviewView: View {
     let boxes: [CGRect]
     let crops: [CGImage]
     let proofBoxes: [CGRect]
-    let proofCrops: [CGImage]
 
     /// Une région à surligner : sa boîte, son extrait agrandi
     /// (s'il a pu être découpé) et sa couleur de marqueur.
@@ -429,11 +429,12 @@ struct ZoomReviewView: View {
                  crop: crops.indices.contains($0) ? crops[$0] : nil,
                  color: .green)
         }
+        // Les montants de la preuve gardent leur surlignage
+        // jaune SUR le reçu, mais ne sont PAS agrandis
+        // (demande de Grégoire, 2026-10-20, 23 h) : aucun
+        // extrait, donc aucun trait de liaison non plus.
         out += proofBoxes.indices.map {
-            Item(box: proofBoxes[$0],
-                 crop: proofCrops.indices.contains($0)
-                    ? proofCrops[$0] : nil,
-                 color: .yellow)
+            Item(box: proofBoxes[$0], crop: nil, color: .yellow)
         }
         return out
     }
@@ -536,8 +537,14 @@ struct ZoomReviewView: View {
                             .resizable()
                             .frame(width: colW,
                                    height: cardH(item, colW: colW))
-                            .overlay(Rectangle().stroke(
-                                item.color, lineWidth: 2))
+                            // Étiquette rectangulaire de
+                            // surlignage verte sur l'extrait
+                            // même — pas un cadre, pas un
+                            // trait de marqueur (demande de
+                            // Grégoire, 2026-10-20, 23 h ;
+                            // propre aux agrandis).
+                            .overlay(Rectangle().fill(
+                                item.color.opacity(0.3)))
                             .offset(x: cardX, y: cy)
                     }
                 }

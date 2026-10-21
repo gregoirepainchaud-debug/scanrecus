@@ -647,12 +647,13 @@ final class CompositeScanner: NSObject,
         // exacte qui rend les lignes horizontales — le reçu de
         // côté et un peu croche demande par exemple 75°, pas
         // un multiple de 90°.
-        let (deskewedImage, skewAngle) = deskew(
-            image, maxDegrees: how.contains("rectangle") ? 3 : 8)
+        let (deskewedImage, skewAngle, seeded) = deskew(
+            image, maxDegrees: how.contains("rectangle") ? 3 : 20)
         image = deskewedImage
         if abs(skewAngle) >= 0.3 * .pi / 180 {
             how += String(format: " · redressement fin : %+.1f°",
                           Double(skewAngle) * 180 / .pi)
+            if seeded { how += " (mesuré sur le texte)" }
         }
         let tOrient = CFAbsoluteTimeGetCurrent()
         // Arbitre d'orientation (demande de Grégoire, 2026-10-20 :
@@ -714,7 +715,6 @@ final class CompositeScanner: NSObject,
                 return finalCG.cropping(to: rect) ?? finalCG
             }
             extraction.answerCrops = extraction.answerBoxes.map(crop)
-            extraction.proofCrops = extraction.proofBoxes.map(crop)
         }
         let stats = buildStats()
         appendToJournal(stats: stats, extraction: extraction)
@@ -867,7 +867,6 @@ final class CompositeScanner: NSObject,
         /// TVQ) — surlignées en jaune, quand les réponses sont
         /// en vert (demande de Grégoire, 2026-10-20).
         var proofBoxes: [CGRect] = []
-        var proofCrops: [CGImage] = []
         var readUpsideDown: Bool
     }
 
@@ -1451,15 +1450,52 @@ final class CompositeScanner: NSObject,
         return score >= 7 && score >= 1.3 * median
     }
 
-    /// Redressement fin : cherche (pas de 1°, puis 0,2°) la
-    /// rotation qui maximise la structure du profil de
-    /// projection horizontal — quand les lignes de texte sont
-    /// horizontales, l'obscurité moyenne par rangée alterne
-    /// crêtes (texte) et vallées (blanc) franches. Rend
-    /// l'image tournée, recadrée sur son étendue d'origine,
-    /// et l'angle appliqué (radians ; 0 si rien de concluant).
+    /// Inclinaison du texte MESURÉE sur les glyphes : Vision
+    /// rapporte pour chaque caractère une boîte qui SUIT la
+    /// ligne (coins tournés) ; la pente médiane de ces boîtes
+    /// est l'angle du texte, lisible même à 15-20° — là où le
+    /// profil de projection s'aplatit (reçu tenu de travers :
+    /// les deux échecs du 2026-10-20 au soir étaient deux
+    /// scans SANS redressement). Rend la pente (radians) ou
+    /// nil si trop peu de caractères sont lisibles.
+    private func textSlopeAngle(_ image: CIImage) -> CGFloat? {
+        guard let cg = ciContext.createCGImage(
+            image, from: image.extent) else { return nil }
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = true
+        let handler = VNImageRequestHandler(cgImage: cg,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil
+        else { return nil }
+        var angles: [CGFloat] = []
+        for obs in request.results ?? [] {
+            for box in obs.characterBoxes ?? [] {
+                let dx = box.topRight.x - box.topLeft.x
+                let dy = box.topRight.y - box.topLeft.y
+                if abs(dx) > 0.002 {
+                    angles.append(atan2(dy, dx))
+                }
+            }
+        }
+        guard angles.count >= 12 else { return nil }
+        angles.sort()
+        return angles[angles.count / 2]
+    }
+
+    /// Redressement fin : rend les lignes de texte
+    /// horizontales. La rotation est d'abord MESURÉE sur les
+    /// glyphes (textSlopeAngle) quand c'est possible — le
+    /// profil de projection horizontal (l'obscurité moyenne
+    /// par rangée alterne crêtes et vallées franches quand
+    /// les lignes sont horizontales) départage alors le
+    /// signe de la correction et raffine au dixième de
+    /// degré. Sans mesure utilisable, le profil balaye seul
+    /// la plage permise. Rend l'image tournée, recadrée sur
+    /// son étendue d'origine, l'angle appliqué (radians ; 0
+    /// si rien de concluant) et si la mesure a guidé la
+    /// recherche.
     private func deskew(_ image: CIImage, maxDegrees: CGFloat)
-    -> (CIImage, CGFloat) {
+    -> (CIImage, CGFloat, Bool) {
         func rotated(_ img: CIImage, _ angle: CGFloat) -> CIImage {
             let cx = img.extent.midX, cy = img.extent.midY
             var t = CGAffineTransform(translationX: cx, y: cy)
@@ -1497,29 +1533,43 @@ final class CompositeScanner: NSObject,
         let deg = CGFloat.pi / 180
         var bestAngle: CGFloat = 0
         var bestScore = profileScore(rotated(image, 0))
-        // Balayage grossier à 2°, raffinement à 0,4° sur
-        // ± 2° : ~20 évaluations au lieu de 44 (build 53 — le
-        // redressement fin était le poste le plus lent de
-        // l'analyse, jusqu'à ~1 s sur les grands reçus).
-        let limit = maxDegrees * deg
-        var a: CGFloat = -limit
-        while a <= limit + 0.001 {
+        // Centre de recherche : la mesure des glyphes, si
+        // elle existe et reste une INCLINAISON (≤ 25°) ; le
+        // signe de la correction est départagé au profil,
+        // sans faire confiance au repère les yeux fermés.
+        var centre: CGFloat = 0
+        var seeded = false
+        if let slope = textSlopeAngle(image),
+           abs(slope) <= 25 * deg {
+            let s1 = profileScore(rotated(image, -slope))
+            let s2 = profileScore(rotated(image, slope))
+            centre = s1 >= s2 ? -slope : slope
+            seeded = true
+        }
+        // Balayage grossier puis raffinement autour du
+        // meilleur angle ; fenêtre étroite quand la mesure
+        // guide, plage entière sinon.
+        let window = seeded ? 2.5 * deg : maxDegrees * deg
+        let coarseStep = seeded ? 1 * deg : 2 * deg
+        var a = centre - window
+        while a <= centre + window + 0.001 {
             if abs(a) > 0.001 {
                 let sc = profileScore(rotated(image, a))
                 if sc > bestScore { bestScore = sc; bestAngle = a }
             }
-            a += 2 * deg
+            a += coarseStep
         }
+        let fineStep = seeded ? 0.2 * deg : 0.4 * deg
         var b = bestAngle - 2 * deg
         while b <= bestAngle + 2 * deg + 0.001 {
             if abs(b - bestAngle) > 0.001 {
                 let sc = profileScore(rotated(image, b))
                 if sc > bestScore { bestScore = sc; bestAngle = b }
             }
-            b += 0.4 * deg
+            b += fineStep
         }
-        if abs(bestAngle) < 0.3 * deg { return (image, 0) }
-        return (rotated(image, bestAngle), bestAngle)
+        if abs(bestAngle) < 0.3 * deg { return (image, 0, seeded) }
+        return (rotated(image, bestAngle), bestAngle, seeded)
     }
 
     // MARK: - Journal des scans (données de contrôle sur Drive)
