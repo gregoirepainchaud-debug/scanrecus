@@ -614,15 +614,17 @@ final class CompositeScanner: NSObject,
         }
 
         // REDRESSEMENT PAR ÉTAPES (algorithme de Grégoire,
-        // 2026-10-21) — phase de test : on manipule l'image
-        // successivement jusqu'à trouver le bon sens, CHAQUE
-        // étape affichée 2 secondes pour être VUE travailler,
-        // et l'analyse s'arrête là (les algorithmes
-        // d'extraction, qui fonctionnent quand l'image est
-        // bien placée, sont suspendus, pas touchés). Que le
-        // papier soit vertical (la grande majorité des
-        // reçus) ou horizontal (cas rares), la boucle de
-        // lisibilité finit sur un texte horizontal lisible.
+        // 2026-10-21) : on manipule l'image successivement
+        // jusqu'à trouver le bon sens, CHAQUE étape affichée
+        // 2 secondes pour être VUE travailler, puis le reçu
+        // est découpé et ENFIN analysé. Étapes : 1. l'image de
+        // départ ; 2. le rectangle blanc du papier, refermé
+        // et surligné ; 3. l'inclinaison corrigée D'ABORD ;
+        // 4. le sens jugé sur les MOTS (direction des lettres
+        // et déroulement des lignes — le test couvre aussi le
+        // cas « de côté », la règle des bords a été retirée
+        // au build 71 : un seul juge) ; 5. le découpage ;
+        // 6. l'analyse (compagnie, date, total).
         guard let sample = bestSample else {
             DispatchQueue.main.async { [weak self] in
                 self?.statusText = "Aucun échantillon — réessayez."
@@ -721,31 +723,7 @@ final class CompositeScanner: NSObject,
             }
         }
 
-        // Étape 4 — si la bordure supérieure est plus longue
-        // que la bordure de droite, le papier est couché :
-        // rotation de 90°.
-        if let q = quad {
-            let e = quadEdges(q, imageSize: work.extent.size)
-            if e.topLength > e.rightLength {
-                let oldSize = work.extent.size
-                work = rotateKeepingExtent(work, by: .pi / 2)
-                quad = mapQuad(q, oldSize: oldSize, angle: .pi / 2)
-                trace.append("Étape 4 — bord supérieur plus "
-                    + "long que le bord droit : rotation de 90°")
-                guard showStep(work, "Étape 4 — bord supérieur "
-                    + "plus long que le bord droit : "
-                    + "rotation de 90°")
-                else { return }
-            } else {
-                trace.append("Étape 4 — bord supérieur déjà "
-                    + "le plus court : pas de rotation")
-                guard showStep(work, "Étape 4 — le bord "
-                    + "supérieur est déjà le plus court")
-                else { return }
-            }
-        }
-
-        // Étape 5 — le SENS, jugé sur les MOTS (demande de
+        // Étape 4 — le SENS, jugé sur les MOTS (demande de
         // Grégoire, 2026-10-21) : une fois l'image
         // parfaitement horizontale ou verticale, la lecture
         // est excellente — même à l'envers, et les chiffres
@@ -764,12 +742,12 @@ final class CompositeScanner: NSObject,
         while attempts < 4 {
             attempts += 1
             let sense = wordSense(of: work)
-            trace.append("Étape 5.\(attempts) — mots : "
+            trace.append("Étape 4.\(attempts) — mots : "
                 + sense.summary)
             if sense.score > bestSense.score {
                 bestSense = (work, quad, sense.score)
             }
-            guard showStep(work, "Étape 5.\(attempts) — "
+            guard showStep(work, "Étape 4.\(attempts) — "
                 + sense.status)
             else { return }
             if sense.verdict == .upright {
@@ -783,17 +761,17 @@ final class CompositeScanner: NSObject,
             if let q = quad {
                 quad = mapQuad(q, oldSize: oldSize, angle: turn)
             }
-            trace.append("Étape 5.\(attempts) — rotation de "
+            trace.append("Étape 4.\(attempts) — rotation de "
                 + "\(turn == .pi ? "180" : "90")°")
         }
         if !placed {
             work = bestSense.image
             quad = bestSense.quad
-            trace.append("Étape 5 — aucun sens concluant : "
+            trace.append("Étape 4 — aucun sens concluant : "
                 + "meilleur score de mots gardé")
         }
 
-        // Étape 6 — le reçu est DÉCOUPÉ sur son rectangle
+        // Étape 5 — le reçu est DÉCOUPÉ sur son rectangle
         // (suivi à travers toutes les rotations) pour
         // éliminer le fond.
         if let q = quad {
@@ -810,21 +788,21 @@ final class CompositeScanner: NSObject,
                 .intersection(ext)
             if rect.width > 40, rect.height > 40 {
                 work = atOrigin(work.cropped(to: rect))
-                trace.append("Étape 6 — reçu découpé "
+                trace.append("Étape 5 — reçu découpé "
                     + "(fond éliminé)")
                 guard showStep(work,
-                    "Étape 6 — reçu découpé, fond éliminé")
+                    "Étape 5 — reçu découpé, fond éliminé")
                 else { return }
             }
         } else {
-            trace.append("Étape 6 — pas de rectangle : "
+            trace.append("Étape 5 — pas de rectangle : "
                 + "pas de découpage")
-            guard showStep(work, "Étape 6 — pas de découpage "
+            guard showStep(work, "Étape 5 — pas de découpage "
                 + "(aucun rectangle)")
             else { return }
         }
 
-        // Étape 7 — ENFIN (pas avant) l'analyse : nom de la
+        // Étape 6 — ENFIN (pas avant) l'analyse : nom de la
         // compagnie, date et montant total, par les
         // algorithmes existants, sur le reçu redressé et
         // découpé. C'est le retour du finale suspendu au
@@ -1232,7 +1210,7 @@ final class CompositeScanner: NSObject,
         }
     }
 
-    /// Verdict de sens d'après les MOTS (voir l'étape 5 de
+    /// Verdict de sens d'après les MOTS (voir l'étape 4 de
     /// finish) : à l'endroit / à l'envers / de côté, avec le
     /// résumé des signaux pour le journal.
     private enum SenseVerdict {
