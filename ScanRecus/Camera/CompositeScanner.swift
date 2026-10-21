@@ -1330,7 +1330,7 @@ final class CompositeScanner: NSObject,
             let idx = first ? str.startIndex
                 : str.index(before: str.endIndex)
             let range = idx..<str.index(after: idx)
-            return t.boundingBox(for: range)?.boundingBox
+            return (try? t.boundingBox(for: range))?.boundingBox
         }
         var letters = "?"
         var ltr: Bool? = nil
