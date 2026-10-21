@@ -1312,7 +1312,13 @@ final class CompositeScanner: NSObject,
     // MARK: - Figeage : reconstruction du reçu dans le composite
 
     private func finish() {
-        guard let composite else { return }
+        // Depuis la nouvelle méthode (build 48), finish() ne
+        // lit plus le composite : l'image unique échantillonnée
+        // est gardée plus bas. Ce garde ne teste que la
+        // présence du canvas (une capture a bien commencé) —
+        // l'ancien déballage ne servait plus (avertissement
+        // Xcode signalé par Grégoire le 2026-10-20).
+        guard composite != nil else { return }
         phase = .done
         // L'analyse qui suit prend une à deux secondes (lecture
         // précise, amélioration) : le dire, sinon l'attente a
@@ -2262,7 +2268,13 @@ final class CompositeScanner: NSObject,
             self.state = self.phase
             if let status { self.statusText = status }
             if let newQuad { self.quad = newQuad }
-            if let newProgress { self.progress = newProgress }
+            if let newProgress {
+                // Borné : publier un dépassement de fenêtre tel
+                // quel fait rouspéter ProgressView (« out-of-
+                // bounds progress value », vu par Grégoire le
+                // 2026-10-20).
+                self.progress = min(1, max(0, newProgress))
+            }
             self.statsText = stats
         }
     }
