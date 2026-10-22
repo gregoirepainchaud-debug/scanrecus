@@ -363,7 +363,8 @@ final class ContourSession {
                         // Filet : jamais un coin hors cadre
                         // à l'écran, quel que soit le joueur.
                         let clamped = proposal.quad.map {
-                            self.clampPoint($0)
+                            CGPoint(x: min(1, max(0, $0.x)),
+                                    y: min(1, max(0, $0.y)))
                         }
                         self.proposalQuad = clamped
                         self.quad = clamped
