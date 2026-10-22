@@ -1300,21 +1300,52 @@ final class CompositeScanner: NSObject,
 
     /// JOUEUR CONTOURS (jour 1) de la table de jeu —
     /// étape 1 du pipeline (ordre de Grégoire, 2026-10-22 :
-    /// tracer les contours AVANT tout le reste) :
-    /// findPaperQuad (Vision + preuve papier + couverture
-    /// du texte), converti en coordonnées d'AFFICHAGE
-    /// (origine en haut à gauche, y vers le bas), coins
-    /// [TL, TR, BR, BL]. Nil si aucun papier ne passe la
-    /// preuve (la session de jeu proposera une boîte par
-    /// défaut à placer à la main).
+    /// tracer les contours AVANT tout le reste).
+    /// Version JEU (build 83) : le joueur du build 82 était
+    /// findPaperQuad — un détecteur de RITUEL construit
+    /// pour S'ABSTENIR (preuve papier + ≥ 3 zones de texte +
+    /// couverture du texte) ; sur les copies tournées à des
+    /// angles quelconques, les zones de texte qui nourrissent
+    /// sa preuve disparaissent, et il s'abstenait PARTOUT
+    /// (journal du 2026-10-22 : 3/3 boîtes par défaut —
+    /// « l'IA n'essaie même pas »). Un joueur de jeu doit
+    /// TOUJOURS jouer son meilleur essai : détection de
+    /// rectangles Vision tolérante, SANS les preuves, le
+    /// meilleur candidat (surface × confiance) gagne. La
+    /// correction de Grégoire tranchera. Coordonnées
+    /// d'AFFICHAGE (origine haut-gauche), [TL, TR, BR, BL].
     func contourProposal(for image: CIImage)
     -> (quad: [CGPoint], detail: String)? {
-        guard let quad = findPaperQuad(in: image)
+        let request = VNDetectRectanglesRequest()
+        request.minimumAspectRatio = 0.1
+        request.maximumAspectRatio = 1.0
+        request.minimumSize = 0.05
+        request.maximumObservations = 8
+        request.minimumConfidence = 0.1
+        request.quadratureTolerance = 45
+        let handler = VNImageRequestHandler(ciImage: image,
+                                            options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let results = request.results, !results.isEmpty
         else { return nil }
-        let display = quad.map {
+        func quadOf(_ o: VNRectangleObservation) -> [CGPoint] {
+            [o.topLeft, o.topRight, o.bottomRight, o.bottomLeft]
+        }
+        guard let best = results.max(by: { a, b in
+            abs(shoelace(quadOf(a))) * CGFloat(a.confidence)
+                < abs(shoelace(quadOf(b)))
+                * CGFloat(b.confidence)
+        }) else { return nil }
+        let vision = quadOf(best)
+        let display = vision.map {
             CGPoint(x: $0.x, y: 1 - $0.y)
         }
-        return (display, lastQuadSummary)
+        let pct = Int(abs(shoelace(vision)) * 100)
+        return (display,
+                "\(results.count) rectangle(s) Vision — "
+                + "meilleur : confiance "
+                + String(format: "%.2f", best.confidence)
+                + ", \(pct) % de l'image")
     }
 
     /// JOUEUR ROTATION (jour 1, heuristique) de la table de
