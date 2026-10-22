@@ -423,8 +423,9 @@ final class ContourSession {
             group: entry.group,
             generationAngle: entry.angle,
             proposal: proposalPts, final: finalPts,
-            meanErrorPct: error, accepted: accepted,
-            source: proposalSource, altProposal: altPts)
+            meanErrorPct: error,
+            source: proposalSource, altProposal: altPts,
+            accepted: accepted)
         bank.appendQuadAttempt(attempt)
         attempts += 1
         if accepted { acceptedCount += 1 }
