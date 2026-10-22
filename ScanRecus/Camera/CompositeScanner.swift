@@ -1427,7 +1427,21 @@ final class CompositeScanner: NSObject,
         }
         let corners = [corner(umin, vmin), corner(umax, vmin),
                        corner(umax, vmax), corner(umin, vmax)]
-        return orderQuad(corners)
+        // Le coin d'un rectangle orienté peut tomber HORS
+        // de l'image (intersection de deux extrêmes qu'aucun
+        // pixel n'atteint) : on le coince dans le cadre.
+        return orderQuad(corners.map { clamp01($0) })
+    }
+
+    /// Coince un point dans le cadre de l'image [0, 1] —
+    /// un coin proposé hors cadre est INSERVABLE : on ne
+    /// peut pas le saisir à la souris pour le ramener
+    /// (signalé par Grégoire, 2026-10-22). Mieux vaut un
+    /// coin collé au bord, qu'il ramènera à sa vraie place,
+    /// qu'un coin perdu dehors.
+    private func clamp01(_ pt: CGPoint) -> CGPoint {
+        CGPoint(x: min(1, max(0, pt.x)),
+                y: min(1, max(0, pt.y)))
     }
 
     /// Ordonne 4 coins [TL, TR, BR, BL] en coordonnées
@@ -1536,7 +1550,7 @@ final class CompositeScanner: NSObject,
                 * CGFloat(b.confidence)
         }) else { return nil }
         let display = quadOf(best).map {
-            CGPoint(x: $0.x, y: 1 - $0.y)
+            clamp01(CGPoint(x: $0.x, y: 1 - $0.y))
         }
         return (display, best.confidence, results.count)
     }

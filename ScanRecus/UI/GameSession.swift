@@ -360,8 +360,13 @@ final class ContourSession {
                           self.current?.id == entryId
                     else { return }
                     if let proposal {
-                        self.proposalQuad = proposal.quad
-                        self.quad = proposal.quad
+                        // Filet : jamais un coin hors cadre
+                        // à l'écran, quel que soit le joueur.
+                        let clamped = proposal.quad.map {
+                            self.clampPoint($0)
+                        }
+                        self.proposalQuad = clamped
+                        self.quad = clamped
                         self.proposalDetail = proposal.detail
                         self.proposalSource = proposal.source
                         self.proposalAlt = proposal.alt
