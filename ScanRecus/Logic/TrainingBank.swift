@@ -134,6 +134,22 @@ struct QuadAttempt: Codable {
     var altProposal: [[Double]]? = nil
     /// Acceptée sans retouche (écart < 0,5 %).
     var accepted: Bool
+    /// La proposition heuristique AVANT calibration,
+    /// quand une calibration a été appliquée à celle
+    /// montrée — la calibration apprend sur du brut.
+    var rawProposal: [[Double]]? = nil
+}
+
+/// Une rétractation au journal du jeu : la validation
+/// visée ne doit plus compter (ni stats, ni mémoire,
+/// ni calibration). Le journal reste append-only — on
+/// ajoute une ligne, on n'efface rien.
+struct QuadRetraction: Codable {
+    var ts: String
+    var stage: String = "retractation"
+    var retractsTs: String
+    var file: String
+    var gameStage: String
 }
 
 /// La banque de matériel du GÉNÉRATEUR (menu « Générer
@@ -287,6 +303,153 @@ final class TrainingBank {
         guard let data = try? JSONEncoder().encode(attempt)
         else { return }
         appendGameLine(data)
+        loadQuadJournalIfNeeded()
+        quadAttempts.append(attempt)
+    }
+
+    // MARK: Apprentissage dérivé du journal (contours)
+
+    /// Les tentatives contours relues du journal, et les
+    /// horodatages rétractés. Vues dérivées : la mémoire
+    /// d'exemplaires et la calibration s'en nourrissent.
+    private(set) var quadAttempts: [QuadAttempt] = []
+    private(set) var retractedAttemptTs: Set<String> = []
+    private var quadJournalLoaded = false
+
+    private func loadQuadJournalIfNeeded() {
+        guard !quadJournalLoaded else { return }
+        quadJournalLoaded = true
+        let url = root.appendingPathComponent("jeu.jsonl")
+        guard let text = try? String(contentsOf: url,
+                                     encoding: .utf8)
+        else { return }
+        let decoder = JSONDecoder()
+        for line in text.split(separator: "\n") {
+            guard let data = line.data(using: .utf8)
+            else { continue }
+            var isRetraction = false
+            if let raw = try? JSONSerialization
+                .jsonObject(with: data),
+               let obj = raw as? [String: Any],
+               obj["stage"] as? String == "retractation",
+               (obj["gameStage"] as? String) == "contours",
+               let rts = obj["retractsTs"] as? String {
+                retractedAttemptTs.insert(rts)
+                isRetraction = true
+            }
+            if isRetraction { continue }
+            if let qa = try? decoder.decode(
+                QuadAttempt.self, from: data) {
+                quadAttempts.append(qa)
+            }
+        }
+    }
+
+    /// Les tentatives contours encore valides.
+    var validQuadAttempts: [QuadAttempt] {
+        loadQuadJournalIfNeeded()
+        return quadAttempts.filter {
+            !retractedAttemptTs.contains($0.ts)
+        }
+    }
+
+    /// Journalise une rétractation (la ligne d'origine
+    /// reste au journal ; celle-ci la neutralise).
+    func appendRetraction(retractsTs: String, file: String,
+                          gameStage: String) {
+        if gameStage == "contours" {
+            loadQuadJournalIfNeeded()
+            retractedAttemptTs.insert(retractsTs)
+        }
+        let rec = QuadRetraction(
+            ts: ISO8601DateFormatter().string(from: Date()),
+            retractsTs: retractsTs, file: file,
+            gameStage: gameStage)
+        guard let data = try? JSONEncoder().encode(rec)
+        else { return }
+        appendGameLine(data)
+    }
+
+    /// Rétracte la plus récente tentative contours encore
+    /// valide et la retourne (pour les compteurs).
+    @discardableResult
+    func retractLastQuadAttempt() -> QuadAttempt? {
+        loadQuadJournalIfNeeded()
+        guard let last = quadAttempts.last(where: {
+            !retractedAttemptTs.contains($0.ts)
+        }) else { return nil }
+        appendRetraction(retractsTs: last.ts, file: last.file,
+                         gameStage: "contours")
+        return last
+    }
+
+    /// MÉMOIRE D'EXEMPLAIRES : la correction déjà validée
+    /// d'une AUTRE copie du même reçu, la plus proche en
+    /// angle de génération. Les copies d'un reçu ne
+    /// diffèrent que par cette rotation — le tracé de
+    /// Grégoire s'y transfère presque exactement (vérifié
+    /// sur ses données : 1,2 % d'écart).
+    func siblingContourFinal(sourceNumber: Int,
+                             currentFile: String,
+                             currentAngle: Double)
+    -> (quad: [CGPoint], fromFile: String,
+        siblingAngle: Double)? {
+        var best: QuadAttempt?
+        var bestDelta = Double.greatestFiniteMagnitude
+        for a in validQuadAttempts
+        where a.sourceNumber == sourceNumber
+            && a.file != currentFile && a.final.count == 4 {
+            let d = abs(currentAngle - a.generationAngle)
+            if d < bestDelta {
+                bestDelta = d
+                best = a
+            }
+        }
+        guard let best else { return nil }
+        let pts = best.final.map {
+            CGPoint(x: $0[0], y: $0[1])
+        }
+        return (pts, best.file, best.generationAngle)
+    }
+
+    /// CALIBRATION VIVANTE : le facteur d'échelle radial
+    /// moyen appris des corrections passées portant sur
+    /// des propositions HEURISTIQUES (brute -> finale,
+    /// autour des centroïdes). Un seul nombre, mis à jour
+    /// à chaque correction — sur les données de Grégoire,
+    /// il fait passer l'erreur de 23 % à 14 %.
+    func contourCalibration()
+    -> (scale: Double, samples: Int)? {
+        var factors: [Double] = []
+        for a in validQuadAttempts
+        where ["zone", "vision", "les-deux"]
+            .contains(a.source) {
+            let base = a.rawProposal ?? a.proposal
+            guard base.count == 4, a.final.count == 4
+            else { continue }
+            func centroid(_ q: [[Double]])
+            -> (Double, Double) {
+                (q.reduce(0) { $0 + $1[0] } / 4,
+                 q.reduce(0) { $0 + $1[1] } / 4)
+            }
+            let cb = centroid(base)
+            let cf = centroid(a.final)
+            var rs: [Double] = []
+            for j in 0..<4 {
+                let db = hypot(base[j][0] - cb.0,
+                               base[j][1] - cb.1)
+                let df = hypot(a.final[j][0] - cf.0,
+                               a.final[j][1] - cf.1)
+                if db > 1e-6 { rs.append(df / db) }
+            }
+            if !rs.isEmpty {
+                factors.append(
+                    rs.reduce(0, +) / Double(rs.count))
+            }
+        }
+        guard !factors.isEmpty else { return nil }
+        let mean = factors.reduce(0, +) / Double(factors.count)
+        return (min(1.6, max(0.4, mean)), factors.count)
     }
 
     /// Écrit une ligne au journal du jeu (jeu.jsonl au

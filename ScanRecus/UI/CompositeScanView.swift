@@ -548,6 +548,12 @@ struct CompositeScanView: View {
                         contours.resetToProposal()
                     }
                     Button("Passer") { contours.skip() }
+                    if contours.lastValidatedTs != nil {
+                        Button("Annuler ma dernière "
+                            + "validation") {
+                            contours.retractLastValidation()
+                        }
+                    }
                     Button("Nouveau deck") {
                         contours.reshuffle()
                     }

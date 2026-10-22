@@ -252,6 +252,14 @@ final class ContourSession {
     private(set) var proposalDetail = ""
     private(set) var proposalSource = "vision"
     private(set) var proposalAlt: [CGPoint]?
+    /// La proposition heuristique AVANT calibration
+    /// (journalisée : la calibration apprend sur du brut,
+    /// pas sur elle-même).
+    private(set) var rawProposalQuad: [CGPoint]?
+    /// Horodatage de la dernière validation de la
+    /// session — le bouton « Annuler » s'appuie dessus.
+    private(set) var lastValidatedTs: String?
+    private var lastValidatedAccepted = false
     /// Les coins de travail, déplaçables (coordonnées
     /// normalisées d'affichage, [TL, TR, BR, BL]).
     var quad: [CGPoint] = []
@@ -328,6 +336,7 @@ final class ContourSession {
         proposalDetail = ""
         proposalSource = "defaut"
         proposalAlt = nil
+        rawProposalQuad = nil
         quad = []
         displayImage = nil
         imageSize = .zero
@@ -346,6 +355,31 @@ final class ContourSession {
         }
         displayImage = cg
         imageSize = CGSize(width: cg.width, height: cg.height)
+        // MÉMOIRE D'EXEMPLAIRES d'abord : si une autre
+        // copie du même reçu a déjà été corrigée, la
+        // proposition est le tracé de Grégoire lui-même,
+        // tourné de la différence d'angle — pas une
+        // heuristique.
+        let srcNum = bank.photos
+            .first { $0.id == entry.sourceId }?.number ?? 0
+        if let sib = bank.siblingContourFinal(
+            sourceNumber: srcNum, currentFile: entry.file,
+            currentAngle: entry.angle) {
+            let delta = entry.angle - sib.siblingAngle
+            let transferred = Self.transferQuad(
+                sib.quad, delta: delta, imageSize: imageSize)
+            proposalQuad = transferred
+            quad = transferred
+            proposalSource = "memoire"
+            proposalDetail = "mémoire : ton tracé de "
+                + "\(sib.fromFile) tourné de "
+                + "\(String(format: "%+.1f", delta))°"
+            statusText = "Contours proposés "
+                + "(\(proposalDetail)) — vérifie les "
+                + "coins, puis valide. L'extérieur assombri "
+                + "est ce qui sera enlevé."
+            return
+        }
         statusText = "L'IA trace les contours…"
         let image = CIImage(cgImage: cg)
         let entryId = entry.id
@@ -366,9 +400,38 @@ final class ContourSession {
                             CGPoint(x: min(1, max(0, $0.x)),
                                     y: min(1, max(0, $0.y)))
                         }
-                        self.proposalQuad = clamped
-                        self.quad = clamped
-                        self.proposalDetail = proposal.detail
+                        var shown = clamped
+                        var detail = proposal.detail
+                        // CALIBRATION VIVANTE : le facteur
+                        // appris des corrections passées
+                        // est appliqué autour du centre ; la
+                        // brute part au journal.
+                        if let cal = self.bank?
+                            .contourCalibration() {
+                            self.rawProposalQuad = clamped
+                            let cx = clamped.reduce(
+                                CGFloat(0)) { $0 + $1.x } / 4
+                            let cy = clamped.reduce(
+                                CGFloat(0)) { $0 + $1.y } / 4
+                            shown = clamped.map { pt in
+                                let nx = cx + (pt.x - cx)
+                                    * CGFloat(cal.scale)
+                                let ny = cy + (pt.y - cy)
+                                    * CGFloat(cal.scale)
+                                return CGPoint(
+                                    x: min(1, max(0, nx)),
+                                    y: min(1, max(0, ny)))
+                            }
+                            let pct = Int(
+                                (cal.scale * 100).rounded())
+                            detail += " · calibrée à "
+                                + "\(pct) % (apprise de "
+                                + "\(cal.samples) "
+                                + "correction(s))"
+                        }
+                        self.proposalQuad = shown
+                        self.quad = shown
+                        self.proposalDetail = detail
                         self.proposalSource = proposal.source
                         self.proposalAlt = proposal.alt
                         self.statusText = "Contours proposés "
@@ -422,8 +485,12 @@ final class ContourSession {
         }
         let sourceNumber = bank.photos
             .first { $0.id == entry.sourceId }?.number ?? 0
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime,
+                             .withFractionalSeconds]
+        let ts = fmt.string(from: Date())
         let attempt = QuadAttempt(
-            ts: ISO8601DateFormatter().string(from: Date()),
+            ts: ts,
             stage: "contours", file: entry.file,
             sourceNumber: sourceNumber,
             group: entry.group,
@@ -431,13 +498,79 @@ final class ContourSession {
             proposal: proposalPts, final: finalPts,
             meanErrorPct: error,
             source: proposalSource, altProposal: altPts,
-            accepted: accepted)
+            accepted: accepted,
+            rawProposal: rawProposalQuad?.map {
+                [Double($0.x), Double($0.y)]
+            })
         bank.appendQuadAttempt(attempt)
+        lastValidatedTs = ts
+        lastValidatedAccepted = accepted
         attempts += 1
         if accepted { acceptedCount += 1 }
         totalError += error
         index += 1
         loadCurrent()
+    }
+
+    /// ANNULER la dernière validation (incident du
+    /// 2026-10-22 : une validation sans correction, faite
+    /// par erreur, avait été prise pour une approbation).
+    /// La tentative est rétractée au journal : elle ne
+    /// comptera ni dans les stats, ni dans la mémoire
+    /// d'exemplaires, ni dans la calibration. L'instance
+    /// courante n'est pas touchée.
+    func retractLastValidation() {
+        guard let bank, lastValidatedTs != nil else { return }
+        guard let retracted = bank.retractLastQuadAttempt()
+        else { return }
+        attempts = max(0, attempts - 1)
+        if lastValidatedAccepted {
+            acceptedCount = max(0, acceptedCount - 1)
+        }
+        totalError = max(0,
+                         totalError - retracted.meanErrorPct)
+        lastValidatedTs = nil
+        lastValidatedAccepted = false
+        statusText = "Dernière validation annulée "
+            + "(\(retracted.file)) — elle ne comptera "
+            + "pas. Vérifie l'instance courante et "
+            + "continue."
+    }
+
+    /// Tourne un quadrilatère (coordonnées normalisées)
+    /// de `delta` degrés autour du centre, EN ESPACE
+    /// PIXEL (la rotation de génération a eu lieu en
+    /// pixels), puis ré-étiquette [TL, TR, BR, BL] et
+    /// coince dans le cadre. Signe vérifié sur les
+    /// données de Grégoire (Photo1.20 -> Photo1.15 :
+    /// écart 1,2 %).
+    static func transferQuad(_ q: [CGPoint], delta: Double,
+                             imageSize: CGSize) -> [CGPoint] {
+        let w = Double(max(imageSize.width, 1))
+        let h = Double(max(imageSize.height, 1))
+        let a = delta * Double.pi / 180
+        let ca = cos(a), sa = sin(a)
+        let rotated = q.map { pt -> CGPoint in
+            let px = Double(pt.x) * w - w / 2
+            let py = Double(pt.y) * h - h / 2
+            let rx = px * ca - py * sa
+            let ry = px * sa + py * ca
+            return CGPoint(x: (rx + w / 2) / w,
+                           y: (ry + h / 2) / h)
+        }
+        guard rotated.count == 4 else { return rotated }
+        let tl = rotated.min {
+            ($0.x + $0.y) < ($1.x + $1.y) }!
+        let br = rotated.max {
+            ($0.x + $0.y) < ($1.x + $1.y) }!
+        let tr = rotated.max {
+            ($0.x - $0.y) < ($1.x - $1.y) }!
+        let bl = rotated.min {
+            ($0.x - $0.y) < ($1.x - $1.y) }!
+        return [tl, tr, br, bl].map {
+            CGPoint(x: min(1, max(0, $0.x)),
+                    y: min(1, max(0, $0.y)))
+        }
     }
 
     func skip() {
