@@ -1321,7 +1321,12 @@ final class CompositeScanner: NSObject,
             total += -dev
             notes.append("bords \(fmt(dev))")
         }
-        // 2) Le sens par les mots (quarts de tour).
+        // 2) Le sens par les mots (quarts de tour). DE CÔTÉ,
+        //    on essaie les DEUX sens et on garde celui que
+        //    les mots lisent le mieux — tourner toujours du
+        //    même bord faisait faire un tour complet
+        //    (propositions à +362° vues au journal de jeu du
+        //    2026-10-22).
         var confidence: Float = 0.1
         for _ in 0..<4 {
             let sense = wordSense(of: work)
@@ -1331,13 +1336,25 @@ final class CompositeScanner: NSObject,
                 notes.append("mots : endroit")
                 break
             }
-            let turn: CGFloat = sense.verdict == .upsideDown
-                ? .pi : .pi / 2
-            work = rotateKeepingExtent(work, by: turn)
-            total += turn
-            notes.append(sense.verdict == .upsideDown
-                         ? "mots : envers → 180°"
-                         : "mots : côté → 90°")
+            if sense.verdict == .upsideDown {
+                work = rotateKeepingExtent(work, by: .pi)
+                total += .pi
+                notes.append("mots : envers → 180°")
+                continue
+            }
+            let cw = rotateKeepingExtent(work, by: .pi / 2)
+            let ccw = rotateKeepingExtent(work, by: -.pi / 2)
+            let sCW = wordSense(of: cw)
+            let sCCW = wordSense(of: ccw)
+            if sCW.score >= sCCW.score {
+                work = cw
+                total += .pi / 2
+                notes.append("mots : côté → +90°")
+            } else {
+                work = ccw
+                total += -.pi / 2
+                notes.append("mots : côté → −90°")
+            }
         }
         // 3) Finition par les bords.
         if let zone = findWhiteZone(in: work),

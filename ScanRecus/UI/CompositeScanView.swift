@@ -63,6 +63,12 @@ struct CompositeScanView: View {
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
     @State private var game = GameSession()
+    /// La grille quadrillée de 5 mm sur le canevas du jeu
+    /// (affichée par défaut, commutable au panneau).
+    @State private var showGrid = true
+    /// Dernier angle du pointeur sur la roulette (pour les
+    /// incréments du glisser).
+    @State private var dialLastAngle: Double?
 
     private var isDone: Bool { scanner.state == .done }
 
@@ -360,8 +366,12 @@ struct CompositeScanView: View {
 
     /// Le canevas du jeu : l'instance courante (la copie
     /// tournée + la proposition et la correction appliquées),
-    /// ajustée à la zone avec la marge du zoom-fit
-    /// automatique de la méthode (100 px ≈ 50 pt).
+    /// ajustée à la zone avec une marge de 5 px seulement
+    /// (demandé par Grégoire le 2026-10-22 : à 100 px, le
+    /// reçu arrivait trop petit pour être déchiffré), et la
+    /// GRILLE de 5 mm en surimpression — en espace écran,
+    /// fixe : l'image tourne dessous, on aligne les bords
+    /// du reçu sur les lignes.
     private var gameCanvas: some View {
         Group {
             if let img = game.displayImage {
@@ -377,9 +387,104 @@ struct CompositeScanView: View {
                     .foregroundColor(.white)
             }
         }
-        .padding(50)
+        .padding(5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+        .overlay {
+            if showGrid { gridOverlay }
+        }
+    }
+
+    /// La grille quadrillée : traits fins tous les 5 mm
+    /// (≈ 14,17 pt à l'écran), traits forts tous les 25 mm.
+    private var gridOverlay: some View {
+        Canvas { context, size in
+            let step: CGFloat = 14.17
+            var minor = Path()
+            var x = step
+            while x < size.width {
+                minor.move(to: CGPoint(x: x, y: 0))
+                minor.addLine(to: CGPoint(x: x,
+                                          y: size.height))
+                x += step
+            }
+            var y = step
+            while y < size.height {
+                minor.move(to: CGPoint(x: 0, y: y))
+                minor.addLine(to: CGPoint(x: size.width, y: y))
+                y += step
+            }
+            context.stroke(minor,
+                           with: .color(.white.opacity(0.16)),
+                           lineWidth: 0.5)
+            var major = Path()
+            let big = step * 5
+            x = big
+            while x < size.width {
+                major.move(to: CGPoint(x: x, y: 0))
+                major.addLine(to: CGPoint(x: x,
+                                          y: size.height))
+                x += big
+            }
+            y = big
+            while y < size.height {
+                major.move(to: CGPoint(x: 0, y: y))
+                major.addLine(to: CGPoint(x: size.width, y: y))
+                y += big
+            }
+            context.stroke(major,
+                           with: .color(.white.opacity(0.32)),
+                           lineWidth: 0.75)
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// La ROULETTE de correction (demandée par Grégoire le
+    /// 2026-10-22, remplace le curseur) : on la saisit et on
+    /// tourne — 360° de correction, bouclée (à 359° on
+    /// retombe à 0). L'aiguille suit la correction courante.
+    private var roulette: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.55),
+                        lineWidth: 2)
+            ForEach(0..<36) { i in
+                Rectangle()
+                    .fill(Color.secondary
+                        .opacity(i % 9 == 0 ? 0.9 : 0.4))
+                    .frame(width: i % 9 == 0 ? 3 : 1.5,
+                           height: i % 9 == 0 ? 12 : 7)
+                    .offset(y: -54)
+                    .rotationEffect(.degrees(Double(i) * 10))
+            }
+            Rectangle()
+                .fill(Color.accentColor)
+                .frame(width: 3, height: 26)
+                .offset(y: -40)
+                .rotationEffect(.degrees(game.delta))
+            Circle()
+                .fill(Color.accentColor)
+                .frame(width: 9, height: 9)
+            Text(GameSession.fmt(game.delta))
+                .font(.system(size: 12, design: .monospaced))
+                .offset(y: 32)
+        }
+        .frame(width: 130, height: 130)
+        .contentShape(Circle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let angle = atan2(
+                        value.location.y - 65,
+                        value.location.x - 65) * 180 / .pi
+                    if let last = dialLastAngle {
+                        game.delta += GameSession
+                            .wrap(angle - last)
+                    }
+                    dialLastAngle = angle
+                }
+                .onEnded { _ in dialLastAngle = nil }
+        )
     }
 
     /// Le panneau de la table de jeu — étape ROTATION :
@@ -405,38 +510,58 @@ struct CompositeScanView: View {
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
                 if game.proposalDeg != nil {
-                    HStack(spacing: 8) {
-                        Text("Correction :")
-                        Slider(value: $game.delta, in: -45...45)
-                            .frame(maxWidth: 260)
-                        Button("−90°") { game.delta -= 90 }
-                        Button("+90°") { game.delta += 90 }
-                        Button("180°") { game.delta += 180 }
-                        Button("−1°") { game.delta -= 1 }
-                        Button("−0,1°") { game.delta -= 0.1 }
-                        Button("+0,1°") { game.delta += 0.1 }
-                        Button("+1°") { game.delta += 1 }
-                        Button("À 0") { game.delta = 0 }
-                    }
-                    .font(.system(size: 13))
-                    Text("Proposition "
-                        + "\(GameSession.fmt(game.proposalDeg ?? 0))"
-                        + " · ta correction "
-                        + "\(GameSession.fmt(game.delta))"
-                        + " · finale "
-                        + "\(GameSession.fmt(game.finalDeg))"
-                        + " · écart "
-                        + "\(GameSession.fmt(abs(game.delta)))")
-                        .font(.system(size: 13,
-                                      design: .monospaced))
-                    HStack(spacing: 12) {
-                        Button("Valider et suivant") {
-                            game.validate()
-                        }
-                        .controlSize(.large)
-                        Button("Passer") { game.skip() }
-                        Button("Nouveau deck") {
-                            game.reshuffle()
+                    HStack(alignment: .top, spacing: 16) {
+                        roulette
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Tourne la roulette pour "
+                                + "corriger (360°, bouclée) ; "
+                                + "les pas fins servent à "
+                                + "l'alignement sur la grille.")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                            HStack(spacing: 8) {
+                                Button("−1°") { game.delta -= 1 }
+                                Button("−0,1°") {
+                                    game.delta -= 0.1
+                                }
+                                Button("+0,1°") {
+                                    game.delta += 0.1
+                                }
+                                Button("+1°") { game.delta += 1 }
+                                Button("180°") {
+                                    game.delta += 180
+                                }
+                                Button("À 0") { game.delta = 0 }
+                                Button(showGrid
+                                       ? "Grille : oui"
+                                       : "Grille : non") {
+                                    showGrid.toggle()
+                                }
+                                .focusable(false)
+                            }
+                            .font(.system(size: 13))
+                            Text("Proposition "
+                                + "\(GameSession.fmt(game.proposalDeg ?? 0))"
+                                + " · ta correction "
+                                + "\(GameSession.fmt(game.delta))"
+                                + " · finale "
+                                + "\(GameSession.fmt(game.finalDeg))"
+                                + " · écart "
+                                + "\(GameSession.fmt(abs(game.delta)))")
+                                .font(.system(size: 13,
+                                              design: .monospaced))
+                            HStack(spacing: 12) {
+                                Button("Valider et suivant") {
+                                    game.validate()
+                                }
+                                .controlSize(.large)
+                                Button("Passer") {
+                                    game.skip()
+                                }
+                                Button("Nouveau deck") {
+                                    game.reshuffle()
+                                }
+                            }
                         }
                     }
                 } else if game.finished {

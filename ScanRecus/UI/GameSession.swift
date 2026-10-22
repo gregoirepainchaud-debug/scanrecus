@@ -30,8 +30,23 @@ final class GameSession {
     private(set) var confidence: Float = 0
     /// La correction de Grégoire, en degrés ajoutés à la
     /// proposition. Chaque changement réaffiche l'image.
+    /// BOUCLÉE dans (−180°, +180°] : une rotation est
+    /// circulaire — à 359° on retombe à 0, jamais au-delà
+    /// de 360 (règle de Grégoire, 2026-10-22).
     var delta: Double = 0 {
-        didSet { renderDisplay() }
+        didSet {
+            delta = Self.wrap(delta)
+            renderDisplay()
+        }
+    }
+
+    /// Ramène un angle dans (−180°, +180°] : 359° devient
+    /// −1°, 502° devient +142°, etc.
+    static func wrap(_ deg: Double) -> Double {
+        var d = deg.truncatingRemainder(dividingBy: 360)
+        if d <= -180 { d += 360 }
+        if d > 180 { d -= 360 }
+        return d
     }
     private(set) var attempts = 0
     private(set) var acceptedCount = 0
@@ -48,7 +63,9 @@ final class GameSession {
 
     var finished: Bool { current == nil }
 
-    var finalDeg: Double { (proposalDeg ?? 0) + delta }
+    var finalDeg: Double {
+        Self.wrap((proposalDeg ?? 0) + delta)
+    }
 
     var instanceLabel: String {
         current.map { "\($0.file) · reçu nº \($0.group)" } ?? "—"
@@ -132,7 +149,8 @@ final class GameSession {
                     guard let self,
                           self.current?.id == entryId
                     else { return }
-                    self.proposalDeg = proposal.degrees
+                    self.proposalDeg = Self.wrap(
+                        proposal.degrees)
                     self.confidence = proposal.confidence
                     self.proposalDetail = proposal.detail
                     let pct = Int((proposal.confidence * 100)
