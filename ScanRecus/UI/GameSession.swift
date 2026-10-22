@@ -405,20 +405,27 @@ final class ContourSession {
               let error = currentErrorPct
         else { return }
         let accepted = error < 0.5
-        bank.appendQuadAttempt(QuadAttempt(
+        let proposalPts: [[Double]] = proposal.map {
+            [Double($0.x), Double($0.y)]
+        }
+        let finalPts: [[Double]] = quad.map {
+            [Double($0.x), Double($0.y)]
+        }
+        let altPts: [[Double]]? = proposalAlt?.map {
+            [Double($0.x), Double($0.y)]
+        }
+        let sourceNumber = bank.photos
+            .first { $0.id == entry.sourceId }?.number ?? 0
+        let attempt = QuadAttempt(
             ts: ISO8601DateFormatter().string(from: Date()),
             stage: "contours", file: entry.file,
-            sourceNumber: bank.photos
-                .first { $0.id == entry.sourceId }?.number ?? 0,
+            sourceNumber: sourceNumber,
             group: entry.group,
             generationAngle: entry.angle,
-            proposal: proposal.map { [Double($0.x), Double($0.y)] },
-            final: quad.map { [Double($0.x), Double($0.y)] },
+            proposal: proposalPts, final: finalPts,
             meanErrorPct: error, accepted: accepted,
-            source: proposalSource,
-            altProposal: proposalAlt?.map {
-                [Double($0.x), Double($0.y)]
-            }))
+            source: proposalSource, altProposal: altPts)
+        bank.appendQuadAttempt(attempt)
         attempts += 1
         if accepted { acceptedCount += 1 }
         totalError += error
