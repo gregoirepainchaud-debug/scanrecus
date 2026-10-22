@@ -1298,6 +1298,25 @@ final class CompositeScanner: NSObject,
         case upright, upsideDown, sideways
     }
 
+    /// JOUEUR CONTOURS (jour 1) de la table de jeu —
+    /// étape 1 du pipeline (ordre de Grégoire, 2026-10-22 :
+    /// tracer les contours AVANT tout le reste) :
+    /// findPaperQuad (Vision + preuve papier + couverture
+    /// du texte), converti en coordonnées d'AFFICHAGE
+    /// (origine en haut à gauche, y vers le bas), coins
+    /// [TL, TR, BR, BL]. Nil si aucun papier ne passe la
+    /// preuve (la session de jeu proposera une boîte par
+    /// défaut à placer à la main).
+    func contourProposal(for image: CIImage)
+    -> (quad: [CGPoint], detail: String)? {
+        guard let quad = findPaperQuad(in: image)
+        else { return nil }
+        let display = quad.map {
+            CGPoint(x: $0.x, y: 1 - $0.y)
+        }
+        return (display, lastQuadSummary)
+    }
+
     /// JOUEUR ROTATION (jour 1, heuristique) de la table de
     /// jeu « Entraînement IA » : propose la rotation (en
     /// degrés appliqués à l'image) qui rend le texte lisible.

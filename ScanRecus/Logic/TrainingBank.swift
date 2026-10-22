@@ -111,6 +111,26 @@ struct GameAttempt: Codable {
     var accepted: Bool
 }
 
+/// Une tentative de l'étape CONTOURS du jeu, journalisée
+/// dans le même jeu.jsonl : le quadrilatère proposé, les
+/// coins finaux de Grégoire (coordonnées normalisées
+/// d'affichage, origine haut-gauche, [TL, TR, BR, BL]) et
+/// l'écart moyen — la note de l'étape.
+struct QuadAttempt: Codable {
+    var ts: String
+    var stage: String
+    var file: String
+    var sourceNumber: Int
+    var group: Int
+    var generationAngle: Double
+    var proposal: [[Double]]
+    var final: [[Double]]
+    /// Écart moyen des 4 coins, en % de la diagonale.
+    var meanErrorPct: Double
+    /// Acceptée sans retouche (écart < 0,5 %).
+    var accepted: Bool
+}
+
 /// La banque de matériel du GÉNÉRATEUR (menu « Générer
 /// matériel ») : les frames figées de la webcam y sont
 /// coffrées telles quelles, groupées par reçu, puis chaque
@@ -254,6 +274,19 @@ final class TrainingBank {
     func appendAttempt(_ attempt: GameAttempt) {
         guard let data = try? JSONEncoder().encode(attempt)
         else { return }
+        appendGameLine(data)
+    }
+
+    /// Journalise une tentative de l'étape contours.
+    func appendQuadAttempt(_ attempt: QuadAttempt) {
+        guard let data = try? JSONEncoder().encode(attempt)
+        else { return }
+        appendGameLine(data)
+    }
+
+    /// Écrit une ligne au journal du jeu (jeu.jsonl au
+    /// coffre + miroir Drive).
+    private func appendGameLine(_ data: Data) {
         var payload = data
         payload.append(0x0A)
         ioLock.lock()

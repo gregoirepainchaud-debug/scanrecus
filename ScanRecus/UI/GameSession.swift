@@ -229,3 +229,195 @@ final class GameSession {
             image, from: image.extent)
     }
 }
+
+// MARK: - Session de jeu « contours » (étape 1, 2026-10-22)
+
+/// Étape 1 du pipeline (ordre de Grégoire, 2026-10-22) :
+/// TRACER LES CONTOURS du reçu. Le joueur du jour 1 est
+/// findPaperQuad (Vision + preuve papier) ; Grégoire
+/// déplace les 4 coins à la souris — l'extérieur du
+/// quadrilatère est assombri à l'écran : c'est ce que la
+/// découpe ENLÈVERA une fois les contours validés. L'écart
+/// moyen des coins (% de la diagonale) fait office de
+/// note ; tout est journalisé (QuadAttempt).
+@Observable
+final class ContourSession {
+
+    private(set) var deck: [BankDerived] = []
+    private(set) var index = 0
+    private(set) var displayImage: CGImage?
+    private(set) var imageSize: CGSize = .zero
+    private(set) var statusText = ""
+    private(set) var proposalQuad: [CGPoint]?
+    private(set) var proposalDetail = ""
+    /// Les coins de travail, déplaçables (coordonnées
+    /// normalisées d'affichage, [TL, TR, BR, BL]).
+    var quad: [CGPoint] = []
+    private(set) var attempts = 0
+    private(set) var acceptedCount = 0
+    private(set) var totalError: Double = 0
+
+    private weak var bank: TrainingBank?
+    private weak var scanner: CompositeScanner?
+
+    var current: BankDerived? {
+        index < deck.count ? deck[index] : nil
+    }
+
+    var finished: Bool { current == nil }
+
+    var instanceLabel: String {
+        current.map { "\($0.file) · reçu nº \($0.group)" } ?? "—"
+    }
+
+    var positionText: String {
+        deck.isEmpty ? "0/0"
+            : "\(min(index + 1, deck.count))/\(deck.count)"
+    }
+
+    /// Écart moyen courant proposition ↔ coins actuels,
+    /// en % de la diagonale de l'image.
+    var currentErrorPct: Double? {
+        guard let proposal = proposalQuad, quad.count == 4
+        else { return nil }
+        var sum = 0.0
+        for i in 0..<4 {
+            let dx = Double(quad[i].x - proposal[i].x)
+            let dy = Double(quad[i].y - proposal[i].y)
+            sum += sqrt(dx * dx + dy * dy)
+        }
+        return sum / 4 / sqrt(2) * 100
+    }
+
+    var statsText: String {
+        guard attempts > 0 else {
+            return "Aucune tentative validée — le score du "
+                + "jeu (coins acceptés sans retouche, écart "
+                + "moyen) s'affichera ici."
+        }
+        let pct = Int((100.0 * Double(acceptedCount)
+            / Double(attempts)).rounded())
+        let mean = totalError / Double(attempts)
+        return "\(attempts) tentative(s) · \(acceptedCount) "
+            + "acceptée(s) sans retouche (\(pct) %) · "
+            + "écart moyen \(String(format: "%.1f", mean)) % "
+            + "de la diagonale"
+    }
+
+    func prepare(bank: TrainingBank,
+                 scanner: CompositeScanner) {
+        self.bank = bank
+        self.scanner = scanner
+        deck = bank.derived.shuffled()
+        index = 0
+        attempts = 0
+        acceptedCount = 0
+        totalError = 0
+        loadCurrent()
+    }
+
+    func reshuffle() {
+        guard let bank, let scanner else { return }
+        prepare(bank: bank, scanner: scanner)
+    }
+
+    private func loadCurrent() {
+        proposalQuad = nil
+        proposalDetail = ""
+        quad = []
+        displayImage = nil
+        imageSize = .zero
+        guard let entry = current, let bank else {
+            statusText = "Deck terminé. « Nouveau deck » "
+                + "pour rejouer — entre les passes, les "
+                + "modèles s'entraîneront sur tes corrections."
+            return
+        }
+        guard let cg = bank.image(forDerived: entry) else {
+            statusText = "Instance illisible (\(entry.file)) "
+                + "— je passe à la suivante."
+            index += 1
+            loadCurrent()
+            return
+        }
+        displayImage = cg
+        imageSize = CGSize(width: cg.width, height: cg.height)
+        statusText = "L'IA trace les contours…"
+        let image = CIImage(cgImage: cg)
+        let entryId = entry.id
+        DispatchQueue.global(qos: .userInitiated)
+            .async { [weak self] in
+                guard let self, let scanner = self.scanner
+                else { return }
+                let proposal = scanner
+                    .contourProposal(for: image)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self,
+                          self.current?.id == entryId
+                    else { return }
+                    if let proposal {
+                        self.proposalQuad = proposal.quad
+                        self.quad = proposal.quad
+                        self.proposalDetail = proposal.detail
+                        self.statusText = "Contours proposés "
+                            + "(\(proposal.detail)) — déplace "
+                            + "les coins qui dépassent ou qui "
+                            + "rognent le reçu, puis valide. "
+                            + "L'extérieur assombri est ce qui "
+                            + "sera enlevé."
+                    } else {
+                        let def = [
+                            CGPoint(x: 0.08, y: 0.08),
+                            CGPoint(x: 0.92, y: 0.08),
+                            CGPoint(x: 0.92, y: 0.92),
+                            CGPoint(x: 0.08, y: 0.92),
+                        ]
+                        self.proposalQuad = def
+                        self.quad = def
+                        self.proposalDetail = "aucune détection"
+                        self.statusText = "Aucune détection — "
+                            + "boîte par défaut : place les 4 "
+                            + "coins sur le reçu, puis valide."
+                    }
+                }
+            }
+    }
+
+    func setCorner(_ i: Int, _ p: CGPoint) {
+        guard quad.count == 4, (0..<4).contains(i) else { return }
+        quad[i] = CGPoint(x: min(1, max(0, p.x)),
+                          y: min(1, max(0, p.y)))
+    }
+
+    func resetToProposal() {
+        if let proposalQuad { quad = proposalQuad }
+    }
+
+    func validate() {
+        guard let entry = current, let bank,
+              let proposal = proposalQuad, quad.count == 4,
+              let error = currentErrorPct
+        else { return }
+        let accepted = error < 0.5
+        bank.appendQuadAttempt(QuadAttempt(
+            ts: ISO8601DateFormatter().string(from: Date()),
+            stage: "contours", file: entry.file,
+            sourceNumber: bank.photos
+                .first { $0.id == entry.sourceId }?.number ?? 0,
+            group: entry.group,
+            generationAngle: entry.angle,
+            proposal: proposal.map { [Double($0.x), Double($0.y)] },
+            final: quad.map { [Double($0.x), Double($0.y)] },
+            meanErrorPct: error, accepted: accepted))
+        attempts += 1
+        if accepted { acceptedCount += 1 }
+        totalError += error
+        index += 1
+        loadCurrent()
+    }
+
+    func skip() {
+        index += 1
+        loadCurrent()
+    }
+}

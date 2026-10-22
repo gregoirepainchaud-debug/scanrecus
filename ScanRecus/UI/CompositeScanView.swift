@@ -62,13 +62,10 @@ struct CompositeScanView: View {
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
-    @State private var game = GameSession()
+    @State private var contours = ContourSession()
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
     @State private var showGrid = true
-    /// Dernier angle du pointeur sur la roulette (pour les
-    /// incréments du glisser).
-    @State private var dialLastAngle: Double?
 
     private var isDone: Bool { scanner.state == .done }
 
@@ -135,9 +132,8 @@ struct CompositeScanView: View {
                     // section Entraînement IA (l'aperçu reste
                     // dans la hiérarchie en dessous).
                     if appSection == .entrainement {
-                        gameCanvas
-                            .frame(width: geo.size.width,
-                                   height: geo.size.height)
+                        contourCanvas(
+                            containerSize: geo.size)
                     }
                     if isDone, appSection != .entrainement {
                         // Le scan figé, par-dessus l'aperçu
@@ -225,7 +221,7 @@ struct CompositeScanView: View {
                         if appSection == .materiel {
                             materielPanel
                         } else if appSection == .entrainement {
-                            gamePanel
+                            contourPanel
                         } else if isDone,
                                   let ex = scanner.extraction {
                             extractionPanel(ex)
@@ -280,7 +276,403 @@ struct CompositeScanView: View {
         .onChange(of: appSection) { _, section in
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement {
-                game.prepare(bank: bank, scanner: scanner)
+                contours.prepare(bank: bank, scanner: scanner)
+            }
+        }
+        .onChange(of: scanner.frozenFrameStamp) { _, _ in
+            guard appSection == .materiel,
+                  let frame = scanner.frozenRawFrame,
+                  let photo = bank.bank(cgImage: frame)
+            else { return }
+            let inGroup = bank.photos
+                .filter { $0.group == photo.group }.count
+            scanner.showStatus(
+                "Photo coffrée — reçu nº \(photo.group) : "
+                + "\(inGroup) photo(s). « Next scan » pour "
+                + "la suivante, « Reçu suivant » pour "
+                + "changer de reçu.")
+        }
+        // La caméra coupe dès que le scan se fige — l'état .done
+        // est publié dès le DÉBUT de l'analyse — et redémarre au
+        // retour en recherche (demande de Grégoire, 2026-10-20).
+        // L'arrêt au figé avait causé un plantage en 2026-10-19
+        // (course avec la reconstruction du calque d'aperçu) ;
+        // le calque n'est plus jamais reconstruit (il reste sous
+        // le scan figé), donc la coupure est sûre.
+        .onChange(of: scanner.state) { _, newState in
+            if newState == .done {
+                camera.stop()
+            } else if newState == .searching {
+                camera.start(delegate: scanner)
+            }
+        }
+    }
+
+    /// Panneau « Ce que je lis » : les champs extraits du scan
+    /// figé et le texte OCR brut, pour juger sur pièces ce que le
+    /// programme sait lire. Affichage seulement — rien n'est
+    /// sauvegardé à cette étape.
+    /// Dossier du journal des scans (même clé UserDefaults
+    /// que CompositeScanner.journalFolderKey) : les données de
+    /// contrôle n'encombrent plus l'écran, elles s'accumulent
+    /// dans scanrecus-journal.txt, sur Drive idéalement.
+    @AppStorage("journalFolderPath") private var journalFolderPath = ""
+
+    /// Panneau « Générer matériel » : la banque de photos
+    /// d'entraînement. La capture reste celle du scanner
+    /// (présenter un reçu → la frame se fige → elle est
+    /// coffrée automatiquement) ; ici on groupe les photos
+    /// par reçu et on surveille la banque.
+    private var materielPanel: some View {
+        let inGroup = bank.photos
+            .filter { $0.group == bank.currentGroup }.count
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Présentez un reçu : la photo se fige et se "
+                + "coffre toute seule. Groupez les photos par "
+                + "reçu — « Reçu suivant » quand vous changez "
+                + "de papier.")
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            Text("Reçu nº \(bank.currentGroup)"
+                + " · photos de ce reçu : \(inGroup)")
+                .font(.system(size: 14, weight: .medium))
+            Text("Scans uniques dans le répertoire : "
+                + "\(bank.photos.count)"
+                + " · scans générés : \(bank.derived.count)"
+                + " · total matériel : "
+                + "\(bank.totalMaterial) images"
+                + " · \(bank.receiptCount) reçu(s)"
+                + " · \(bank.sizeText)")
+                .font(.system(size: 14, weight: .medium))
+            if !bank.generationNote.isEmpty {
+                Text(bank.generationNote)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
+            HStack(spacing: 12) {
+                Button("Reçu suivant") { bank.nextReceipt() }
+                    .controlSize(.large)
+                Button("Retirer la dernière photo") {
+                    bank.removeLast()
+                }
+                .disabled(bank.photos.isEmpty)
+            }
+        }
+    }
+
+    /// Le canevas de l'étape CONTOURS : l'instance, le
+    /// quadrilatère proposé (coins DÉPLAÇABLES à la souris),
+    /// l'extérieur ASSOMBRI — c'est ce que la découpe
+    /// enlèvera une fois les contours validés — et la
+    /// grille de 5 mm par-dessus (espace écran, fixe).
+    private func contourCanvas(containerSize: CGSize)
+    -> some View {
+        ZStack {
+            Color.black
+            if let img = contours.displayImage {
+                let rect = aspectFitRect(
+                    imageSize: contours.imageSize,
+                    in: containerSize, inset: 5)
+                Image(nsImage: NSImage(
+                    cgImage: img,
+                    size: NSSize(width: img.width,
+                                 height: img.height)))
+                    .resizable()
+                    .frame(width: rect.width,
+                           height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
+                if contours.quad.count == 4 {
+                    let pts = contours.quad.map {
+                        CGPoint(
+                            x: rect.minX + $0.x * rect.width,
+                            y: rect.minY + $0.y * rect.height)
+                    }
+                    Path { path in
+                        path.addRect(CGRect(
+                            origin: .zero, size: containerSize))
+                        path.move(to: pts[0])
+                        for pt in pts.dropFirst() {
+                            path.addLine(to: pt)
+                        }
+                        path.closeSubpath()
+                    }
+                    .fill(Color.black.opacity(0.82),
+                          style: FillStyle(eoFill: true))
+                    Path { path in
+                        path.move(to: pts[0])
+                        for pt in pts.dropFirst() {
+                            path.addLine(to: pt)
+                        }
+                        path.closeSubpath()
+                    }
+                    .stroke(Color.yellow, lineWidth: 2)
+                    ForEach(0..<4) { i in
+                        Circle()
+                            .fill(Color.yellow)
+                            .frame(width: 22, height: 22)
+                            .overlay(
+                                Circle().stroke(
+                                    Color.black, lineWidth: 1.5))
+                            .position(pts[i])
+                            .gesture(
+                                DragGesture(
+                                    minimumDistance: 0,
+                                    coordinateSpace:
+                                        .named("contourCanvas"))
+                                    .onChanged { value in
+                                        let n = CGPoint(
+                                            x: (value.location.x
+                                                - rect.minX)
+                                                / max(rect.width, 1),
+                                            y: (value.location.y
+                                                - rect.minY)
+                                                / max(rect.height, 1))
+                                        contours.setCorner(i, n)
+                                    }
+                            )
+                    }
+                }
+            } else {
+                Text("…")
+                    .foregroundColor(.white)
+            }
+            if showGrid { gridOverlay }
+        }
+        .frame(width: containerSize.width,
+               height: containerSize.height)
+        .coordinateSpace(name: "contourCanvas")
+    }
+
+    /// Le rectangle où l'image s'affiche (ajustée, centrée)
+    /// dans un conteneur, avec un inset tout le tour.
+    private func aspectFitRect(imageSize: CGSize,
+                               in container: CGSize,
+                               inset: CGFloat) -> CGRect {
+        let availW = max(container.width - inset * 2, 1)
+        let availH = max(container.height - inset * 2, 1)
+        let scale = min(availW / max(imageSize.width, 1),
+                        availH / max(imageSize.height, 1))
+        let w = imageSize.width * scale
+        let h = imageSize.height * scale
+        return CGRect(x: (container.width - w) / 2,
+                      y: (container.height - h) / 2,
+                      width: w, height: h)
+    }
+
+    /// La grille quadrillée de 5 mm sur le canevas du jeu
+    /// (affichée par défaut, commutable au panneau).
+    @State private var showGrid = true
+
+    private var isDone: Bool { scanner.state == .done }
+
+    /// Panneau lumineux actif hors phase figée.
+    private var lightPanelActive: Bool {
+        scanLighting && !isDone && appSection != .entrainement
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            GeometryReader { geo in
+                ZStack {
+                    Color.black
+                    // L'aperçu caméra occupe TOUTE la zone et
+                    // reste TOUJOURS dans la hiérarchie (demande
+                    // de Grégoire, 2026-10-20 : maximiser la vue,
+                    // étiquettes par-dessus l'image). Il est
+                    // seulement COUVERT par le scan figé — le
+                    // reconstruire à chaque bascule pendant que
+                    // la session s'arrête et redémarre, c'est ce
+                    // qui plantait (2026-10-19) ; le garder en
+                    // place rend la coupure du flux sûre. Le champ
+                    // d'éclairage blanc autour de la visée
+                    // disparaît : la lumière vient du panneau du
+                    // bas, resté blanc en mode éclairage.
+                    CameraPreviewView(session: camera.session)
+                        .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
+                                     anchor: .center)
+                    if !isDone {
+                        ScanOverlayView(quad: scanner.quad,
+                                        totalBox: nil,
+                                        hoverRect: nil,
+                                        mirrored: previewMirrored,
+                                        size: geo.size)
+                        // Étiquette d'état par-dessus l'image.
+                        VStack {
+                            HStack {
+                                Text(scanner.statusText)
+                                    .font(.system(size: 14,
+                                                  weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(
+                                        Color.black.opacity(0.55))
+                                    .cornerRadius(8)
+                                Spacer()
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                    }
+                    if scanner.state == .capturing {
+                        VStack {
+                            Spacer()
+                            ProgressView(value: scanner.progress)
+                                .progressViewStyle(.linear)
+                                .tint(.yellow)
+                                .padding(.horizontal, 24)
+                                .padding(.bottom, 14)
+                        }
+                    }
+                    // Le canevas du JEU couvre la zone dans la
+                    // section Entraînement IA (l'aperçu reste
+                    // dans la hiérarchie en dessous).
+                    if appSection == .entrainement {
+                        contourCanvas(
+                            containerSize: geo.size)
+                    }
+                    if isDone, appSection != .entrainement {
+                        // Le scan figé, par-dessus l'aperçu
+                        // (caméra déjà coupée) : d'abord la
+                        // meilleure image retenue pendant que
+                        // l'analyse court, puis le scan redressé
+                        // avec ses carrés jaunes et ses extraits
+                        // ZOOMÉS (ZoomReviewView).
+                        ZStack {
+                            Color.black
+                            if let image = (showEnhanced
+                                ? scanner.finalImage
+                                : scanner.rawFinalImage)
+                                ?? scanner.finalImage {
+                                ZoomReviewView(
+                                    image: image,
+                                    boxes: scanner.extraction?
+                                        .answerBoxes ?? [],
+                                    crops: scanner.extraction?
+                                        .answerCrops ?? [],
+                                    proofBoxes: scanner.extraction?
+                                        .proofBoxes ?? [])
+                                .padding(10)
+                            } else if let frozen = scanner.livePreview {
+                                Image(frozen, scale: 1,
+                                      label: Text("Scan en analyse"))
+                                    .resizable()
+                                    .scaledToFit()
+                                    .padding(10)
+                            }
+                        }
+                        // Épinglé à TOUTE la zone disponible
+                        // (sinon l'image se retrouvait à
+                        // droite, tassée sur son contenu —
+                        // vu par Grégoire pendant la phase
+                        // de test, 2026-10-21) : l'image reste
+                        // maximisée, au centre.
+                        .frame(width: geo.size.width,
+                               height: geo.size.height)
+                    }
+                }
+            }
+            .frame(minHeight: 220)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                if let message = camera.errorMessage {
+                    Text(message)
+                        .foregroundColor(.red)
+                        .font(.system(size: 15))
+                } else if !camera.isAuthorized {
+                    Text("Demande d'accès à la caméra…")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 15))
+                }
+
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("ScanReçus — \(BuildInfo.stamp)")
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundColor(.secondary)
+
+                        HStack(alignment: .center, spacing: 14) {
+                        Picker("", selection: $appSection) {
+                            Text("Scanner").tag(AppSection.scanner)
+                            Text("Générer matériel")
+                                .tag(AppSection.materiel)
+                            Text("Entraînement IA")
+                                .tag(AppSection.entrainement)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(maxWidth: 560)
+                        Button("Exit") {
+                            NSApplication.shared.terminate(nil)
+                        }
+                        .controlSize(.large)
+                        }
+
+                        Text(scanner.statusText)
+                            .font(.system(size: 16, weight: .medium))
+
+                        journalRow
+
+                        if appSection == .materiel {
+                            materielPanel
+                        } else if appSection == .entrainement {
+                            contourPanel
+                        } else if isDone,
+                                  let ex = scanner.extraction {
+                            extractionPanel(ex)
+                        }
+
+                        HStack(spacing: 12) {
+                            Button("Next scan") { nextScan() }
+                                .controlSize(.large)
+                            Button("Exit") {
+                                NSApplication.shared.terminate(nil)
+                            }
+                            .controlSize(.large)
+                            Spacer()
+                            Button(previewMirrored
+                                   ? "Aperçu : miroir" : "Aperçu : texte lisible") {
+                                previewMirrored.toggle()
+                            }
+                            .focusable(false)
+                            Button(scanLighting
+                                   ? "Éclairage : oui" : "Éclairage : non") {
+                                scanLighting.toggle()
+                            }
+                            .focusable(false)
+                            if isDone, scanner.rawFinalImage != nil {
+                                Button(showEnhanced
+                                       ? "Image : améliorée" : "Image : originale") {
+                                    showEnhanced.toggle()
+                                }
+                                .focusable(false)
+                            }
+                        }
+                    }
+
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(lightPanelActive
+                        ? Color.white
+                        : Color(nsColor: .windowBackgroundColor))
+            .layoutPriority(1)
+        }
+        .frame(minWidth: 780, minHeight: 760)
+        .onAppear {
+            camera.start(delegate: scanner)
+            // Plein écran dès l'ouverture, toujours (demandé par
+            // Grégoire le 2026-10-19) — indépendant du panneau
+            // d'éclairage, qui ne contrôle que le champ blanc.
+            enterFullScreen()
+        }
+        .onDisappear { camera.stop() }
+        .onChange(of: appSection) { _, section in
+            scanner.setBankingMode(section == .materiel)
+            if section == .entrainement {
+                contours.prepare(bank: bank, scanner: scanner)
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in
@@ -439,59 +831,11 @@ struct CompositeScanView: View {
         .allowsHitTesting(false)
     }
 
-    /// La ROULETTE de correction (demandée par Grégoire le
-    /// 2026-10-22, remplace le curseur) : on la saisit et on
-    /// tourne — 360° de correction, bouclée (à 359° on
-    /// retombe à 0). L'aiguille suit la correction courante.
-    private var roulette: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.secondary.opacity(0.55),
-                        lineWidth: 2)
-            ForEach(0..<36) { i in
-                Rectangle()
-                    .fill(Color.secondary
-                        .opacity(i % 9 == 0 ? 0.9 : 0.4))
-                    .frame(width: i % 9 == 0 ? 3 : 1.5,
-                           height: i % 9 == 0 ? 12 : 7)
-                    .offset(y: -54)
-                    .rotationEffect(.degrees(Double(i) * 10))
-            }
-            Rectangle()
-                .fill(Color.accentColor)
-                .frame(width: 3, height: 26)
-                .offset(y: -40)
-                .rotationEffect(.degrees(game.delta))
-            Circle()
-                .fill(Color.accentColor)
-                .frame(width: 9, height: 9)
-            Text(GameSession.fmt(game.delta))
-                .font(.system(size: 12, design: .monospaced))
-                .offset(y: 32)
-        }
-        .frame(width: 130, height: 130)
-        .contentShape(Circle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let angle = atan2(
-                        value.location.y - 65,
-                        value.location.x - 65) * 180 / .pi
-                    if let last = dialLastAngle {
-                        game.delta += GameSession
-                            .wrap(angle - last)
-                    }
-                    dialLastAngle = angle
-                }
-                .onEnded { _ in dialLastAngle = nil }
-        )
-    }
-
-    /// Le panneau de la table de jeu — étape ROTATION :
-    /// l'IA propose, Grégoire corrige (le curseur + les pas
-    /// fins/grossiers), valide ; l'écart fait office de note
-    /// et tout est journalisé pour les cycles d'entraînement.
-    private var gamePanel: some View {
+    /// Le panneau de l'étape 1 — CONTOURS : le pipeline en
+    /// tête, l'écart des coins en direct, les commandes.
+    /// L'apprentissage de l'étape se fait par les coins que
+    /// Grégoire déplace (sa correction = l'étiquette).
+    private var contourPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             if bank.derived.isEmpty {
                 Text("La banque n'a pas encore de copies "
@@ -502,73 +846,46 @@ struct CompositeScanView: View {
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             } else {
-                Text("Entraînement IA — ROTATION · instance "
-                    + "\(game.positionText) · "
-                    + "\(game.instanceLabel)")
+                Text("Entraînement IA — étape 1/4 : CONTOURS"
+                    + " · instance \(contours.positionText)"
+                    + " · \(contours.instanceLabel)")
                     .font(.system(size: 14, weight: .medium))
-                Text(game.statusText)
+                Text("Pipeline : ① contours → découpe "
+                    + "(on enlève tout ce qui n'est pas dans "
+                    + "le reçu) → ② redresser → ③ orienter "
+                    + "→ ④ extraire. Seule l'étape 1 est "
+                    + "jouable pour l'instant.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(contours.statusText)
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
-                if game.proposalDeg != nil {
-                    HStack(alignment: .top, spacing: 16) {
-                        roulette
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Tourne la roulette pour "
-                                + "corriger (360°, bouclée) ; "
-                                + "les pas fins servent à "
-                                + "l'alignement sur la grille.")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                            HStack(spacing: 8) {
-                                Button("−1°") { game.delta -= 1 }
-                                Button("−0,1°") {
-                                    game.delta -= 0.1
-                                }
-                                Button("+0,1°") {
-                                    game.delta += 0.1
-                                }
-                                Button("+1°") { game.delta += 1 }
-                                Button("180°") {
-                                    game.delta += 180
-                                }
-                                Button("À 0") { game.delta = 0 }
-                                Button(showGrid
-                                       ? "Grille : oui"
-                                       : "Grille : non") {
-                                    showGrid.toggle()
-                                }
-                                .focusable(false)
-                            }
-                            .font(.system(size: 13))
-                            Text("Proposition "
-                                + "\(GameSession.fmt(game.proposalDeg ?? 0))"
-                                + " · ta correction "
-                                + "\(GameSession.fmt(game.delta))"
-                                + " · finale "
-                                + "\(GameSession.fmt(game.finalDeg))"
-                                + " · écart "
-                                + "\(GameSession.fmt(abs(game.delta)))")
-                                .font(.system(size: 13,
-                                              design: .monospaced))
-                            HStack(spacing: 12) {
-                                Button("Valider et suivant") {
-                                    game.validate()
-                                }
-                                .controlSize(.large)
-                                Button("Passer") {
-                                    game.skip()
-                                }
-                                Button("Nouveau deck") {
-                                    game.reshuffle()
-                                }
-                            }
-                        }
-                    }
-                } else if game.finished {
-                    Button("Nouveau deck") { game.reshuffle() }
-                        .controlSize(.large)
+                if let error = contours.currentErrorPct {
+                    Text(String(format: "Écart moyen des "
+                        + "coins : %.1f %% de la diagonale",
+                        error))
+                        .font(.system(size: 13,
+                                      design: .monospaced))
                 }
-                Text(game.statsText)
+                HStack(spacing: 12) {
+                    Button("Valider et suivant") {
+                        contours.validate()
+                    }
+                    .controlSize(.large)
+                    Button("Revenir à la proposition") {
+                        contours.resetToProposal()
+                    }
+                    Button("Passer") { contours.skip() }
+                    Button("Nouveau deck") {
+                        contours.reshuffle()
+                    }
+                    Button(showGrid ? "Grille : oui"
+                           : "Grille : non") {
+                        showGrid.toggle()
+                    }
+                    .focusable(false)
+                }
+                Text(contours.statsText)
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
             }
