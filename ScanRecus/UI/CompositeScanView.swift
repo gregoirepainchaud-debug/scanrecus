@@ -407,13 +407,32 @@ struct CompositeScanView: View {
                     }
                     .stroke(Color.yellow, lineWidth: 2)
                     ForEach(0..<4) { i in
-                        Circle()
-                            .fill(Color.yellow)
-                            .frame(width: 22, height: 22)
-                            .overlay(
-                                Circle().stroke(
-                                    Color.black, lineWidth: 1.5))
-                            .position(pts[i])
+                        ZStack {
+                            // Rond TRANSPARENT + croix de
+                            // visée : le papier se voit sous
+                            // la poignée et l'intersection
+                            // de la croix marque le coin
+                            // exact. Halo blanc sous le
+                            // jaune, lisible sur papier
+                            // blanc comme sur fond noir.
+                            CrosshairShape()
+                                .stroke(Color.white,
+                                        lineWidth: 3.5)
+                            CrosshairShape()
+                                .stroke(Color.yellow,
+                                        lineWidth: 1.5)
+                            Circle()
+                                .stroke(Color.white,
+                                        lineWidth: 4.5)
+                                .padding(6)
+                            Circle()
+                                .stroke(Color.yellow,
+                                        lineWidth: 2)
+                                .padding(6)
+                        }
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                        .position(pts[i])
                             .gesture(
                                 DragGesture(
                                     minimumDistance: 0,
@@ -740,6 +759,28 @@ private struct MarkerStroke: Shape {
 /// reste sur le reçu seulement.
 /// Le but : lire les réponses du programme sans plisser les
 /// yeux, et VOIR la preuve, pas seulement la lire.
+/// Croix de visée des poignées de coins : quatre bras
+/// avec une petite fenêtre au centre — le point exact
+/// reste visible, et le papier dessous aussi (demande
+/// de Grégoire, 2026-10-22).
+private struct CrosshairShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let cx = rect.midX, cy = rect.midY
+        let gap: CGFloat = 3
+        let arm = min(rect.width, rect.height) / 2 - 1
+        path.move(to: CGPoint(x: cx, y: cy - arm))
+        path.addLine(to: CGPoint(x: cx, y: cy - gap))
+        path.move(to: CGPoint(x: cx, y: cy + gap))
+        path.addLine(to: CGPoint(x: cx, y: cy + arm))
+        path.move(to: CGPoint(x: cx - arm, y: cy))
+        path.addLine(to: CGPoint(x: cx - gap, y: cy))
+        path.move(to: CGPoint(x: cx + arm, y: cy))
+        path.addLine(to: CGPoint(x: cx + gap, y: cy))
+        return path
+    }
+}
+
 struct ZoomReviewView: View {
     let image: CGImage
     let boxes: [CGRect]
