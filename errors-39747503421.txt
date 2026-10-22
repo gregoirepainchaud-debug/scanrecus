@@ -1,0 +1,1 @@
+563:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/GameSession.swift:366:34: error: value of type 'ContourSession' has no member 'clampPoint'
