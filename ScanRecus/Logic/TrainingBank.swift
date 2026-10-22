@@ -127,6 +127,11 @@ struct QuadAttempt: Codable {
     var final: [[Double]]
     /// Écart moyen des 4 coins, en % de la diagonale.
     var meanErrorPct: Double
+    /// L'outil qui a produit la proposition :
+    /// "vision", "zone" ou "les-deux".
+    var source: String = "vision"
+    /// L'autre candidat, quand les deux outils ont joué.
+    var altProposal: [[Double]]? = nil
     /// Acceptée sans retouche (écart < 0,5 %).
     var accepted: Bool
 }

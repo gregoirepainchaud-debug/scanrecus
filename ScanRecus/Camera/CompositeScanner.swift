@@ -1298,24 +1298,223 @@ final class CompositeScanner: NSObject,
         case upright, upsideDown, sideways
     }
 
+    /// Une proposition de contours pour le jeu : le
+    /// quadrilatère choisi, l'outil qui l'a produit, le
+    /// détail lisible, et l'autre candidat quand les deux
+    /// outils ont joué (journalisé — on apprendra lequel
+    /// croire).
+    struct ContourProposal {
+        var quad: [CGPoint]
+        var source: String
+        var detail: String
+        var alt: [CGPoint]?
+    }
+
     /// JOUEUR CONTOURS (jour 1) de la table de jeu —
-    /// étape 1 du pipeline (ordre de Grégoire, 2026-10-22 :
-    /// tracer les contours AVANT tout le reste).
-    /// Version JEU (build 83) : le joueur du build 82 était
-    /// findPaperQuad — un détecteur de RITUEL construit
-    /// pour S'ABSTENIR (preuve papier + ≥ 3 zones de texte +
-    /// couverture du texte) ; sur les copies tournées à des
-    /// angles quelconques, les zones de texte qui nourrissent
-    /// sa preuve disparaissent, et il s'abstenait PARTOUT
-    /// (journal du 2026-10-22 : 3/3 boîtes par défaut —
-    /// « l'IA n'essaie même pas »). Un joueur de jeu doit
-    /// TOUJOURS jouer son meilleur essai : détection de
-    /// rectangles Vision tolérante, SANS les preuves, le
-    /// meilleur candidat (surface × confiance) gagne. La
-    /// correction de Grégoire tranchera. Coordonnées
-    /// d'AFFICHAGE (origine haut-gauche), [TL, TR, BR, BL].
+    /// étape 1 du pipeline. LES DEUX OUTILS (demande de
+    /// Grégoire, 2026-10-22) : la ZONE BLANCHE (sa méthode —
+    /// elle ne s'abstient jamais, il y a toujours une zone
+    /// la plus blanche ; son rectangle orienté épouse le
+    /// papier) et VISION (rectangles, parfois plus juste en
+    /// perspective, parfois aveugle). Si les deux s'accordent
+    /// (coins à < 3 % de la diagonale), Vision gagne (plus
+    /// fin). Sinon, chacun est noté contre la zone (F1 :
+    /// couverture de la zone × pureté du candidat) et le
+    /// meilleur gagne. Coordonnées d'AFFICHAGE (origine
+    /// haut-gauche), coins [TL, TR, BR, BL].
     func contourProposal(for image: CIImage)
-    -> (quad: [CGPoint], detail: String)? {
+    -> ContourProposal? {
+        let zone = findWhiteZone(in: image)
+        let zoneQuad = zone.flatMap { quadFromWhiteZone($0) }
+        let vision = visionQuad(in: image)
+        switch (zoneQuad, vision) {
+        case let (z?, v?):
+            let dz = meanCornerDistance(z, v.quad)
+            if dz < 0.03 {
+                return ContourProposal(
+                    quad: v.quad, source: "les-deux",
+                    detail: "les deux outils s'accordent "
+                        + "(Vision retenu, plus fin)",
+                    alt: z)
+            }
+            guard let zone else {
+                return ContourProposal(
+                    quad: v.quad, source: "vision",
+                    detail: "Vision seul", alt: z)
+            }
+            let fz = zoneF1(z, zone: zone)
+            let fv = zoneF1(v.quad, zone: zone)
+            if fv >= fz {
+                return ContourProposal(
+                    quad: v.quad, source: "vision",
+                    detail: "Vision (accord zone : "
+                        + "Vision \(Int(fv * 100)) % vs "
+                        + "zone \(Int(fz * 100)) %)",
+                    alt: z)
+            }
+            return ContourProposal(
+                quad: z, source: "zone",
+                detail: "zone blanche (accord zone : "
+                    + "zone \(Int(fz * 100)) % vs "
+                    + "Vision \(Int(fv * 100)) %)",
+                alt: v.quad)
+        case let (z?, nil):
+            return ContourProposal(
+                quad: z, source: "zone",
+                detail: "zone blanche seule "
+                    + "(Vision ne voit rien)", alt: nil)
+        case let (nil, v?):
+            return ContourProposal(
+                quad: v.quad, source: "vision",
+                detail: "Vision seul (pas de zone blanche)",
+                alt: nil)
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    /// Le rectangle orienté qui épouse la zone blanche :
+    /// axe principal des pixels de la zone + étendues le
+    /// long de l'axe et à travers. Coordonnées d'affichage
+    /// (le masque est rangé ligne 0 = haut de l'image).
+    private func quadFromWhiteZone(_ zone: WhiteZone)
+    -> [CGPoint]? {
+        let w = zone.w, h = zone.h
+        var n = 0.0, mx = 0.0, my = 0.0
+        for r in 0..<h {
+            for c in 0..<w where zone.mask[r * w + c] > 0 {
+                n += 1
+                mx += (Double(c) + 0.5) / Double(w)
+                my += (Double(r) + 0.5) / Double(h)
+            }
+        }
+        guard n > 100 else { return nil }
+        mx /= n
+        my /= n
+        var sxx = 0.0, syy = 0.0, sxy = 0.0
+        for r in 0..<h {
+            for c in 0..<w where zone.mask[r * w + c] > 0 {
+                let dx = (Double(c) + 0.5) / Double(w) - mx
+                let dy = (Double(r) + 0.5) / Double(h) - my
+                sxx += dx * dx
+                syy += dy * dy
+                sxy += dx * dy
+            }
+        }
+        // Axe principal (vecteur propre dominant).
+        let theta = 0.5 * atan2(2 * sxy, sxx - syy)
+        let ux = cos(theta), uy = sin(theta)
+        let vx = -uy, vy = ux
+        var umin = Double.greatestFiniteMagnitude
+        var umax = -Double.greatestFiniteMagnitude
+        var vmin = Double.greatestFiniteMagnitude
+        var vmax = -Double.greatestFiniteMagnitude
+        for r in 0..<h {
+            for c in 0..<w where zone.mask[r * w + c] > 0 {
+                let dx = (Double(c) + 0.5) / Double(w) - mx
+                let dy = (Double(r) + 0.5) / Double(h) - my
+                let pu = dx * ux + dy * uy
+                let pv = dx * vx + dy * vy
+                umin = min(umin, pu)
+                umax = max(umax, pu)
+                vmin = min(vmin, pv)
+                vmax = max(vmax, pv)
+            }
+        }
+        func corner(_ pu: Double, _ pv: Double) -> CGPoint {
+            CGPoint(x: mx + pu * ux + pv * vx,
+                    y: my + pu * uy + pv * vy)
+        }
+        let corners = [corner(umin, vmin), corner(umax, vmin),
+                       corner(umax, vmax), corner(umin, vmax)]
+        return orderQuad(corners)
+    }
+
+    /// Ordonne 4 coins [TL, TR, BR, BL] en coordonnées
+    /// d'affichage (x droite, y bas) : TL = plus petit
+    /// x + y, BR = plus grand, TR = plus grand x − y,
+    /// BL = plus petit x − y.
+    private func orderQuad(_ pts: [CGPoint]) -> [CGPoint] {
+        guard pts.count == 4 else { return pts }
+        let tl = pts.min { ($0.x + $0.y) < ($1.x + $1.y) }!
+        let br = pts.max { ($0.x + $0.y) < ($1.x + $1.y) }!
+        let tr = pts.max { ($0.x - $0.y) < ($1.x - $1.y) }!
+        let bl = pts.min { ($0.x - $0.y) < ($1.x - $1.y) }!
+        return [tl, tr, br, bl]
+    }
+
+    /// Distance moyenne entre les coins de deux
+    /// quadrilatères appariés (en fraction de la diagonale).
+    private func meanCornerDistance(_ a: [CGPoint],
+                                    _ b: [CGPoint]) -> Double {
+        guard a.count == 4, b.count == 4 else { return 1 }
+        var sum = 0.0
+        for i in 0..<4 {
+            let dx = Double(a[i].x - b[i].x)
+            let dy = Double(a[i].y - b[i].y)
+            sum += sqrt(dx * dx + dy * dy)
+        }
+        return sum / 4 / sqrt(2)
+    }
+
+    /// Note F1 d'un candidat contre la zone blanche :
+    /// couverture (part de la zone DANS le candidat) ×
+    /// pureté (part du candidat qui EST de la zone),
+    /// combinées en moyenne harmonique. Échantillonnage
+    /// au pas de 2 sur le masque.
+    private func zoneF1(_ quad: [CGPoint], zone: WhiteZone)
+    -> Double {
+        let w = zone.w, h = zone.h
+        var zoneTotal = 0.0, zoneInside = 0.0
+        var insideCount = 0.0
+        let step = 2
+        for r in stride(from: 0, to: h, by: step) {
+            for c in stride(from: 0, to: w, by: step) {
+                let pt = CGPoint(
+                    x: (Double(c) + 0.5) / Double(w),
+                    y: (Double(r) + 0.5) / Double(h))
+                let inside = pointInQuad(pt, quad)
+                if inside { insideCount += 1 }
+                if zone.mask[r * w + c] > 0 {
+                    zoneTotal += 1
+                    if inside { zoneInside += 1 }
+                }
+            }
+        }
+        guard zoneTotal > 0, insideCount > 0 else { return 0 }
+        let coverage = zoneInside / zoneTotal
+        let cellArea = (Double(step) / Double(w))
+            * (Double(step) / Double(h))
+        let quadPixels = insideCount
+        let purity = zoneInside / max(quadPixels, 1)
+        _ = cellArea
+        guard coverage + purity > 0 else { return 0 }
+        return 2 * coverage * purity / (coverage + purity)
+    }
+
+    /// Point dans un quadrilatère convexe [TL, TR, BR, BL]
+    /// (signes cohérents des produits vectoriels).
+    private func pointInQuad(_ p: CGPoint,
+                             _ q: [CGPoint]) -> Bool {
+        guard q.count == 4 else { return false }
+        var sign = 0
+        for i in 0..<4 {
+            let a = q[i], b = q[(i + 1) % 4]
+            let cross = (b.x - a.x) * (p.y - a.y)
+                - (b.y - a.y) * (p.x - a.x)
+            if cross != 0 {
+                let s = cross > 0 ? 1 : -1
+                if sign == 0 { sign = s }
+                else if s != sign { return false }
+            }
+        }
+        return true
+    }
+
+    /// Rectangles Vision (tolérants, sans preuves) : le
+    /// meilleur candidat par surface × confiance.
+    private func visionQuad(in image: CIImage)
+    -> (quad: [CGPoint], confidence: Float, count: Int)? {
         let request = VNDetectRectanglesRequest()
         request.minimumAspectRatio = 0.1
         request.maximumAspectRatio = 1.0
@@ -1336,16 +1535,10 @@ final class CompositeScanner: NSObject,
                 < abs(shoelace(quadOf(b)))
                 * CGFloat(b.confidence)
         }) else { return nil }
-        let vision = quadOf(best)
-        let display = vision.map {
+        let display = quadOf(best).map {
             CGPoint(x: $0.x, y: 1 - $0.y)
         }
-        let pct = Int(abs(shoelace(vision)) * 100)
-        return (display,
-                "\(results.count) rectangle(s) Vision — "
-                + "meilleur : confiance "
-                + String(format: "%.2f", best.confidence)
-                + ", \(pct) % de l'image")
+        return (display, best.confidence, results.count)
     }
 
     /// JOUEUR ROTATION (jour 1, heuristique) de la table de

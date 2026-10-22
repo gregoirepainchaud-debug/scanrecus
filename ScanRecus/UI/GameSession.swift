@@ -250,6 +250,8 @@ final class ContourSession {
     private(set) var statusText = ""
     private(set) var proposalQuad: [CGPoint]?
     private(set) var proposalDetail = ""
+    private(set) var proposalSource = "vision"
+    private(set) var proposalAlt: [CGPoint]?
     /// Les coins de travail, déplaçables (coordonnées
     /// normalisées d'affichage, [TL, TR, BR, BL]).
     var quad: [CGPoint] = []
@@ -324,6 +326,8 @@ final class ContourSession {
     private func loadCurrent() {
         proposalQuad = nil
         proposalDetail = ""
+        proposalSource = "defaut"
+        proposalAlt = nil
         quad = []
         displayImage = nil
         imageSize = .zero
@@ -359,6 +363,8 @@ final class ContourSession {
                         self.proposalQuad = proposal.quad
                         self.quad = proposal.quad
                         self.proposalDetail = proposal.detail
+                        self.proposalSource = proposal.source
+                        self.proposalAlt = proposal.alt
                         self.statusText = "Contours proposés "
                             + "(\(proposal.detail)) — déplace "
                             + "les coins qui dépassent ou qui "
@@ -408,7 +414,11 @@ final class ContourSession {
             generationAngle: entry.angle,
             proposal: proposal.map { [Double($0.x), Double($0.y)] },
             final: quad.map { [Double($0.x), Double($0.y)] },
-            meanErrorPct: error, accepted: accepted))
+            meanErrorPct: error, accepted: accepted,
+            source: proposalSource,
+            altProposal: proposalAlt?.map {
+                [Double($0.x), Double($0.y)]
+            }))
         attempts += 1
         if accepted { acceptedCount += 1 }
         totalError += error
