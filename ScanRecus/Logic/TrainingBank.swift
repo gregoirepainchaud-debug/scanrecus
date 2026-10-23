@@ -390,18 +390,21 @@ final class TrainingBank {
                     withIntermediateDirectories: true)
                 var copied = 0, skipped = 0
                 var bytes: Int64 = 0
+                func fileSize(_ url: URL) -> Int64 {
+                    guard let attrs = try? fm
+                        .attributesOfItem(atPath: url.path),
+                          let n = attrs[.size] as? NSNumber
+                    else { return -1 }
+                    return n.int64Value
+                }
                 for name in names {
                     let src = srcRoot
                         .appendingPathComponent(name)
                     let dst = dest
                         .appendingPathComponent(name)
-                    let srcSize = (try? fm
-                        .attributesOfItem(atPath: src.path))?
-                        [.size] as? Int64 ?? -1
+                    let srcSize = fileSize(src)
                     if srcSize < 0 { continue }
-                    let dstSize = (try? fm
-                        .attributesOfItem(atPath: dst.path))?
-                        [.size] as? Int64 ?? -1
+                    let dstSize = fileSize(dst)
                     if dstSize == srcSize {
                         skipped += 1
                         continue

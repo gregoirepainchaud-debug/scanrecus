@@ -46,6 +46,14 @@ final class LassoSession: ObservableObject {
     /// La dernière note donnée : le retour visible
     /// immédiat qu'elle est bien rentrée.
     @Published private(set) var lastRating: Int?
+    /// Vrai pendant que la machine produit le
+    /// prochain lasso (en arrière-plan) — la roue qui
+    /// tourne dans le panneau. Au repos, et pendant
+    /// les glissements de sommets, AUCUN calcul :
+    /// le moteur redescend au ralenti (image de
+    /// Grégoire, 2026-10-23).
+    @Published private(set) var isThinking = false
+    private var thinkToken = 0
     @Published private(set) var imagesDone = 0
     @Published private(set) var totalRatings = 0
 
@@ -133,6 +141,8 @@ final class LassoSession: ObservableObject {
     // MARK: Chargement d'une image
 
     private func loadCurrent() {
+        thinkToken += 1
+        isThinking = false
         displayImage = nil
         imageSize = .zero
         current = []
@@ -207,7 +217,8 @@ final class LassoSession: ObservableObject {
     /// rien) : l'élite part au journal, on passe à la
     /// suivante.
     func rate(_ rating: Int) {
-        guard let entry, let bank, !current.isEmpty
+        guard let entry, let bank, !current.isEmpty,
+              !isThinking
         else { return }
         let srcNum = bank.photos
             .first { $0.id == entry.sourceId }?.number ?? 0
@@ -278,14 +289,44 @@ final class LassoSession: ObservableObject {
                 exploreNext = true
             }
         }
-        // Sa mécanique d'affichage : le lasso noté devient
-        // le fantôme, quoi qu'il arrive.
+        // Sa mécanique d'affichage : le lasso noté
+        // devient le fantôme, quoi qu'il arrive. Le
+        // prochain lasso, lui, se calcule en
+        // ARRIÈRE-PLAN : la roue tourne pendant ce
+        // temps (visible au moins ~0,25 s pour être
+        // perceptible), puis le candidat paraît.
         ghost = rated
-        current = makeNextCandidate(afterRating: rating,
-                                    wasProbe: wasProbe)
-        cycle += 1
-        statusText = "Noté. Compare le nouveau lasso "
-            + "au fantôme."
+        let request = makeGenerationRequest(
+            rated: rated, wasProbe: wasProbe)
+        current = []
+        isThinking = true
+        statusText = "Noté — je réfléchis…"
+        thinkToken += 1
+        let token = thinkToken
+        let started = Date()
+        DispatchQueue.global(qos: .default)
+            .async { [weak self] in
+                let result = Self.generate(request)
+                let elapsed = Date()
+                    .timeIntervalSince(started)
+                let delay = max(0, 0.25 - elapsed)
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + delay) { [weak self] in
+                    guard let self,
+                          self.thinkToken == token
+                    else { return }
+                    self.current = result.polygon
+                    self.currentProbe = result.probe
+                    self.currentSource = result.source
+                    if result.appendToHistory {
+                        self.history.append(result.polygon)
+                    }
+                    self.cycle += 1
+                    self.isThinking = false
+                    self.statusText = "Compare le nouveau "
+                        + "lasso au fantôme."
+                }
+            }
     }
 
     /// Termine l'image sans +2 (bouton Next) : l'élite
@@ -441,77 +482,131 @@ final class LassoSession: ObservableObject {
 
     // MARK: Génération des candidats
 
-    private func makeNextCandidate(afterRating rating: Int,
-                                   wasProbe: Bool) -> [CGPoint] {
-        // Doublon aveugle (~9 %) : mesure de cohérence,
-        // invisible pour le joueur. Jamais juste après
-        // la note d'une suggestion ; la répétition ne
-        // puise que dans l'après-dernière-suggestion.
+    /// Prépare la demande de génération (sur le fil
+    /// principal : on y consomme les modes laissés
+    /// par la note — exploration, polissage,
+    /// croisement latéral, saut de sonde).
+    private func makeGenerationRequest(
+        rated: [CGPoint], wasProbe: Bool)
+    -> GenerationRequest {
         let skipProbe = skipProbeOnce
         skipProbeOnce = false
-        if !skipProbe, cycle >= 2, history.count >= 2,
-           Double.random(in: 0..<1) < 0.09 {
-            if Bool.random(), let ghost {
-                currentProbe = "identique"
-                currentSource = "sonde"
-                return ghost
-            }
-            let pool = Array(
-                history[suggestionFloor...].dropLast())
-            if let pick = pool.randomElement() {
-                currentProbe = "repetition"
-                currentSource = "sonde"
-                return pick
-            }
-        }
-        currentProbe = nil
-        currentSource = "recherche"
         let forceGlobal = exploreNext
         exploreNext = false
         let polish = polishNext
         polishNext = false
         let lateral = lateralParents
         lateralParents = nil
-        let base = searchBase.isEmpty ? current : searchBase
-        for _ in 0..<8 {
-            let candidate: [CGPoint]
-            if let lateral,
-               lateral.a.count == lateral.b.count {
-                candidate = Self.crossover(
-                    lateral.a, lateral.b, sigma: sigma)
-            } else if let lateral {
-                candidate = Self.perturb(
-                    lateral.a, sigma: sigma, fineOnly: true)
-            } else {
-                candidate = Self.perturb(
-                    base, sigma: sigma,
-                    globalOnly: forceGlobal,
-                    fineOnly: polish)
+        return GenerationRequest(
+            base: searchBase.isEmpty ? rated : searchBase,
+            sigma: sigma, forceGlobal: forceGlobal,
+            polish: polish, lateralA: lateral?.a,
+            lateralB: lateral?.b, skipProbe: skipProbe,
+            cycle: cycle, history: history,
+            ghost: ghost, suggestionFloor: suggestionFloor,
+            minFrac: minAreaFraction())
+    }
+
+    /// La demande de génération, en valeurs pures —
+    /// le calcul se fait en arrière-plan, sans toucher
+    /// à l'état de la session.
+    struct GenerationRequest {
+        var base: [CGPoint]
+        var sigma: Double
+        var forceGlobal: Bool
+        var polish: Bool
+        var lateralA: [CGPoint]?
+        var lateralB: [CGPoint]?
+        var skipProbe: Bool
+        var cycle: Int
+        var history: [[CGPoint]]
+        var ghost: [CGPoint]?
+        var suggestionFloor: Int
+        var minFrac: Double
+    }
+
+    struct GenerationResult {
+        var polygon: [CGPoint]
+        var probe: String?
+        var source: String
+        var appendToHistory: Bool
+    }
+
+    /// Génère le prochain candidat (fonction pure,
+    /// arrière-plan) : doublon aveugle éventuel, sinon
+    /// perturbation/croisement de la base selon le
+    /// mode laissé par la note.
+    static func generate(_ req: GenerationRequest)
+    -> GenerationResult {
+        if !req.skipProbe, req.cycle >= 2,
+           req.history.count >= 2,
+           Double.random(in: 0..<1) < 0.09 {
+            if Bool.random(), let ghost = req.ghost {
+                return GenerationResult(
+                    polygon: ghost, probe: "identique",
+                    source: "sonde", appendToHistory: false)
             }
-            let checked = guardrailed(candidate, fallback: nil)
-            if checked != candidate || Self.isSane(candidate) {
-                history.append(checked)
-                return checked
+            let pool = Array(req.history[
+                min(req.suggestionFloor,
+                    req.history.count)...].dropLast())
+            if let pick = pool.randomElement() {
+                return GenerationResult(
+                    polygon: pick, probe: "repetition",
+                    source: "sonde", appendToHistory: false)
             }
         }
-        let fallback = guardrailed(base, fallback: nil)
-        history.append(fallback)
-        return fallback
+        for _ in 0..<8 {
+            let candidate: [CGPoint]
+            if let a = req.lateralA, let b = req.lateralB,
+               a.count == b.count {
+                candidate = crossover(a, b,
+                                      sigma: req.sigma)
+            } else if let a = req.lateralA {
+                candidate = perturb(
+                    a, sigma: req.sigma, fineOnly: true)
+            } else {
+                candidate = perturb(
+                    req.base, sigma: req.sigma,
+                    globalOnly: req.forceGlobal,
+                    fineOnly: req.polish)
+            }
+            let checked = guardrailed(
+                candidate, minFrac: req.minFrac,
+                fallback: nil)
+            if checked != candidate || isSane(candidate) {
+                return GenerationResult(
+                    polygon: checked, probe: nil,
+                    source: "recherche",
+                    appendToHistory: true)
+            }
+        }
+        return GenerationResult(
+            polygon: guardrailed(req.base,
+                                 minFrac: req.minFrac,
+                                 fallback: nil),
+            probe: nil, source: "recherche",
+            appendToHistory: true)
     }
 
     /// Applique les garde-fous durs : coins dans
-    /// l'image, aire minimale (carré de 100 px), polygone
-    /// simple. Retourne le polygone corrigé, ou le repli.
+    /// l'image, aire minimale (carré de 100 px),
+    /// polygone simple, au moins 4 sommets.
     private func guardrailed(_ polygon: [CGPoint],
                              fallback: [CGPoint]?)
+    -> [CGPoint] {
+        Self.guardrailed(polygon,
+                         minFrac: minAreaFraction(),
+                         fallback: fallback)
+    }
+
+    static func guardrailed(_ polygon: [CGPoint],
+                            minFrac: Double,
+                            fallback: [CGPoint]?)
     -> [CGPoint] {
         var pts = polygon.map {
             CGPoint(x: min(0.996, max(0.004, $0.x)),
                     y: min(0.996, max(0.004, $0.y)))
         }
-        // Aire minimale : si trop petit, on regonfle
-        // autour du centroïde.
-        let minFrac = minAreaFraction()
         var tries = 0
         while abs(Self.signedArea(pts)) < minFrac,
               tries < 6 {
@@ -530,7 +625,8 @@ final class LassoSession: ObservableObject {
             return pts
         }
         if let fallback { return fallback }
-        return Self.isSane(pts) ? pts : Self.defaultPolygon()
+        return Self.isSane(pts) ? pts
+            : Self.defaultPolygon()
     }
 
     private func minAreaFraction() -> Double {

@@ -576,9 +576,15 @@ struct CompositeScanView: View {
                 + "tu veux ; Next pour la suivante.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            Text(lasso.statusText)
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                if lasso.isThinking {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(lasso.statusText)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
             HStack(spacing: 12) {
                 Button("−1") { lasso.rate(-1) }
                     .keyboardShortcut("1", modifiers: [])
@@ -595,7 +601,7 @@ struct CompositeScanView: View {
                     lasso.reshuffle()
                 }
             }
-            .disabled(lasso.current.isEmpty)
+            .disabled(lasso.current.isEmpty || lasso.isThinking)
             Text(lasso.statsText)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
