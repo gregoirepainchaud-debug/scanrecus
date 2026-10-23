@@ -275,7 +275,7 @@ struct CompositeScanView: View {
         .onChange(of: appSection) { _, section in
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement {
-                lasso.prepare(bank: bank, scanner: scanner)
+                lasso.prepare(bank: bank)
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in

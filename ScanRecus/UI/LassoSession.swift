@@ -43,7 +43,6 @@ final class LassoSession: ObservableObject {
     @Published private(set) var totalRatings = 0
 
     private var bank: TrainingBank?
-    private var scanner: CompositeScanner?
     private var deck: [BankDerived] = []
     private var index = 0
 
@@ -82,10 +81,8 @@ final class LassoSession: ObservableObject {
         return f
     }
 
-    func prepare(bank: TrainingBank,
-                 scanner: CompositeScanner) {
+    func prepare(bank: TrainingBank) {
         self.bank = bank
-        self.scanner = scanner
         deck = bank.derived.shuffled()
         index = 0
         imagesDone = 0
@@ -94,8 +91,8 @@ final class LassoSession: ObservableObject {
     }
 
     func reshuffle() {
-        guard let bank, let scanner else { return }
-        prepare(bank: bank, scanner: scanner)
+        guard let bank else { return }
+        prepare(bank: bank)
     }
 
     // MARK: Chargement d'une image
@@ -119,17 +116,14 @@ final class LassoSession: ObservableObject {
         }
         statusText = "Chargement de l'image…"
         let entryId = entry.id
-        // La calibration se lit sur le fil principal
-        // (le journal est chargé une fois, ensuite c'est
-        // un accès mémoire) ; tout le reste — décodage
-        // de l'image et analyse d'amorce — part en
-        // arrière-plan à BASSE priorité : l'analyse
-        // (Vision) attend ses propres fils internes, et
-        // la lancer d'un fil prioritaire créait
-        // l'inversion de priorité signalée par Xcode
-        // (LassoSession, « Hang Risk », 2026-10-23) en
-        // plus d'à-coups visibles.
-        let calScale = bank.contourCalibration()?.scale
+        // Le décodage part en arrière-plan (basse
+        // priorité) ; le fil principal ne reçoit que le
+        // résultat. L'amorce est NEUTRE : ni Vision ni
+        // l'outil de zone — une boîte de départ qui ne
+        // doit rien à aucun système de perception
+        // (décision de Grégoire, 2026-10-23 : la boîte
+        // noire, c'est NOTRE réseau ; un point de départ
+        // emprunté ancrerait toute la grimpe).
         DispatchQueue.global(qos: .utility)
             .async { [weak self] in
                 guard let self else { return }
@@ -147,9 +141,6 @@ final class LassoSession: ObservableObject {
                     }
                     return
                 }
-                let image = CIImage(cgImage: cg)
-                let proposal = self.scanner?
-                    .contourProposal(for: image)
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.entry?.id == entryId
@@ -157,40 +148,18 @@ final class LassoSession: ObservableObject {
                     self.displayImage = cg
                     self.imageSize = CGSize(
                         width: cg.width, height: cg.height)
-                    var polygon: [CGPoint]
-                    var source: String
-                    if let proposal {
-                        var quad = proposal.quad
-                        if let calScale {
-                            let cx = quad.reduce(
-                                CGFloat(0)) { $0 + $1.x } / 4
-                            let cy = quad.reduce(
-                                CGFloat(0)) { $0 + $1.y } / 4
-                            quad = quad.map { pt in
-                                CGPoint(
-                                    x: cx + (pt.x - cx)
-                                        * CGFloat(calScale),
-                                    y: cy + (pt.y - cy)
-                                        * CGFloat(calScale))
-                            }
-                        }
-                        polygon = Self.withMidpoints(quad)
-                        source = "init-" + proposal.source
-                    } else {
-                        polygon = Self.defaultPolygon()
-                        source = "init-defaut"
-                    }
-                    polygon = self.guardrailed(polygon,
-                                               fallback: nil)
+                    let polygon = self.guardrailed(
+                        Self.neutralStart(), fallback: nil)
                     self.current = polygon
                     self.searchBase = polygon
                     self.history = [polygon]
                     self.cycle = 1
-                    self.currentSource = source
+                    self.currentSource = "init-neutre"
                     self.currentProbe = nil
-                    self.statusText = "Premier lasso — "
-                        + "note-le (−1 / 0 / +1 / +2), ou "
-                        + "Next si l'image est finie."
+                    self.statusText = "Premier lasso "
+                        + "(départ neutre) — note-le "
+                        + "(−1 / 0 / +1 / +2), ou Next si "
+                        + "l'image est finie."
                 }
             }
     }
@@ -430,6 +399,22 @@ final class LassoSession: ObservableObject {
                                y: (a.y + b.y) / 2))
         }
         return out
+    }
+
+    /// Le départ NEUTRE : une boîte 18 %–82 % avec un
+    /// léger tremblement (±3 %). Aucune perception —
+    /// c'est le même point de départ (à un souffle
+    /// près) pour toutes les images.
+    static func neutralStart() -> [CGPoint] {
+        func j(_ v: CGFloat) -> CGFloat {
+            v + CGFloat(Double.random(in: -0.03...0.03))
+        }
+        return withMidpoints([
+            CGPoint(x: j(0.18), y: j(0.18)),
+            CGPoint(x: j(0.82), y: j(0.18)),
+            CGPoint(x: j(0.82), y: j(0.82)),
+            CGPoint(x: j(0.18), y: j(0.82)),
+        ])
     }
 
     static func defaultPolygon() -> [CGPoint] {
