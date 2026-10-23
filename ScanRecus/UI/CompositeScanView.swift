@@ -325,6 +325,7 @@ struct CompositeScanView: View {
                 camera.start(delegate: scanner)
             }
         }
+        }
     }
 
     /// Panneau « Ce que je lis » : les champs extraits du scan
@@ -827,7 +828,6 @@ struct CompositeScanView: View {
             }
         }
     }
-        }
 }
 
 
