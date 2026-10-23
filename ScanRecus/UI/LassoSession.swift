@@ -69,6 +69,16 @@ final class LassoSession: ObservableObject {
     /// 2026-10-23).
     private var skipProbeOnce = false
     private var suggestionFloor = 0
+    /// Après un +1 : le prochain candidat POLIT
+    /// (retouches fines seulement). Après un 0 —
+    /// « mouvement latéral : amélioration et
+    /// régression à la fois » (sa définition,
+    /// 2026-10-23) — le prochain candidat est un
+    /// CROISEMENT des deux tracés comparés : garder
+    /// ce qui s'est amélioré, refaire le reste.
+    private var polishNext = false
+    private var lateralParents: (a: [CGPoint],
+                                 b: [CGPoint])?
 
     private var entry: BankDerived? {
         deck.indices.contains(index) ? deck[index] : nil
@@ -225,16 +235,30 @@ final class LassoSession: ObservableObject {
                 // ne contredit jamais une note.
                 searchBase = rated
             }
-            // Adaptation du pas de recherche.
+            // La politique de recherche, dans SES mots
+            // (2026-10-23) : +1 = resserrer les arêtes,
+            // 0 = mouvement latéral, −1 = agrandir.
             switch rating {
-            case 1: sigma = max(0.008, sigma * 0.75)
-            case 0: sigma = min(0.15, sigma * 1.3)
+            case 1:
+                // RESSERRER : pas réduit, et le prochain
+                // candidat ne fera que des retouches
+                // fines (bords et sommets).
+                sigma = max(0.006, sigma * 0.6)
+                polishNext = true
+            case 0:
+                // LATÉRAL : ni resserrer ni élargir —
+                // croiser les deux tracés comparés (le
+                // noté et son fantôme). Le pas ne bouge
+                // pas.
+                if let ghostBefore = ghost {
+                    lateralParents = (a: rated,
+                                      b: ghostBefore)
+                }
             default:
-                // −1 : on est dans un mauvais bassin —
-                // le pas GRANDIT franchement (×1,6,
-                // plafond relevé) et le prochain
-                // candidat sera un saut global
-                // d'exploration (Grégoire, 2026-10-23).
+                // −1 = AGRANDIR : le pas grandit
+                // franchement (×1,6, plafond relevé) et
+                // le prochain candidat sera un saut
+                // global d'exploration.
                 sigma = min(0.28, sigma * 1.6)
                 exploreNext = true
             }
@@ -375,10 +399,26 @@ final class LassoSession: ObservableObject {
         currentSource = "recherche"
         let forceGlobal = exploreNext
         exploreNext = false
+        let polish = polishNext
+        polishNext = false
+        let lateral = lateralParents
+        lateralParents = nil
         let base = searchBase.isEmpty ? current : searchBase
         for _ in 0..<8 {
-            let candidate = Self.perturb(
-                base, sigma: sigma, globalOnly: forceGlobal)
+            let candidate: [CGPoint]
+            if let lateral,
+               lateral.a.count == lateral.b.count {
+                candidate = Self.crossover(
+                    lateral.a, lateral.b, sigma: sigma)
+            } else if let lateral {
+                candidate = Self.perturb(
+                    lateral.a, sigma: sigma, fineOnly: true)
+            } else {
+                candidate = Self.perturb(
+                    base, sigma: sigma,
+                    globalOnly: forceGlobal,
+                    fineOnly: polish)
+            }
             let checked = guardrailed(candidate, fallback: nil)
             if checked != candidate || Self.isSane(candidate) {
                 history.append(checked)
@@ -541,7 +581,8 @@ final class LassoSession: ObservableObject {
     /// déforme le moins le polygone. Plafond dur :
     /// 30 sommets ; plancher de suppression : 4.
     static func perturb(_ base: [CGPoint], sigma: Double,
-                        globalOnly: Bool = false)
+                        globalOnly: Bool = false,
+                        fineOnly: Bool = false)
     -> [CGPoint] {
         guard base.count >= 3 else { return base }
         var p = base
@@ -557,6 +598,12 @@ final class LassoSession: ObservableObject {
             + wRemove
         var roll = Double.random(in: 0..<total)
         if globalOnly { roll = 0 }
+        if fineOnly {
+            // « Resserrer » : seulement les retouches
+            // fines (segmentaire + sommet).
+            roll = wGlobal
+                + Double.random(in: 0..<(wSeg + wVert))
+        }
         let c = centroid(p)
         if roll < wGlobal {
             // Globale : homothétie + translation +
@@ -657,5 +704,27 @@ final class LassoSession: ObservableObject {
             p.remove(at: worst)
         }
         return p
+    }
+
+    /// Le CROISEMENT du mouvement latéral (note 0) :
+    /// sommet par sommet, l'enfant hérite au hasard
+    /// d'un des deux parents — le tracé noté ou son
+    /// fantôme — plus un léger tremblement. Il teste
+    /// ainsi quelles parties étaient l'amélioration
+    /// et lesquelles la régression.
+    static func crossover(_ a: [CGPoint], _ b: [CGPoint],
+                          sigma: Double) -> [CGPoint] {
+        guard a.count == b.count, a.count >= 4 else {
+            return a
+        }
+        let jitter = sigma * 0.4
+        return (0..<a.count).map { i in
+            let src = Bool.random() ? a[i] : b[i]
+            return CGPoint(
+                x: src.x + CGFloat(
+                    Double.random(in: -jitter...jitter)),
+                y: src.y + CGFloat(
+                    Double.random(in: -jitter...jitter)))
+        }
     }
 }
