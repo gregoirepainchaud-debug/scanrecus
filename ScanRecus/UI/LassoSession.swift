@@ -61,6 +61,14 @@ final class LassoSession: ObservableObject {
     /// EXPLORER (saut global, pas plus large) — exigé
     /// par Grégoire le 2026-10-23.
     private var exploreNext = false
+    /// Après la note d'une suggestion, pas de doublon
+    /// au cycle suivant, et les doublons « répétition »
+    /// ne ressuscitent jamais un tracé d'AVANT la
+    /// dernière suggestion (sinon l'IA a l'air de
+    /// reproposer ses vieux tracés — vu en jouant,
+    /// 2026-10-23).
+    private var skipProbeOnce = false
+    private var suggestionFloor = 0
 
     private var entry: BankDerived? {
         deck.indices.contains(index) ? deck[index] : nil
@@ -198,6 +206,10 @@ final class LassoSession: ObservableObject {
         let rated = current
         let wasProbe = currentProbe != nil
         let wasSuggestion = currentSource == "suggestion"
+        if wasSuggestion {
+            skipProbeOnce = true
+            suggestionFloor = max(0, history.count - 1)
+        }
         if !wasProbe {
             // Une suggestion notée 0 (« équivalente »)
             // est quand même adoptée : c'est la
@@ -339,15 +351,20 @@ final class LassoSession: ObservableObject {
     private func makeNextCandidate(afterRating rating: Int,
                                    wasProbe: Bool) -> [CGPoint] {
         // Doublon aveugle (~9 %) : mesure de cohérence,
-        // invisible pour le joueur.
-        if cycle >= 2, history.count >= 2,
+        // invisible pour le joueur. Jamais juste après
+        // la note d'une suggestion ; la répétition ne
+        // puise que dans l'après-dernière-suggestion.
+        let skipProbe = skipProbeOnce
+        skipProbeOnce = false
+        if !skipProbe, cycle >= 2, history.count >= 2,
            Double.random(in: 0..<1) < 0.09 {
             if Bool.random(), let ghost {
                 currentProbe = "identique"
                 currentSource = "sonde"
                 return ghost
             }
-            let pool = Array(history.dropLast())
+            let pool = Array(
+                history[suggestionFloor...].dropLast())
             if let pick = pool.randomElement() {
                 currentProbe = "repetition"
                 currentSource = "sonde"
@@ -542,11 +559,19 @@ final class LassoSession: ObservableObject {
         if globalOnly { roll = 0 }
         let c = centroid(p)
         if roll < wGlobal {
-            // Globale : homothétie + translation + rotation.
-            let s = 1 + Double.random(in: -sigma...sigma)
-            let tx = Double.random(in: -sigma...sigma) * 0.6
-            let ty = Double.random(in: -sigma...sigma) * 0.6
-            let ang = Double.random(in: -sigma...sigma) * 0.8
+            // Globale : homothétie + translation +
+            // rotation. Amplitude PLAFONNÉE (0,12) et
+            // rotation réduite : même en exploration,
+            // un saut ne doit pas défigurer une forme
+            // adoptée — avant ce plafond, un −1
+            // vandalisait la suggestion de Grégoire
+            // (échelle ±28 %, rotation ±13°) et le jeu
+            // avait l'air de régresser (2026-10-23).
+            let g = min(sigma, 0.12)
+            let s = 1 + Double.random(in: -g...g)
+            let tx = Double.random(in: -g...g) * 0.6
+            let ty = Double.random(in: -g...g) * 0.6
+            let ang = Double.random(in: -g...g) * 0.4
             let ca = cos(ang), sa = sin(ang)
             p = p.map { pt in
                 let dx = Double(pt.x - c.x) * s

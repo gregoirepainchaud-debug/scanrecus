@@ -272,10 +272,17 @@ struct CompositeScanView: View {
             enterFullScreen()
         }
         .onDisappear { camera.stop() }
-        .onChange(of: appSection) { _, section in
+        .onChange(of: appSection) { oldSection, section in
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement {
+                // Pendant l'entraînement, caméra et
+                // scanner S'ARRÊTENT : chercher un reçu
+                // sous le jeu brûlait le CPU et rendait
+                // le jeu poussif (Grégoire, 2026-10-23).
+                camera.stop()
                 lasso.prepare(bank: bank)
+            } else if oldSection == .entrainement {
+                camera.start(delegate: scanner)
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in
@@ -405,7 +412,7 @@ struct CompositeScanView: View {
                     }
                     .stroke(Color.yellow, lineWidth: 2.5)
                     // Zone de clic des arêtes : un clic
-                    // près d'une arête (≤ 6 pt) y fait
+                    // près d'une arête (≤ 20 pt) y fait
                     // naître un sommet, au point projeté.
                     Rectangle()
                         .fill(Color.clear)
@@ -445,7 +452,7 @@ struct CompositeScanView: View {
                                     bestProj = proj
                                 }
                             }
-                            if bestEdge >= 0, bestDist <= 6 {
+                            if bestEdge >= 0, bestDist <= 20 {
                                 let n = CGPoint(
                                     x: (bestProj.x
                                         - rect.minX)
@@ -462,7 +469,7 @@ struct CompositeScanView: View {
                         Circle()
                             .fill(Color.yellow)
                             .frame(width: 7, height: 7)
-                            .frame(width: 12, height: 12)
+                            .frame(width: 20, height: 20)
                             .contentShape(Circle())
                             .position(
                                 toScreen(lasso.current[i]))
