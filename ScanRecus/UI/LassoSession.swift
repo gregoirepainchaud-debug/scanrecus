@@ -271,23 +271,58 @@ final class LassoSession: ObservableObject {
     }
 
     /// Une SUGGESTION de Grégoire (2026-10-23) : il
-    /// tire un sommet du lasso courant. Ni un ordre ni
-    /// une vérité — une direction offerte à la
+    /// édite le lasso courant à la souris. Ni un ordre
+    /// ni une vérité — une direction offerte à la
     /// recherche (« si tu vas par là, tu auras de
     /// meilleurs résultats »). C'est sa NOTE, ensuite,
     /// qui décide : la suggestion devient un candidat
-    /// comme les autres. Un déplacement qui croise le
-    /// polygone ou passe sous l'aire minimale est
-    /// refusé en douceur. Tirer un doublon aveugle
-    /// l'annule (il n'est plus identique/répété) — le
-    /// journal reste honnête.
+    /// comme les autres.
+    /// Grammaire d'édition : tirer un sommet le
+    /// déplace ; cliquer une arête y fait naître un
+    /// sommet ; clic droit sur un sommet l'efface.
+    /// Règles DURES : jamais moins de 4 sommets, jamais
+    /// plus de 30 ; un polygone croisé ou sous l'aire
+    /// minimale est refusé en douceur. Éditer un
+    /// doublon aveugle l'annule (il n'est plus
+    /// identique/répété) — le journal reste honnête.
     func moveVertex(_ index: Int, to point: CGPoint) {
         guard current.indices.contains(index) else { return }
         var candidate = current
-        candidate[index] = CGPoint(
-            x: min(0.996, max(0.004, point.x)),
-            y: min(0.996, max(0.004, point.y)))
-        guard Self.isSane(candidate),
+        candidate[index] = clamped(point)
+        applySuggestion(candidate)
+    }
+
+    /// Naissance d'un sommet sur l'arête `edge`
+    /// (du sommet edge vers edge+1), au point donné.
+    func insertVertex(onEdge edge: Int, at point: CGPoint) {
+        guard current.count >= 4,
+              current.count < Self.maxVertices,
+              current.indices.contains(edge)
+        else { return }
+        var candidate = current
+        candidate.insert(clamped(point), at: edge + 1)
+        applySuggestion(candidate)
+    }
+
+    /// Effacement d'un sommet (clic droit). Bloqué à
+    /// 4 sommets : 0 à 3 est impossible, règle dure.
+    func deleteVertex(_ index: Int) {
+        guard current.count > 4,
+              current.indices.contains(index)
+        else { return }
+        var candidate = current
+        candidate.remove(at: index)
+        applySuggestion(candidate)
+    }
+
+    private func clamped(_ point: CGPoint) -> CGPoint {
+        CGPoint(x: min(0.996, max(0.004, point.x)),
+                y: min(0.996, max(0.004, point.y)))
+    }
+
+    private func applySuggestion(_ candidate: [CGPoint]) {
+        guard candidate.count >= 4,
+              Self.isSane(candidate),
               abs(Self.signedArea(candidate))
                 >= minAreaFraction()
         else { return }
@@ -364,8 +399,8 @@ final class LassoSession: ObservableObject {
             }
             tries += 1
         }
-        if Self.isSane(pts), abs(Self.signedArea(pts))
-            >= minFrac {
+        if pts.count >= 4, Self.isSane(pts),
+           abs(Self.signedArea(pts)) >= minFrac {
             return pts
         }
         if let fallback { return fallback }

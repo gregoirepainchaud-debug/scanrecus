@@ -404,6 +404,59 @@ struct CompositeScanView: View {
                         path.closeSubpath()
                     }
                     .stroke(Color.yellow, lineWidth: 2.5)
+                    // Zone de clic des arêtes : un clic
+                    // près d'une arête (≤ 12 pt) y fait
+                    // naître un sommet, au point projeté.
+                    Rectangle()
+                        .fill(Color.clear)
+                        .frame(width: containerSize.width,
+                               height: containerSize.height)
+                        .contentShape(Rectangle())
+                        .onTapGesture(
+                            coordinateSpace: .named(
+                                "lassoCanvas")) { location in
+                            let pts = lasso.current.map(
+                                toScreen)
+                            var bestEdge = -1
+                            var bestDist
+                                = Double.greatestFiniteMagnitude
+                            var bestProj = CGPoint.zero
+                            for i in 0..<pts.count {
+                                let a = pts[i]
+                                let b = pts[(i + 1)
+                                    % pts.count]
+                                let abx = b.x - a.x
+                                let aby = b.y - a.y
+                                let len2 = max(1e-9,
+                                    abx * abx + aby * aby)
+                                var t = ((location.x - a.x)
+                                    * abx + (location.y - a.y)
+                                    * aby) / len2
+                                t = min(1, max(0, t))
+                                let proj = CGPoint(
+                                    x: a.x + t * abx,
+                                    y: a.y + t * aby)
+                                let d = hypot(
+                                    location.x - proj.x,
+                                    location.y - proj.y)
+                                if d < bestDist {
+                                    bestDist = d
+                                    bestEdge = i
+                                    bestProj = proj
+                                }
+                            }
+                            if bestEdge >= 0, bestDist <= 12 {
+                                let n = CGPoint(
+                                    x: (bestProj.x
+                                        - rect.minX)
+                                        / rect.width,
+                                    y: (bestProj.y
+                                        - rect.minY)
+                                        / rect.height)
+                                lasso.insertVertex(
+                                    onEdge: bestEdge, at: n)
+                            }
+                        }
                     ForEach(0..<lasso.current.count,
                             id: \.self) { i in
                         Circle()
@@ -427,6 +480,10 @@ struct CompositeScanView: View {
                                             - rect.minY)
                                             / rect.height)
                                     lasso.moveVertex(i, to: n)
+                                })
+                            .overlay(
+                                RightClickCatcher {
+                                    lasso.deleteVertex(i)
                                 })
                     }
                 }
@@ -477,6 +534,9 @@ struct CompositeScanView: View {
                 + "lasso : c'est une suggestion pour la "
                 + "recherche, pas un ordre — ta note "
                 + "décide ensuite si elle la suit. "
+                + "Clic sur une arête : un sommet naît. "
+                + "Clic droit sur un sommet : il "
+                + "s'efface (jamais moins de 4). "
                 + "Reste sur l'image aussi longtemps que "
                 + "tu veux ; Next pour la suivante.")
                 .font(.system(size: 12))
@@ -648,6 +708,44 @@ struct CompositeScanView: View {
 /// bords légèrement courbes et aux extrémités effilées, plutôt
 /// qu'une étiquette rectangulaire parfaite. Aucune animation :
 /// la forme est fixe, seule sa taille suit la région.
+/// Capteur de clic droit : une vue AppKit qui ne
+/// s'interpose QUE pour les clics droits (son hitTest
+/// se retire pour tout le reste) — les drags du bouton
+/// gauche traversent intacts. Un clic droit sur un
+/// sommet l'efface, sans menu.
+private struct RightClickCatcher: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView,
+                      context: Context) {
+        nsView.action = action
+    }
+
+    final class CatcherView: NSView {
+        var action: (() -> Void)?
+
+        override func hitTest(_ point: NSPoint)
+        -> NSView? {
+            guard let type = NSApp.currentEvent?.type,
+                  type == .rightMouseDown
+                    || type == .rightMouseUp
+            else { return nil }
+            return super.hitTest(point)
+        }
+
+        override func rightMouseDown(
+            with event: NSEvent) {
+            action?()
+        }
+    }
+}
+
 private struct MarkerStroke: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
