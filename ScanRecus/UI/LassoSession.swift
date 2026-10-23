@@ -181,6 +181,10 @@ final class LassoSession: ObservableObject {
     // MARK: Le jeu
 
     /// Note la tentative courante, vis-à-vis du fantôme.
+    /// +2 = parfait : l'image est FINIE (ajustement de
+    /// Grégoire, 2026-10-23 — continuer ne servirait à
+    /// rien) : l'élite part au journal, on passe à la
+    /// suivante.
     func rate(_ rating: Int) {
         guard let entry, let bank, !current.isEmpty
         else { return }
@@ -197,18 +201,17 @@ final class LassoSession: ObservableObject {
             bench: bank.isBench(sourceNumber: srcNum)))
         totalRatings += 1
 
+        if rating == 2 {
+            finishImage(elite: current, hadPlusTwo: true)
+            return
+        }
         let rated = current
         let wasProbe = currentProbe != nil
         if !wasProbe {
-            if rating == 2 {
-                plusTwoLasso = rated
-                searchBase = rated
-            } else if rating >= 1 {
-                searchBase = rated
-            }
+            if rating >= 1 { searchBase = rated }
             // Adaptation du pas de recherche.
             switch rating {
-            case 2, 1: sigma = max(0.008, sigma * 0.75)
+            case 1: sigma = max(0.008, sigma * 0.75)
             case 0: sigma = min(0.15, sigma * 1.3)
             default: sigma = min(0.15, sigma * 1.15)
             }
@@ -219,19 +222,28 @@ final class LassoSession: ObservableObject {
         current = makeNextCandidate(afterRating: rating,
                                     wasProbe: wasProbe)
         cycle += 1
-        statusText = rating == 2
-            ? "Parfait, noté. Encore un cycle, ou Next."
-            : "Noté. Compare le nouveau lasso au fantôme."
+        statusText = "Noté. Compare le nouveau lasso "
+            + "au fantôme."
     }
 
-    /// Termine l'image : l'élite part au journal, on
-    /// passe à la suivante (le réseau y fera sa première
-    /// proposition).
+    /// Termine l'image sans +2 (bouton Next) : l'élite
+    /// est le meilleur lasso connu de l'image.
     func next() {
+        finishImage(elite: plusTwoLasso ?? searchBase,
+                    hadPlusTwo: plusTwoLasso != nil)
+    }
+
+    /// Clôt l'image courante : l'élite part au journal,
+    /// on avance à la suivante. Chaque note étant déjà
+    /// journalisée à la seconde où elle est donnée,
+    /// quitter l'app ne perd rien ; et reprendre plus
+    /// tard = un deck neuf, mélangé (prepare), donc une
+    /// image au hasard pour recommencer.
+    private func finishImage(elite: [CGPoint],
+                             hadPlusTwo: Bool) {
         guard let entry, let bank else { return }
         let srcNum = bank.photos
             .first { $0.id == entry.sourceId }?.number ?? 0
-        let elite = plusTwoLasso ?? searchBase
         if !elite.isEmpty {
             bank.appendLassoElite(LassoElite(
                 ts: Self.tsFormatter.string(from: Date()),
@@ -239,7 +251,7 @@ final class LassoSession: ObservableObject {
                 group: entry.group,
                 generationAngle: entry.angle,
                 lasso: Self.pts(elite), cycles: cycle,
-                hadPlusTwo: plusTwoLasso != nil,
+                hadPlusTwo: hadPlusTwo,
                 bench: bank.isBench(sourceNumber: srcNum)))
         }
         imagesDone += 1

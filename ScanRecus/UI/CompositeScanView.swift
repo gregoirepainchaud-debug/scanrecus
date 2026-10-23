@@ -452,7 +452,9 @@ struct CompositeScanView: View {
             Text("Le réseau propose un contour fermé. "
                 + "Note chaque tentative VIS-À-VIS de la "
                 + "précédente (en pâle) : −1 moins bon, "
-                + "0 équivalent, +1 mieux, +2 parfait. "
+                + "0 équivalent, +1 mieux, +2 parfait "
+                + "(l'image est finie, on passe à la "
+                + "suivante). "
                 + "Reste sur l'image aussi longtemps que "
                 + "tu veux ; Next pour la suivante.")
                 .font(.system(size: 12))
