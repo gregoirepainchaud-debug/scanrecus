@@ -408,9 +408,26 @@ struct CompositeScanView: View {
                             id: \.self) { i in
                         Circle()
                             .fill(Color.yellow)
-                            .frame(width: 6, height: 6)
+                            .frame(width: 7, height: 7)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Circle())
                             .position(
                                 toScreen(lasso.current[i]))
+                            .gesture(
+                                DragGesture(
+                                    minimumDistance: 0,
+                                    coordinateSpace: .named(
+                                        "lassoCanvas"))
+                                .onChanged { value in
+                                    let n = CGPoint(
+                                        x: (value.location.x
+                                            - rect.minX)
+                                            / rect.width,
+                                        y: (value.location.y
+                                            - rect.minY)
+                                            / rect.height)
+                                    lasso.moveVertex(i, to: n)
+                                })
                     }
                 }
             } else {
@@ -420,6 +437,7 @@ struct CompositeScanView: View {
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
+        .coordinateSpace(name: "lassoCanvas")
     }
 
     /// Le rectangle où l'image s'affiche (ajustée, centrée)
@@ -455,6 +473,10 @@ struct CompositeScanView: View {
                 + "0 équivalent, +1 mieux, +2 parfait "
                 + "(l'image est finie, on passe à la "
                 + "suivante). "
+                + "Tu peux aussi TIRER un sommet du "
+                + "lasso : c'est une suggestion pour la "
+                + "recherche, pas un ordre — ta note "
+                + "décide ensuite si elle la suit. "
                 + "Reste sur l'image aussi longtemps que "
                 + "tu veux ; Next pour la suivante.")
                 .font(.system(size: 12))

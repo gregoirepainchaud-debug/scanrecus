@@ -193,8 +193,16 @@ final class LassoSession: ObservableObject {
         }
         let rated = current
         let wasProbe = currentProbe != nil
+        let wasSuggestion = currentSource == "suggestion"
         if !wasProbe {
-            if rating >= 1 { searchBase = rated }
+            // Une suggestion notée 0 (« équivalente »)
+            // est quand même adoptée : c'est la
+            // direction qu'il a indiquée, et elle n'est
+            // pas moins bonne que le fantôme.
+            if rating >= 1
+                || (rating == 0 && wasSuggestion) {
+                searchBase = rated
+            }
             // Adaptation du pas de recherche.
             switch rating {
             case 1: sigma = max(0.008, sigma * 0.75)
@@ -250,6 +258,35 @@ final class LassoSession: ObservableObject {
         imagesDone += 1
         index += 1
         loadCurrent()
+    }
+
+    /// Une SUGGESTION de Grégoire (2026-10-23) : il
+    /// tire un sommet du lasso courant. Ni un ordre ni
+    /// une vérité — une direction offerte à la
+    /// recherche (« si tu vas par là, tu auras de
+    /// meilleurs résultats »). C'est sa NOTE, ensuite,
+    /// qui décide : la suggestion devient un candidat
+    /// comme les autres. Un déplacement qui croise le
+    /// polygone ou passe sous l'aire minimale est
+    /// refusé en douceur. Tirer un doublon aveugle
+    /// l'annule (il n'est plus identique/répété) — le
+    /// journal reste honnête.
+    func moveVertex(_ index: Int, to point: CGPoint) {
+        guard current.indices.contains(index) else { return }
+        var candidate = current
+        candidate[index] = CGPoint(
+            x: min(0.996, max(0.004, point.x)),
+            y: min(0.996, max(0.004, point.y)))
+        guard Self.isSane(candidate),
+              abs(Self.signedArea(candidate))
+                >= minAreaFraction()
+        else { return }
+        current = candidate
+        if !history.isEmpty {
+            history[history.count - 1] = candidate
+        }
+        currentProbe = nil
+        currentSource = "suggestion"
     }
 
     // MARK: Génération des candidats
