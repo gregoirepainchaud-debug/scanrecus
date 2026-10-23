@@ -1,0 +1,1 @@
+615:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:400:27: error: reference to member 'size' cannot be resolved without a contextual type
