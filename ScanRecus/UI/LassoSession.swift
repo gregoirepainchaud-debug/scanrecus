@@ -599,10 +599,16 @@ final class LassoSession: ObservableObject {
         var roll = Double.random(in: 0..<total)
         if globalOnly { roll = 0 }
         if fineOnly {
-            // « Resserrer » : seulement les retouches
-            // fines (segmentaire + sommet).
-            roll = wGlobal
-                + Double.random(in: 0..<(wSeg + wVert))
+            // « Resserrer » : retouches fines
+            // (segmentaire + sommet) + une part
+            // d'INSERTION. Même après une suggestion
+            // à 4 arêtes notée +1, l'IA doit pouvoir
+            // AJOUTER des sommets si la photo l'exige
+            // (aberration, coin déchiré) — une
+            // suggestion n'est pas une cage
+            // (Grégoire, 2026-10-23).
+            roll = wGlobal + Double.random(
+                in: 0..<(wSeg + wVert + wInsert))
         }
         let c = centroid(p)
         if roll < wGlobal {
