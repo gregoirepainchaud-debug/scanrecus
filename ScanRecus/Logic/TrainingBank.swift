@@ -180,6 +180,29 @@ struct LassoElite: Codable {
     var bench: Bool = false
 }
 
+/// La progression du jeu du lasso, relue du journal :
+/// les jauges qui disent quand passer à l'étape
+/// suivante (le juge artificiel). Pas un score
+/// magique — des volumes et une cohérence.
+struct LassoProgress {
+    var notes = 0
+    var imagesTerminees = 0
+    var recusDistincts = 0
+    var sondesIdentiques = 0
+    var sondesIdentiquesOK = 0
+    var cyclesMedian: Int?
+    var coherencePct: Int? {
+        guard sondesIdentiques > 0 else { return nil }
+        return Int((100.0 * Double(sondesIdentiquesOK)
+            / Double(sondesIdentiques)).rounded())
+    }
+    /// Jalon A : assez de matière pour entraîner un
+    /// premier juge (modèle de préférence).
+    var jugePret: Bool {
+        notes >= 300 && imagesTerminees >= 30
+    }
+}
+
 /// Une rétractation au journal du jeu : la validation
 /// visée ne doit plus compter (ni stats, ni mémoire,
 /// ni calibration). Le journal reste append-only — on
@@ -341,6 +364,66 @@ final class TrainingBank {
         guard let data = try? JSONEncoder().encode(elite)
         else { return }
         appendGameLine(data)
+    }
+
+    private var progressCache: (size: Int,
+                                value: LassoProgress)?
+
+    /// Relit les jauges du jeu du lasso dans jeu.jsonl
+    /// (cache invalidé par la taille du fichier —
+    /// chaque append la change).
+    func lassoProgress() -> LassoProgress {
+        let url = root.appendingPathComponent("jeu.jsonl")
+        let size = (try? FileManager.default
+            .attributesOfItem(atPath: url.path))?[.size]
+            as? Int ?? 0
+        if let cache = progressCache, cache.size == size {
+            return cache.value
+        }
+        var prog = LassoProgress()
+        var groups = Set<Int>()
+        var cycles: [Int] = []
+        if let text = try? String(contentsOf: url,
+                                  encoding: .utf8) {
+            for line in text.split(separator: "\n") {
+                guard let data = line.data(using: .utf8),
+                      let obj = try? JSONSerialization
+                        .jsonObject(with: data)
+                        as? [String: Any],
+                      let stage = obj["stage"] as? String
+                else { continue }
+                if stage == "lasso" {
+                    if obj["rating"] is NSNumber {
+                        prog.notes += 1
+                    }
+                    if (obj["probe"] as? String)
+                        == "identique" {
+                        prog.sondesIdentiques += 1
+                        if (obj["rating"] as? NSNumber)?
+                            .intValue == 0 {
+                            prog.sondesIdentiquesOK += 1
+                        }
+                    }
+                } else if stage == "lasso-elite" {
+                    prog.imagesTerminees += 1
+                    if let g = (obj["group"] as? NSNumber)?
+                        .intValue {
+                        groups.insert(g)
+                    }
+                    if let c = (obj["cycles"]
+                        as? NSNumber)?.intValue {
+                        cycles.append(c)
+                    }
+                }
+            }
+        }
+        prog.recusDistincts = groups.count
+        if !cycles.isEmpty {
+            prog.cyclesMedian = cycles.sorted()[
+                cycles.count / 2]
+        }
+        progressCache = (size, prog)
+        return prog
     }
 
     /// Le BANC FIGÉ (décidé le 2026-10-23, avant tout

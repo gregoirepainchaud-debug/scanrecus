@@ -582,6 +582,46 @@ struct CompositeScanView: View {
             Text(lasso.statsText)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
+            Divider()
+            let prog = bank.lassoProgress()
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Progression — prochaine étape : "
+                    + "le juge artificiel (il apprendra à "
+                    + "noter comme toi, puis l'IA pourra "
+                    + "s'entraîner sans toi)")
+                    .font(.system(size: 12,
+                                weight: .semibold))
+                Text("Images terminées (élites) : "
+                    + "\(prog.imagesTerminees) / 100 · "
+                    + "\(prog.recusDistincts) reçu(s) "
+                    + "distinct(s)")
+                Text("Notes au journal : "
+                    + "\(prog.notes) / 300")
+                if let pct = prog.coherencePct {
+                    Text("Cohérence (doublons identiques) : "
+                        + "\(prog.sondesIdentiquesOK)/"
+                        + "\(prog.sondesIdentiques) notés "
+                        + "0 (\(pct) %)")
+                } else {
+                    Text("Cohérence des doublons : "
+                        + "en attente de sondes")
+                }
+                if let med = prog.cyclesMedian {
+                    Text("Cycles médians par image : "
+                        + "\(med)")
+                }
+                Text(prog.jugePret
+                    ? "JALON ATTEINT : assez de matière "
+                        + "pour le juge v1 — dis-le à Muse."
+                    : "Pour le jalon du juge : encore "
+                        + "\(max(0, 300 - prog.notes)) "
+                        + "note(s) et "
+                        + "\(max(0, 30 - prog.imagesTerminees)) "
+                        + "image(s) terminée(s).")
+                    .fontWeight(.medium)
+            }
+            .font(.system(size: 12))
+            .foregroundColor(.secondary)
         }
     }
 
