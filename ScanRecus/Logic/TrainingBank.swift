@@ -301,6 +301,13 @@ final class TrainingBank {
     /// Les écritures au manifeste et au coffre sont
     /// sérialisées (la génération tourne en arrière-plan).
     private let ioLock = NSLock()
+    /// File série des écritures miroir vers Drive :
+    /// un appel au fournisseur de fichiers ne doit
+    /// JAMAIS geler le fil principal (gel en pleine
+    /// note soupçonné sur le build 106, 2026-10-23).
+    private let mirrorQueue = DispatchQueue(
+        label: "ca.gregoire.scanrecus.mirror",
+        qos: .utility)
     private let generationQueue = DispatchQueue(
         label: "scanrecus.banque.generation")
     private var generationRunning = false
@@ -603,24 +610,36 @@ final class TrainingBank {
         return (min(1.6, max(0.4, mean)), factors.count)
     }
 
-    /// Écrit une ligne au journal du jeu (jeu.jsonl au
-    /// coffre + miroir Drive).
+    /// Écrit une ligne au journal du jeu : le fichier
+    /// LOCAL tout de suite (synchrone, disque local,
+    /// le trésor d'abord), le miroir Drive ensuite,
+    /// en arrière-plan — un accrochage du fournisseur
+    /// de fichiers ne gèle plus l'interface.
     private func appendGameLine(_ data: Data) {
         var payload = data
         payload.append(0x0A)
         ioLock.lock()
-        defer { ioLock.unlock() }
-        let local = root.appendingPathComponent("jeu.jsonl")
-        for url in [local,
-                    mirrorURL(named: "jeu-entrainement.jsonl")]
-            .compactMap({ $0 }) {
-            if let handle = try? FileHandle(forWritingTo: url) {
-                defer { try? handle.close() }
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: payload)
-            } else {
-                try? payload.write(to: url)
-            }
+        writeLine(payload, to: root
+            .appendingPathComponent("jeu.jsonl"))
+        ioLock.unlock()
+        mirrorQueue.async { [weak self] in
+            guard let self,
+                  let mirror = self.mirrorURL(
+                    named: "jeu-entrainement.jsonl")
+            else { return }
+            self.ioLock.lock()
+            defer { self.ioLock.unlock() }
+            self.writeLine(payload, to: mirror)
+        }
+    }
+
+    private func writeLine(_ payload: Data, to url: URL) {
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: payload)
+        } else {
+            try? payload.write(to: url)
         }
     }
 
