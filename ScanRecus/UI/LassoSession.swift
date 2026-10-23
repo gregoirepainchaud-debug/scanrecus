@@ -54,7 +54,10 @@ final class LassoSession: ObservableObject {
     private var sigma = 0.05
     private var currentProbe: String?
     private var currentSource = "recherche"
-    private var cyclesAtImageStart = 0
+    /// Vrai après un −1 : le prochain candidat doit
+    /// EXPLORER (saut global, pas plus large) — exigé
+    /// par Grégoire le 2026-10-23.
+    private var exploreNext = false
 
     private var entry: BankDerived? {
         deck.indices.contains(index) ? deck[index] : nil
@@ -107,54 +110,68 @@ final class LassoSession: ObservableObject {
         searchBase = []
         plusTwoLasso = nil
         sigma = 0.05
+        exploreNext = false
         currentProbe = nil
         guard let entry, let bank else {
             statusText = "Deck terminé. « Nouveau deck » "
                 + "pour rejouer."
             return
         }
-        guard let cg = bank.image(forDerived: entry) else {
-            statusText = "Instance illisible (\(entry.file)) "
-                + "— je passe à la suivante."
-            index += 1
-            loadCurrent()
-            return
-        }
-        displayImage = cg
-        imageSize = CGSize(width: cg.width, height: cg.height)
-        statusText = "Le réseau propose un premier lasso…"
-        let image = CIImage(cgImage: cg)
+        statusText = "Chargement de l'image…"
         let entryId = entry.id
-        DispatchQueue.global(qos: .userInitiated)
+        // La calibration se lit sur le fil principal
+        // (le journal est chargé une fois, ensuite c'est
+        // un accès mémoire) ; tout le reste — décodage
+        // de l'image et analyse d'amorce — part en
+        // arrière-plan à BASSE priorité : l'analyse
+        // (Vision) attend ses propres fils internes, et
+        // la lancer d'un fil prioritaire créait
+        // l'inversion de priorité signalée par Xcode
+        // (LassoSession, « Hang Risk », 2026-10-23) en
+        // plus d'à-coups visibles.
+        let calScale = bank.contourCalibration()?.scale
+        DispatchQueue.global(qos: .utility)
             .async { [weak self] in
-                guard let self, let scanner = self.scanner
-                else { return }
-                let proposal = scanner.contourProposal(
-                    for: image)
+                guard let self else { return }
+                guard let cg = bank.image(
+                    forDerived: entry) else {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self,
+                              self.entry?.id == entryId
+                        else { return }
+                        self.statusText = "Instance "
+                            + "illisible (\(entry.file)) "
+                            + "— je passe à la suivante."
+                        self.index += 1
+                        self.loadCurrent()
+                    }
+                    return
+                }
+                let image = CIImage(cgImage: cg)
+                let proposal = self.scanner?
+                    .contourProposal(for: image)
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.entry?.id == entryId
                     else { return }
+                    self.displayImage = cg
+                    self.imageSize = CGSize(
+                        width: cg.width, height: cg.height)
                     var polygon: [CGPoint]
                     var source: String
                     if let proposal {
                         var quad = proposal.quad
-                        // Calibration existante (données
-                        // de la banque) appliquée à
-                        // l'amorce seulement.
-                        if let cal = bank.contourCalibration() {
-                            let cx = quad.reduce(CGFloat(0)) {
-                                $0 + $1.x
-                            } / 4
-                            let cy = quad.reduce(CGFloat(0)) {
-                                $0 + $1.y
-                            } / 4
+                        if let calScale {
+                            let cx = quad.reduce(
+                                CGFloat(0)) { $0 + $1.x } / 4
+                            let cy = quad.reduce(
+                                CGFloat(0)) { $0 + $1.y } / 4
                             quad = quad.map { pt in
                                 CGPoint(
                                     x: cx + (pt.x - cx)
-                                        * CGFloat(cal.scale),
+                                        * CGFloat(calScale),
                                     y: cy + (pt.y - cy)
-                                        * CGFloat(cal.scale))
+                                        * CGFloat(calScale))
                             }
                         }
                         polygon = Self.withMidpoints(quad)
@@ -213,7 +230,14 @@ final class LassoSession: ObservableObject {
             switch rating {
             case 1: sigma = max(0.008, sigma * 0.75)
             case 0: sigma = min(0.15, sigma * 1.3)
-            default: sigma = min(0.15, sigma * 1.15)
+            default:
+                // −1 : on est dans un mauvais bassin —
+                // le pas GRANDIT franchement (×1,6,
+                // plafond relevé) et le prochain
+                // candidat sera un saut global
+                // d'exploration (Grégoire, 2026-10-23).
+                sigma = min(0.28, sigma * 1.6)
+                exploreNext = true
             }
         }
         // Sa mécanique d'affichage : le lasso noté devient
@@ -281,9 +305,12 @@ final class LassoSession: ObservableObject {
         }
         currentProbe = nil
         currentSource = "recherche"
+        let forceGlobal = exploreNext
+        exploreNext = false
         let base = searchBase.isEmpty ? current : searchBase
         for _ in 0..<8 {
-            let candidate = Self.perturb(base, sigma: sigma)
+            let candidate = Self.perturb(
+                base, sigma: sigma, globalOnly: forceGlobal)
             let checked = guardrailed(candidate, fallback: nil)
             if checked != candidate || Self.isSane(candidate) {
                 history.append(checked)
@@ -419,11 +446,13 @@ final class LassoSession: ObservableObject {
     /// bout de bord glisse le long de sa normale), par
     /// sommet, ou insertion d'un sommet. Aucun critère
     /// sur les reçus — de la géométrie seulement.
-    static func perturb(_ base: [CGPoint], sigma: Double)
+    static func perturb(_ base: [CGPoint], sigma: Double,
+                        globalOnly: Bool = false)
     -> [CGPoint] {
         guard base.count >= 3 else { return base }
         var p = base
-        let roll = Double.random(in: 0..<1)
+        let roll = globalOnly
+            ? 0.1 : Double.random(in: 0..<1)
         let c = centroid(p)
         if roll < 0.30 {
             // Globale : homothétie + translation + rotation.
