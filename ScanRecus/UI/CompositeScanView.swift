@@ -62,10 +62,9 @@ struct CompositeScanView: View {
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
-    @State private var contours = ContourSession()
+    @State private var lasso = LassoSession()
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
-    @State private var showGrid = true
 
     private var isDone: Bool { scanner.state == .done }
 
@@ -132,7 +131,7 @@ struct CompositeScanView: View {
                     // section Entraînement IA (l'aperçu reste
                     // dans la hiérarchie en dessous).
                     if appSection == .entrainement {
-                        contourCanvas(
+                        lassoCanvas(
                             containerSize: geo.size)
                     }
                     if isDone, appSection != .entrainement {
@@ -221,7 +220,7 @@ struct CompositeScanView: View {
                         if appSection == .materiel {
                             materielPanel
                         } else if appSection == .entrainement {
-                            contourPanel
+                            lassoPanel
                         } else if isDone,
                                   let ex = scanner.extraction {
                             extractionPanel(ex)
@@ -276,7 +275,7 @@ struct CompositeScanView: View {
         .onChange(of: appSection) { _, section in
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement {
-                contours.prepare(bank: bank, scanner: scanner)
+                lasso.prepare(bank: bank, scanner: scanner)
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in
@@ -360,106 +359,67 @@ struct CompositeScanView: View {
         }
     }
 
-    /// Le canevas de l'étape CONTOURS : l'instance, le
-    /// quadrilatère proposé (coins DÉPLAÇABLES à la souris),
-    /// l'extérieur ASSOMBRI — c'est ce que la découpe
-    /// enlèvera une fois les contours validés — et la
-    /// grille de 5 mm par-dessus (espace écran, fixe).
-    private func contourCanvas(containerSize: CGSize)
+    /// Le canevas du JEU DU LASSO : l'image, le
+    /// fantôme pâle (le lasso précédent, point de
+    /// comparaison) et le lasso courant en jaune.
+    /// Aucun geste : on ne corrige plus à la main,
+    /// on juge.
+    private func lassoCanvas(containerSize: CGSize)
     -> some View {
         ZStack {
             Color.black
-            if let img = contours.displayImage {
+            if let img = lasso.displayImage {
                 let rect = aspectFitRect(
-                    imageSize: contours.imageSize,
+                    imageSize: lasso.imageSize,
                     in: containerSize, inset: 5)
-                Image(nsImage: NSImage(
-                    cgImage: img,
-                    size: NSSize(width: img.width,
-                                 height: img.height)))
+                Image(img, scale: 1,
+                      label: Text("Image à juger"))
                     .resizable()
                     .frame(width: rect.width,
                            height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
-                if contours.quad.count == 4 {
-                    let pts = contours.quad.map {
-                        CGPoint(
-                            x: rect.minX + $0.x * rect.width,
-                            y: rect.minY + $0.y * rect.height)
-                    }
+                let toScreen: (CGPoint) -> CGPoint = { pt in
+                    CGPoint(
+                        x: rect.minX + pt.x * rect.width,
+                        y: rect.minY + pt.y * rect.height)
+                }
+                if let ghost = lasso.ghost, ghost.count >= 3 {
                     Path { path in
-                        path.addRect(CGRect(
-                            origin: .zero, size: containerSize))
-                        path.move(to: pts[0])
-                        for pt in pts.dropFirst() {
-                            path.addLine(to: pt)
+                        path.move(to: toScreen(ghost[0]))
+                        for pt in ghost.dropFirst() {
+                            path.addLine(to: toScreen(pt))
                         }
                         path.closeSubpath()
                     }
-                    .fill(Color.black.opacity(0.82),
-                          style: FillStyle(eoFill: true))
+                    .stroke(Color.white.opacity(0.45),
+                            lineWidth: 1.5)
+                }
+                if lasso.current.count >= 3 {
                     Path { path in
-                        path.move(to: pts[0])
-                        for pt in pts.dropFirst() {
-                            path.addLine(to: pt)
+                        path.move(
+                            to: toScreen(lasso.current[0]))
+                        for pt in lasso.current.dropFirst() {
+                            path.addLine(to: toScreen(pt))
                         }
                         path.closeSubpath()
                     }
-                    .stroke(Color.yellow, lineWidth: 2)
-                    ForEach(0..<4) { i in
-                        ZStack {
-                            // Rond TRANSPARENT + croix de
-                            // visée : le papier se voit sous
-                            // la poignée et l'intersection
-                            // de la croix marque le coin
-                            // exact. Halo blanc sous le
-                            // jaune, lisible sur papier
-                            // blanc comme sur fond noir.
-                            CrosshairShape()
-                                .stroke(Color.white,
-                                        lineWidth: 3.5)
-                            CrosshairShape()
-                                .stroke(Color.yellow,
-                                        lineWidth: 1.5)
-                            Circle()
-                                .stroke(Color.white,
-                                        lineWidth: 4.5)
-                                .padding(6)
-                            Circle()
-                                .stroke(Color.yellow,
-                                        lineWidth: 2)
-                                .padding(6)
-                        }
-                        .frame(width: 32, height: 32)
-                        .contentShape(Circle())
-                        .position(pts[i])
-                            .gesture(
-                                DragGesture(
-                                    minimumDistance: 0,
-                                    coordinateSpace:
-                                        .named("contourCanvas"))
-                                    .onChanged { value in
-                                        let n = CGPoint(
-                                            x: (value.location.x
-                                                - rect.minX)
-                                                / max(rect.width, 1),
-                                            y: (value.location.y
-                                                - rect.minY)
-                                                / max(rect.height, 1))
-                                        contours.setCorner(i, n)
-                                    }
-                            )
+                    .stroke(Color.yellow, lineWidth: 2.5)
+                    ForEach(0..<lasso.current.count,
+                            id: \.self) { i in
+                        Circle()
+                            .fill(Color.yellow)
+                            .frame(width: 6, height: 6)
+                            .position(
+                                toScreen(lasso.current[i]))
                     }
                 }
             } else {
                 Text("…")
                     .foregroundColor(.white)
             }
-            if showGrid { gridOverlay }
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
-        .coordinateSpace(name: "contourCanvas")
     }
 
     /// Le rectangle où l'image s'affiche (ajustée, centrée)
@@ -480,112 +440,46 @@ struct CompositeScanView: View {
 
     /// La grille quadrillée : traits fins tous les 5 mm
     /// (≈ 14,17 pt à l'écran), traits forts tous les 25 mm.
-    private var gridOverlay: some View {
-        Canvas { context, size in
-            let step: CGFloat = 14.17
-            var minor = Path()
-            var x = step
-            while x < size.width {
-                minor.move(to: CGPoint(x: x, y: 0))
-                minor.addLine(to: CGPoint(x: x,
-                                          y: size.height))
-                x += step
-            }
-            var y = step
-            while y < size.height {
-                minor.move(to: CGPoint(x: 0, y: y))
-                minor.addLine(to: CGPoint(x: size.width, y: y))
-                y += step
-            }
-            context.stroke(minor,
-                           with: .color(.white.opacity(0.16)),
-                           lineWidth: 0.5)
-            var major = Path()
-            let big = step * 5
-            x = big
-            while x < size.width {
-                major.move(to: CGPoint(x: x, y: 0))
-                major.addLine(to: CGPoint(x: x,
-                                          y: size.height))
-                x += big
-            }
-            y = big
-            while y < size.height {
-                major.move(to: CGPoint(x: 0, y: y))
-                major.addLine(to: CGPoint(x: size.width, y: y))
-                y += big
-            }
-            context.stroke(major,
-                           with: .color(.white.opacity(0.32)),
-                           lineWidth: 0.75)
-        }
-        .allowsHitTesting(false)
-    }
-
-    /// Le panneau de l'étape 1 — CONTOURS : le pipeline en
-    /// tête, l'écart des coins en direct, les commandes.
-    /// L'apprentissage de l'étape se fait par les coins que
-    /// Grégoire déplace (sa correction = l'étiquette).
-    private var contourPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            if bank.derived.isEmpty {
-                Text("La banque n'a pas encore de copies "
-                    + "tournées — génère du matériel d'abord "
-                    + "(section « Générer matériel » : « Next "
-                    + "scan » fabrique les 30 copies de chaque "
-                    + "scan). Le jeu se jouera sur ces copies.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-            } else {
-                Text("Entraînement IA — étape 1/4 : CONTOURS"
-                    + " · instance \(contours.positionText)"
-                    + " · \(contours.instanceLabel)")
-                    .font(.system(size: 14, weight: .medium))
-                Text("Pipeline : ① contours → découpe "
-                    + "(on enlève tout ce qui n'est pas dans "
-                    + "le reçu) → ② redresser → ③ orienter "
-                    + "→ ④ extraire. Seule l'étape 1 est "
-                    + "jouable pour l'instant.")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Text(contours.statusText)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                if let error = contours.currentErrorPct {
-                    Text(String(format: "Écart moyen des "
-                        + "coins : %.1f %% de la diagonale",
-                        error))
-                        .font(.system(size: 13,
-                                      design: .monospaced))
-                }
-                HStack(spacing: 12) {
-                    Button("Valider et suivant") {
-                        contours.validate()
-                    }
+    /// Le panneau du JEU DU LASSO : les quatre notes
+    /// relatives et Next. Rien d'autre — l'ancien
+    /// panneau de corrections a été supprimé.
+    private var lassoPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Entraînement IA — LE LASSO"
+                + " · image \(lasso.positionText)"
+                + " · \(lasso.instanceLabel)")
+                .font(.system(size: 14, weight: .medium))
+            Text("Le réseau propose un contour fermé. "
+                + "Note chaque tentative VIS-À-VIS de la "
+                + "précédente (en pâle) : −1 moins bon, "
+                + "0 équivalent, +1 mieux, +2 parfait. "
+                + "Reste sur l'image aussi longtemps que "
+                + "tu veux ; Next pour la suivante.")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text(lasso.statusText)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            HStack(spacing: 12) {
+                Button("−1") { lasso.rate(-1) }
+                    .keyboardShortcut("1", modifiers: [])
+                Button("0") { lasso.rate(0) }
+                    .keyboardShortcut("2", modifiers: [])
+                Button("+1") { lasso.rate(1) }
+                    .keyboardShortcut("3", modifiers: [])
+                Button("+2") { lasso.rate(2) }
+                    .keyboardShortcut("4", modifiers: [])
+                Button("Next") { lasso.next() }
                     .controlSize(.large)
-                    Button("Revenir à la proposition") {
-                        contours.resetToProposal()
-                    }
-                    Button("Passer") { contours.skip() }
-                    if contours.lastValidatedTs != nil {
-                        Button("Annuler ma dernière "
-                            + "validation") {
-                            contours.retractLastValidation()
-                        }
-                    }
-                    Button("Nouveau deck") {
-                        contours.reshuffle()
-                    }
-                    Button(showGrid ? "Grille : oui"
-                           : "Grille : non") {
-                        showGrid.toggle()
-                    }
-                    .focusable(false)
+                    .keyboardShortcut("n", modifiers: [])
+                Button("Nouveau deck") {
+                    lasso.reshuffle()
                 }
-                Text(contours.statsText)
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
             }
+            .disabled(lasso.current.isEmpty)
+            Text(lasso.statsText)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
         }
     }
 
@@ -759,28 +653,6 @@ private struct MarkerStroke: Shape {
 /// reste sur le reçu seulement.
 /// Le but : lire les réponses du programme sans plisser les
 /// yeux, et VOIR la preuve, pas seulement la lire.
-/// Croix de visée des poignées de coins : quatre bras
-/// avec une petite fenêtre au centre — le point exact
-/// reste visible, et le papier dessous aussi (demande
-/// de Grégoire, 2026-10-22).
-private struct CrosshairShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let cx = rect.midX, cy = rect.midY
-        let gap: CGFloat = 3
-        let arm = min(rect.width, rect.height) / 2 - 1
-        path.move(to: CGPoint(x: cx, y: cy - arm))
-        path.addLine(to: CGPoint(x: cx, y: cy - gap))
-        path.move(to: CGPoint(x: cx, y: cy + gap))
-        path.addLine(to: CGPoint(x: cx, y: cy + arm))
-        path.move(to: CGPoint(x: cx - arm, y: cy))
-        path.addLine(to: CGPoint(x: cx - gap, y: cy))
-        path.move(to: CGPoint(x: cx + arm, y: cy))
-        path.addLine(to: CGPoint(x: cx + gap, y: cy))
-        return path
-    }
-}
-
 struct ZoomReviewView: View {
     let image: CGImage
     let boxes: [CGRect]

@@ -140,6 +140,46 @@ struct QuadAttempt: Codable {
     var rawProposal: [[Double]]? = nil
 }
 
+/// Une tentative du JEU DU LASSO (2026-10-23) : le
+/// lasso proposé, le fantôme auquel il a été comparé,
+/// et la note relative de Grégoire (−1/0/+1/+2 ; nil
+/// pour la proposition d'ouverture). `probe` signale un
+/// doublon aveugle (mesure de cohérence du juge) :
+/// "identique" ou "repetition". `bench` = l'image
+/// appartient au banc figé (jamais entraînée).
+struct LassoAttempt: Codable {
+    var ts: String
+    var stage: String = "lasso"
+    var file: String
+    var sourceNumber: Int
+    var group: Int
+    var generationAngle: Double
+    var cycle: Int
+    var lasso: [[Double]]
+    var ghost: [[Double]]?
+    var rating: Int?
+    var probe: String?
+    var source: String
+    var modelVersion: String = "recherche-v1"
+    var bench: Bool = false
+}
+
+/// L'élite d'une image à la fin de son jeu (bouton
+/// Next) : le meilleur lasso obtenu — la cible dense
+/// dont le futur réseau apprendra la géométrie.
+struct LassoElite: Codable {
+    var ts: String
+    var stage: String = "lasso-elite"
+    var file: String
+    var sourceNumber: Int
+    var group: Int
+    var generationAngle: Double
+    var lasso: [[Double]]
+    var cycles: Int
+    var hadPlusTwo: Bool
+    var bench: Bool = false
+}
+
 /// Une rétractation au journal du jeu : la validation
 /// visée ne doit plus compter (ni stats, ni mémoire,
 /// ni calibration). Le journal reste append-only — on
@@ -289,13 +329,62 @@ final class TrainingBank {
         return folder?.appendingPathComponent(name)
     }
 
-    /// Journalise une tentative du jeu (jeu.jsonl au
-    /// coffre + miroir « jeu-entrainement.jsonl » dans le
-    /// dossier du journal, pour relecture par Muse).
-    func appendAttempt(_ attempt: GameAttempt) {
+    /// Journalise une tentative du jeu du lasso.
+    func appendLassoAttempt(_ attempt: LassoAttempt) {
         guard let data = try? JSONEncoder().encode(attempt)
         else { return }
         appendGameLine(data)
+    }
+
+    /// Journalise l'élite d'une image (bouton Next).
+    func appendLassoElite(_ elite: LassoElite) {
+        guard let data = try? JSONEncoder().encode(elite)
+        else { return }
+        appendGameLine(data)
+    }
+
+    /// Le BANC FIGÉ (décidé le 2026-10-23, avant tout
+    /// entraînement du réseau) : 1 reçu (groupe) sur 7,
+    /// dans l'ordre des groupes. Ses images ne doivent
+    /// jamais servir à entraîner (ni réseau, ni juge) —
+    /// seulement à mesurer, contre des références.
+    func isBench(sourceNumber: Int) -> Bool {
+        guard let photo = photos.first(where: {
+            $0.number == sourceNumber
+        }) else { return false }
+        let groups = Set(photos.map { $0.group }).sorted()
+        guard let idx = groups.firstIndex(of: photo.group)
+        else { return false }
+        return idx % 7 == 3
+    }
+
+    /// Journalise une tentative du jeu du lasso.
+    func appendLassoAttempt(_ attempt: LassoAttempt) {
+        guard let data = try? JSONEncoder().encode(attempt)
+        else { return }
+        appendGameLine(data)
+    }
+
+    /// Journalise l'élite d'une image (bouton Next).
+    func appendLassoElite(_ elite: LassoElite) {
+        guard let data = try? JSONEncoder().encode(elite)
+        else { return }
+        appendGameLine(data)
+    }
+
+    /// Le BANC FIGÉ (décidé le 2026-10-23, avant tout
+    /// entraînement du réseau) : 1 reçu (groupe) sur 7,
+    /// dans l'ordre des groupes. Ses images ne doivent
+    /// jamais servir à entraîner (ni réseau, ni juge) —
+    /// seulement à mesurer, contre des références.
+    func isBench(sourceNumber: Int) -> Bool {
+        guard let photo = photos.first(where: {
+            $0.number == sourceNumber
+        }) else { return false }
+        let groups = Set(photos.map { $0.group }).sorted()
+        guard let idx = groups.firstIndex(of: photo.group)
+        else { return false }
+        return idx % 7 == 3
     }
 
     /// Journalise une tentative de l'étape contours.
@@ -351,65 +440,6 @@ final class TrainingBank {
         return quadAttempts.filter {
             !retractedAttemptTs.contains($0.ts)
         }
-    }
-
-    /// Journalise une rétractation (la ligne d'origine
-    /// reste au journal ; celle-ci la neutralise).
-    func appendRetraction(retractsTs: String, file: String,
-                          gameStage: String) {
-        if gameStage == "contours" {
-            loadQuadJournalIfNeeded()
-            retractedAttemptTs.insert(retractsTs)
-        }
-        let rec = QuadRetraction(
-            ts: ISO8601DateFormatter().string(from: Date()),
-            retractsTs: retractsTs, file: file,
-            gameStage: gameStage)
-        guard let data = try? JSONEncoder().encode(rec)
-        else { return }
-        appendGameLine(data)
-    }
-
-    /// Rétracte la plus récente tentative contours encore
-    /// valide et la retourne (pour les compteurs).
-    @discardableResult
-    func retractLastQuadAttempt() -> QuadAttempt? {
-        loadQuadJournalIfNeeded()
-        guard let last = quadAttempts.last(where: {
-            !retractedAttemptTs.contains($0.ts)
-        }) else { return nil }
-        appendRetraction(retractsTs: last.ts, file: last.file,
-                         gameStage: "contours")
-        return last
-    }
-
-    /// MÉMOIRE D'EXEMPLAIRES : la correction déjà validée
-    /// d'une AUTRE copie du même reçu, la plus proche en
-    /// angle de génération. Les copies d'un reçu ne
-    /// diffèrent que par cette rotation — le tracé de
-    /// Grégoire s'y transfère presque exactement (vérifié
-    /// sur ses données : 1,2 % d'écart).
-    func siblingContourFinal(sourceNumber: Int,
-                             currentFile: String,
-                             currentAngle: Double)
-    -> (quad: [CGPoint], fromFile: String,
-        siblingAngle: Double)? {
-        var best: QuadAttempt?
-        var bestDelta = Double.greatestFiniteMagnitude
-        for a in validQuadAttempts
-        where a.sourceNumber == sourceNumber
-            && a.file != currentFile && a.final.count == 4 {
-            let d = abs(currentAngle - a.generationAngle)
-            if d < bestDelta {
-                bestDelta = d
-                best = a
-            }
-        }
-        guard let best else { return nil }
-        let pts = best.final.map {
-            CGPoint(x: $0[0], y: $0[1])
-        }
-        return (pts, best.file, best.generationAngle)
     }
 
     /// CALIBRATION VIVANTE : le facteur d'échelle radial
