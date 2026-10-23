@@ -1,0 +1,3 @@
+526:@__swiftmacro_9ScanRecus12TrainingBankC10backupNote18ObservationTrackedfMp_.swift:3:14: error: invalid redeclaration of synthesized property '_backupNote'
+538:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:362:6: error: initializer 'init(wrappedValue:)' is not available due to missing import of defining module 'Combine'
+544:@__swiftmacro_9ScanRecus12TrainingBankC10backupNote18ObservationTrackedfMp_.swift:1:2: error: initializer 'init(wrappedValue:)' is not available due to missing import of defining module 'Combine'
