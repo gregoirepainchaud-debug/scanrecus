@@ -63,6 +63,10 @@ struct CompositeScanView: View {
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
     @State private var lasso = LassoSession()
+    /// Le témoin d'activité du processeur : une roue
+    /// quand l'app travaille fort, rien au ralenti —
+    /// il regarde, il n'empêche rien.
+    @StateObject private var cpuMonitor = CPUMonitor()
     @State private var vertexDragActive = false
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
@@ -582,9 +586,15 @@ struct CompositeScanView: View {
                 + "tu veux ; Next pour la suivante.")
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            Text(lasso.statusText)
-                .font(.system(size: 13))
-                .foregroundColor(.secondary)
+            HStack(spacing: 8) {
+                if cpuMonitor.busy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                Text(lasso.statusText)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
+            }
             HStack(spacing: 12) {
                 Button("−1") { lasso.rate(-1) }
                     .keyboardShortcut("1", modifiers: [])
