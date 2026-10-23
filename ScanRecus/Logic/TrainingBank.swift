@@ -359,7 +359,7 @@ final class TrainingBank {
         return folder
     }
 
-    @Published private(set) var backupNote = ""
+    private(set) var backupNote = ""
 
     /// SAUVEGARDE de la banque vers Drive (Grégoire,
     /// 2026-10-23) : sous-dossier « Sauvegarde banque »
