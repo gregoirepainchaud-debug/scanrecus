@@ -76,7 +76,8 @@ final class CPUMonitor: ObservableObject {
         for i in 0..<Int(threadCount) {
             var info = thread_basic_info()
             var count = mach_msg_type_number_t(
-                THREAD_BASIC_INFO_COUNT)
+                MemoryLayout<thread_basic_info>.size
+                    / MemoryLayout<integer_t>.size)
             let kr = withUnsafeMutablePointer(to: &info) {
                 ptr in
                 ptr.withMemoryRebound(
