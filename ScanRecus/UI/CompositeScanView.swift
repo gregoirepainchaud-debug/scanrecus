@@ -405,7 +405,7 @@ struct CompositeScanView: View {
                     }
                     .stroke(Color.yellow, lineWidth: 2.5)
                     // Zone de clic des arêtes : un clic
-                    // près d'une arête (≤ 12 pt) y fait
+                    // près d'une arête (≤ 6 pt) y fait
                     // naître un sommet, au point projeté.
                     Rectangle()
                         .fill(Color.clear)
@@ -445,7 +445,7 @@ struct CompositeScanView: View {
                                     bestProj = proj
                                 }
                             }
-                            if bestEdge >= 0, bestDist <= 12 {
+                            if bestEdge >= 0, bestDist <= 6 {
                                 let n = CGPoint(
                                     x: (bestProj.x
                                         - rect.minX)
@@ -462,7 +462,7 @@ struct CompositeScanView: View {
                         Circle()
                             .fill(Color.yellow)
                             .frame(width: 7, height: 7)
-                            .frame(width: 22, height: 22)
+                            .frame(width: 12, height: 12)
                             .contentShape(Circle())
                             .position(
                                 toScreen(lasso.current[i]))
@@ -472,6 +472,10 @@ struct CompositeScanView: View {
                                     coordinateSpace: .named(
                                         "lassoCanvas"))
                                 .onChanged { value in
+                                    if NSEvent.modifierFlags
+                                        .contains(.option) {
+                                        return
+                                    }
                                     let n = CGPoint(
                                         x: (value.location.x
                                             - rect.minX)
@@ -481,10 +485,12 @@ struct CompositeScanView: View {
                                             / rect.height)
                                     lasso.moveVertex(i, to: n)
                                 })
-                            .overlay(
-                                RightClickCatcher {
-                                    lasso.deleteVertex(i)
-                                })
+                            .simultaneousGesture(
+                                TapGesture()
+                                    .modifiers(.option)
+                                    .onEnded {
+                                        lasso.deleteVertex(i)
+                                    })
                     }
                 }
             } else {
@@ -535,7 +541,7 @@ struct CompositeScanView: View {
                 + "recherche, pas un ordre — ta note "
                 + "décide ensuite si elle la suit. "
                 + "Clic sur une arête : un sommet naît. "
-                + "Clic droit sur un sommet : il "
+                + "Option+clic sur un sommet : il "
                 + "s'efface (jamais moins de 4). "
                 + "Reste sur l'image aussi longtemps que "
                 + "tu veux ; Next pour la suivante.")
@@ -708,44 +714,6 @@ struct CompositeScanView: View {
 /// bords légèrement courbes et aux extrémités effilées, plutôt
 /// qu'une étiquette rectangulaire parfaite. Aucune animation :
 /// la forme est fixe, seule sa taille suit la région.
-/// Capteur de clic droit : une vue AppKit qui ne
-/// s'interpose QUE pour les clics droits (son hitTest
-/// se retire pour tout le reste) — les drags du bouton
-/// gauche traversent intacts. Un clic droit sur un
-/// sommet l'efface, sans menu.
-private struct RightClickCatcher: NSViewRepresentable {
-    let action: () -> Void
-
-    func makeNSView(context: Context) -> CatcherView {
-        let view = CatcherView()
-        view.action = action
-        return view
-    }
-
-    func updateNSView(_ nsView: CatcherView,
-                      context: Context) {
-        nsView.action = action
-    }
-
-    final class CatcherView: NSView {
-        var action: (() -> Void)?
-
-        override func hitTest(_ point: NSPoint)
-        -> NSView? {
-            guard let type = NSApp.currentEvent?.type,
-                  type == .rightMouseDown
-                    || type == .rightMouseUp
-            else { return nil }
-            return super.hitTest(point)
-        }
-
-        override func rightMouseDown(
-            with event: NSEvent) {
-            action?()
-        }
-    }
-}
-
 private struct MarkerStroke: Shape {
     func path(in rect: CGRect) -> Path {
         let w = rect.width, h = rect.height
