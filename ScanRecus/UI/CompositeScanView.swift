@@ -63,10 +63,11 @@ struct CompositeScanView: View {
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
     @State private var lasso = LassoSession()
-    /// Le témoin d'activité du processeur : une roue
-    /// quand l'app travaille fort, rien au ralenti —
-    /// il regarde, il n'empêche rien.
-    @StateObject private var cpuMonitor = CPUMonitor()
+    /// Le zoom d'affichage du jeu du lasso (1× à
+    /// 4×) : pour MIEUX VOIR, pas pour juger autrement
+    /// — les coordonnées du lasso restent relatives
+    /// à l'image, le zoom ne change que l'affichage.
+    @State private var lassoZoom: Double = 1
     @State private var vertexDragActive = false
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
@@ -79,7 +80,8 @@ struct CompositeScanView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        GeometryReader { full in
+            VStack(spacing: 0) {
             GeometryReader { geo in
                 ZStack {
                     Color.black
@@ -184,6 +186,11 @@ struct CompositeScanView: View {
 
             Divider()
 
+            // Le bas de l'écran : 15 % de la hauteur,
+            // DÉFILABLE (Grégoire, 2026-10-23) — le
+            // panneau entier y vit, on y descend pour
+            // les détails au lieu de l'étouffer.
+            ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 10) {
                 if let message = camera.errorMessage {
                     Text(message)
@@ -263,10 +270,11 @@ struct CompositeScanView: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
             .background(lightPanelActive
                         ? Color.white
                         : Color(nsColor: .windowBackgroundColor))
-            .layoutPriority(1)
+            .frame(height: full.size.height * 0.15)
         }
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
@@ -389,9 +397,19 @@ struct CompositeScanView: View {
         ZStack {
             Color.black
             if let img = lasso.displayImage {
-                let rect = aspectFitRect(
+                let fit = aspectFitRect(
                     imageSize: lasso.imageSize,
                     in: containerSize, inset: 5)
+                // Le zoom (1× à 4×) grandit le rectangle
+                // autour de son centre : l'image, les
+                // tracés et les conversions de gestes
+                // partagent le même rectangle, donc
+                // tout reste cohérent à tout zoom.
+                let rect = CGRect(
+                    x: fit.midX - fit.width * lassoZoom / 2,
+                    y: fit.midY - fit.height * lassoZoom / 2,
+                    width: fit.width * lassoZoom,
+                    height: fit.height * lassoZoom)
                 Image(img, scale: 1,
                       label: Text("Image à juger"))
                     .resizable()
@@ -534,6 +552,7 @@ struct CompositeScanView: View {
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
+        .clipped()
         .coordinateSpace(name: "lassoCanvas")
     }
 
@@ -587,13 +606,23 @@ struct CompositeScanView: View {
                 .font(.system(size: 12))
                 .foregroundColor(.secondary)
             HStack(spacing: 8) {
-                if cpuMonitor.busy {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+                CPUWheelView()
                 Text(lasso.statusText)
                     .font(.system(size: 13))
                     .foregroundColor(.secondary)
+            }
+            HStack(spacing: 10) {
+                Text("Zoom")
+                    .font(.system(size: 12.5))
+                    .foregroundColor(.secondary)
+                Slider(value: $lassoZoom, in: 1...4,
+                       step: 0.05)
+                    .frame(maxWidth: 260)
+                Text("\(Int((lassoZoom * 100).rounded())) %")
+                    .font(.system(size: 12.5,
+                                  design: .monospaced))
+                    .foregroundColor(.secondary)
+                Spacer()
             }
             HStack(spacing: 12) {
                 Button("−1") { lasso.rate(-1) }
@@ -798,6 +827,7 @@ struct CompositeScanView: View {
             }
         }
     }
+        }
 }
 
 

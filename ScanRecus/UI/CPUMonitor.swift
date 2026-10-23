@@ -97,3 +97,25 @@ final class CPUMonitor: ObservableObject {
         return total
     }
 }
+
+import SwiftUI
+
+/// La roue témoin, dans sa propre mini-vue : ses
+/// mises à jour (3 par seconde) ne re-rendent
+/// qu'elle-même — avant, le moniteur vivait dans la
+/// vue principale et chacun de ses battements
+/// forçait le re-rendu de toute la fenêtre, drags
+/// compris (suspect du « sluggish », 2026-10-23).
+struct CPUWheelView: View {
+    @StateObject private var monitor = CPUMonitor()
+
+    var body: some View {
+        Group {
+            if monitor.busy {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .frame(width: 16, height: 16)
+    }
+}
