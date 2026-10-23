@@ -43,6 +43,10 @@ final class LassoSession: ObservableObject {
     @Published private(set) var totalRatings = 0
 
     private var bank: TrainingBank?
+
+    /// Plafond DUR de sommets (Grégoire, 2026-10-23).
+    /// L'objectif mou, lui, est 4 — voir perturb().
+    static let maxVertices = 30
     private var deck: [BankDerived] = []
     private var index = 0
 
@@ -200,7 +204,13 @@ final class LassoSession: ObservableObject {
             // direction qu'il a indiquée, et elle n'est
             // pas moins bonne que le fantôme.
             if rating >= 1
-                || (rating == 0 && wasSuggestion) {
+                || (rating == 0 && wasSuggestion)
+                || (rating == 0
+                    && rated.count < searchBase.count) {
+                // À qualité jugée égale (0), le polygone
+                // le plus SIMPLE gagne : c'est la
+                // pression douce vers 4 sommets — elle
+                // ne contredit jamais une note.
                 searchBase = rated
             }
             // Adaptation du pas de recherche.
@@ -463,20 +473,40 @@ final class LassoSession: ObservableObject {
         ])
     }
 
-    /// Perturbation géométrique multi-échelles : globale
-    /// (échelle/translation/rotation), segmentaire (un
-    /// bout de bord glisse le long de sa normale), par
-    /// sommet, ou insertion d'un sommet. Aucun critère
-    /// sur les reçus — de la géométrie seulement.
+    /// Perturbation géométrique multi-échelles :
+    /// globale (échelle/translation/rotation),
+    /// segmentaire (un bout de bord glisse le long de
+    /// sa normale), par sommet, insertion ou
+    /// SUPPRESSION d'un sommet. Aucun critère sur les
+    /// reçus — de la géométrie seulement.
+    ///
+    /// OBJECTIF MOU (Grégoire, 2026-10-23) : pousser
+    /// le lasso vers 4 sommets. Les poids des
+    /// opérateurs en tiennent compte : plus le
+    /// polygone a de sommets, plus la suppression
+    /// devient probable et l'insertion rare. Et la
+    /// suppression enlève le sommet dont le retrait
+    /// déforme le moins le polygone. Plafond dur :
+    /// 30 sommets ; plancher de suppression : 4.
     static func perturb(_ base: [CGPoint], sigma: Double,
                         globalOnly: Bool = false)
     -> [CGPoint] {
         guard base.count >= 3 else { return base }
         var p = base
-        let roll = globalOnly
-            ? 0.1 : Double.random(in: 0..<1)
+        let n = p.count
+        let wGlobal = 0.30
+        let wSeg = 0.32
+        let wVert = 0.20
+        let wInsert = n < maxVertices ? 0.08 : 0.0
+        let wRemove = n > 4
+            ? 0.10 + min(0.15, Double(n - 8) * 0.012)
+            : 0.0
+        let total = wGlobal + wSeg + wVert + wInsert
+            + wRemove
+        var roll = Double.random(in: 0..<total)
+        if globalOnly { roll = 0 }
         let c = centroid(p)
-        if roll < 0.30 {
+        if roll < wGlobal {
             // Globale : homothétie + translation + rotation.
             let s = 1 + Double.random(in: -sigma...sigma)
             let tx = Double.random(in: -sigma...sigma) * 0.6
@@ -492,10 +522,9 @@ final class LassoSession: ObservableObject {
                     y: c.y + CGFloat(dx * sa + dy * ca)
                         + CGFloat(ty))
             }
-        } else if roll < 0.65 {
+        } else if roll < wGlobal + wSeg {
             // Segmentaire : 2 à 4 sommets consécutifs
             // glissent le long de leur normale moyenne.
-            let n = p.count
             let start = Int.random(in: 0..<n)
             let len = Int.random(in: 2...4)
             var nx = 0.0, ny = 0.0, cnt = 0.0
@@ -517,9 +546,8 @@ final class LassoSession: ObservableObject {
                 p[i] = CGPoint(x: p[i].x + ox,
                                y: p[i].y + oy)
             }
-        } else if roll < 0.90 {
+        } else if roll < wGlobal + wSeg + wVert {
             // Par sommet : 1 ou 2 sommets bougent.
-            let n = p.count
             let count = Int.random(in: 1...2)
             for _ in 0..<count {
                 let i = Int.random(in: 0..<n)
@@ -529,7 +557,7 @@ final class LassoSession: ObservableObject {
                     y: p[i].y + CGFloat(
                         Double.random(in: -sigma...sigma)))
             }
-        } else if p.count < 40 {
+        } else if roll < wGlobal + wSeg + wVert + wInsert {
             // Insertion : le milieu de la plus longue
             // arête devient un sommet, légèrement décalé.
             var best = 0, bestLen = -1.0
@@ -546,6 +574,27 @@ final class LassoSession: ObservableObject {
                 y: (a.y + b.y) / 2 + CGFloat(
                     Double.random(in: -sigma...sigma) * 0.5))
             p.insert(mid, at: best + 1)
+        } else {
+            // Suppression : le sommet dont le retrait
+            // déforme le moins (distance au segment de
+            // ses voisins) disparaît.
+            var worst = 0, worstDev = Double.greatestFiniteMagnitude
+            for i in 0..<n {
+                let prev = p[(i + n - 1) % n]
+                let next = p[(i + 1) % n]
+                let pt = p[i]
+                let vx = Double(next.x - prev.x)
+                let vy = Double(next.y - prev.y)
+                let len = max(1e-9, (vx * vx + vy * vy)
+                    .squareRoot())
+                let dev = abs(vx * Double(pt.y - prev.y)
+                    - vy * Double(pt.x - prev.x)) / len
+                if dev < worstDev {
+                    worstDev = dev
+                    worst = i
+                }
+            }
+            p.remove(at: worst)
         }
         return p
     }
