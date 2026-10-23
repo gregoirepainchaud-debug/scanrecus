@@ -39,6 +39,13 @@ final class LassoSession: ObservableObject {
     @Published private(set) var ghost: [CGPoint]?
     @Published private(set) var statusText = ""
     @Published private(set) var cycle = 0
+    /// Les jauges de progression, relues du journal
+    /// aux moments utiles (jamais dans le rendu —
+    /// c'était une source de lenteur).
+    @Published private(set) var progress = LassoProgress()
+    /// La dernière note donnée : le retour visible
+    /// immédiat qu'elle est bien rentrée.
+    @Published private(set) var lastRating: Int?
     @Published private(set) var imagesDone = 0
     @Published private(set) var totalRatings = 0
 
@@ -109,7 +116,13 @@ final class LassoSession: ObservableObject {
         index = 0
         imagesDone = 0
         totalRatings = 0
+        lastRating = nil
+        progress = bank.lassoProgress()
         loadCurrent()
+    }
+
+    private func refreshProgress() {
+        if let bank { progress = bank.lassoProgress() }
     }
 
     func reshuffle() {
@@ -208,6 +221,8 @@ final class LassoSession: ObservableObject {
             source: currentSource,
             bench: bank.isBench(sourceNumber: srcNum)))
         totalRatings += 1
+        lastRating = rating
+        refreshProgress()
 
         if rating == 2 {
             finishImage(elite: current, hadPlusTwo: true)
@@ -303,6 +318,7 @@ final class LassoSession: ObservableObject {
         }
         imagesDone += 1
         index += 1
+        refreshProgress()
         loadCurrent()
     }
 
@@ -321,11 +337,64 @@ final class LassoSession: ObservableObject {
     /// minimale est refusé en douceur. Éditer un
     /// doublon aveugle l'annule (il n'est plus
     /// identique/répété) — le journal reste honnête.
+    /// Le tracé gardé au début d'un glissement, pour
+    /// y revenir si le résultat final est invalide.
+    private var dragBackup: [CGPoint]?
+
+    func beginVertexDrag() {
+        dragBackup = current
+    }
+
     func moveVertex(_ index: Int, to point: CGPoint) {
         guard current.indices.contains(index) else { return }
+        let target = clamped(point)
+        let old = current[index]
+        // Filtre à tremblements : ignorer les
+        // micro-déplacements — chaque publication
+        // reconstruit le canevas, et à ~120 événements
+        // par seconde c'est ce qui rendait le
+        // glissement poussif (2026-10-23).
+        if abs(target.x - old.x) < 0.0008,
+           abs(target.y - old.y) < 0.0008 { return }
         var candidate = current
-        candidate[index] = clamped(point)
-        applySuggestion(candidate)
+        candidate[index] = target
+        if dragBackup != nil {
+            // PENDANT le glissement : le sommet suit la
+            // souris SANS rejet — un tracé
+            // temporairement croisé est permis. Avant,
+            // chaque position intermédiaire passait
+            // par le filtre de validité et le sommet
+            // avait l'air coincé, « buggé ». La
+            // validation se fait au lâcher.
+            current = candidate
+            if !history.isEmpty {
+                history[history.count - 1] = candidate
+            }
+            currentProbe = nil
+            currentSource = "suggestion"
+        } else {
+            applySuggestion(candidate)
+        }
+    }
+
+    /// Fin du glissement : si le tracé final est
+    /// invalide (croisé, sous l'aire minimale), on
+    /// revient au tracé d'avant le glissement.
+    func endVertexDrag() {
+        defer { dragBackup = nil }
+        guard let backup = dragBackup else { return }
+        if current.count < 4, !Self.isSane(current) {
+            // (garde-fou — le compte ne peut pas
+            // changer pendant un glissement)
+        }
+        if !Self.isSane(current)
+            || abs(Self.signedArea(current))
+                < minAreaFraction() {
+            current = backup
+            if !history.isEmpty {
+                history[history.count - 1] = backup
+            }
+        }
     }
 
     /// Naissance d'un sommet sur l'arête `edge`

@@ -327,6 +327,13 @@ final class TrainingBank {
     /// (dossier choisi dans la vue, sinon Drive « My Drive »).
     private func mirrorURL(
         named name: String = "banque-materiel.jsonl") -> URL? {
+        driveFolder()?.appendingPathComponent(name)
+    }
+
+    /// Le dossier Drive (celui du journal) : choisi
+    /// par Grégoire (UserDefaults journalFolderPath)
+    /// ou détecté dans CloudStorage.
+    private func driveFolder() -> URL? {
         let fm = FileManager.default
         var folder: URL?
         if let chosen = UserDefaults.standard.string(
@@ -349,7 +356,73 @@ final class TrainingBank {
                 }
             }
         }
-        return folder?.appendingPathComponent(name)
+        return folder
+    }
+
+    @Published private(set) var backupNote = ""
+
+    /// SAUVEGARDE de la banque vers Drive (Grégoire,
+    /// 2026-10-23) : sous-dossier « Sauvegarde banque »
+    /// du dossier du journal, copie INCRÉMENTALE
+    /// (nom + taille) du manifeste et de toutes les
+    /// images du coffre. En arrière-plan ; le résumé
+    /// paraît dans backupNote et dans la section
+    /// Générer matériel.
+    func backupVaultToDrive() {
+        guard let folder = driveFolder() else {
+            backupNote = "Dossier Drive introuvable — "
+                + "choisis d'abord le dossier du journal "
+                + "(section Scanner)."
+            return
+        }
+        backupNote = "Sauvegarde en cours…"
+        let dest = folder.appendingPathComponent(
+            "Sauvegarde banque", isDirectory: true)
+        let names = ["banque.jsonl"]
+            + photos.map { $0.file }
+            + derived.map { $0.file }
+        let srcRoot = root
+        DispatchQueue.global(qos: .utility)
+            .async { [weak self] in
+                let fm = FileManager.default
+                try? fm.createDirectory(
+                    at: dest,
+                    withIntermediateDirectories: true)
+                var copied = 0, skipped = 0
+                var bytes: Int64 = 0
+                for name in names {
+                    let src = srcRoot
+                        .appendingPathComponent(name)
+                    let dst = dest
+                        .appendingPathComponent(name)
+                    let srcSize = (try? fm
+                        .attributesOfItem(atPath: src.path))?
+                        [.size] as? Int64 ?? -1
+                    if srcSize < 0 { continue }
+                    let dstSize = (try? fm
+                        .attributesOfItem(atPath: dst.path))?
+                        [.size] as? Int64 ?? -1
+                    if dstSize == srcSize {
+                        skipped += 1
+                        continue
+                    }
+                    try? fm.removeItem(at: dst)
+                    if (try? fm.copyItem(at: src,
+                                         to: dst)) != nil {
+                        copied += 1
+                        bytes += srcSize
+                    }
+                }
+                let mb = Double(bytes) / 1_000_000
+                DispatchQueue.main.async { [weak self] in
+                    self?.backupNote = "Sauvegarde : "
+                        + "\(copied) fichier(s) copié(s) "
+                        + "(\(String(format: "%.0f", mb)) "
+                        + "Mo), \(skipped) déjà à jour — "
+                        + "sous-dossier « Sauvegarde "
+                        + "banque » du Drive."
+                }
+            }
     }
 
     /// Journalise une tentative du jeu du lasso.

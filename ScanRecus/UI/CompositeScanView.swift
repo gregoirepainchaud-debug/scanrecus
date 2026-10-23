@@ -63,6 +63,7 @@ struct CompositeScanView: View {
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
     @State private var lasso = LassoSession()
+    @State private var vertexDragActive = false
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
 
@@ -362,6 +363,14 @@ struct CompositeScanView: View {
                     bank.removeLast()
                 }
                 .disabled(bank.photos.isEmpty)
+                Button("Sauvegarder la banque vers Drive") {
+                    bank.backupVaultToDrive()
+                }
+            }
+            if !bank.backupNote.isEmpty {
+                Text(bank.backupNote)
+                    .font(.system(size: 13))
+                    .foregroundColor(.secondary)
             }
         }
     }
@@ -483,6 +492,10 @@ struct CompositeScanView: View {
                                         .contains(.option) {
                                         return
                                     }
+                                    if !vertexDragActive {
+                                        vertexDragActive = true
+                                        lasso.beginVertexDrag()
+                                    }
                                     let n = CGPoint(
                                         x: (value.location.x
                                             - rect.minX)
@@ -491,6 +504,10 @@ struct CompositeScanView: View {
                                             - rect.minY)
                                             / rect.height)
                                     lasso.moveVertex(i, to: n)
+                                }
+                                .onEnded { _ in
+                                    vertexDragActive = false
+                                    lasso.endVertexDrag()
                                 })
                             .simultaneousGesture(
                                 TapGesture()
@@ -582,8 +599,15 @@ struct CompositeScanView: View {
             Text(lasso.statsText)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
+            if let note = lasso.lastRating {
+                Text("✓ Note enregistrée : "
+                    + (note > 0 ? "+\(note)" : "\(note)"))
+                    .font(.system(size: 13,
+                                weight: .semibold))
+                    .foregroundColor(.green)
+            }
             Divider()
-            let prog = bank.lassoProgress()
+            let prog = lasso.progress
             VStack(alignment: .leading, spacing: 3) {
                 Text("Progression — prochaine étape : "
                     + "le juge artificiel (il apprendra à "
