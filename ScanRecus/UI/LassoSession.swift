@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreImage
+import Combine
 
 /// LE JEU DU LASSO (2026-10-23) — le nouveau canal de
 /// supervision, dicté par Grégoire : il ne corrige plus

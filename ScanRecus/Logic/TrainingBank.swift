@@ -358,44 +358,6 @@ final class TrainingBank {
         return idx % 7 == 3
     }
 
-    /// Journalise une tentative du jeu du lasso.
-    func appendLassoAttempt(_ attempt: LassoAttempt) {
-        guard let data = try? JSONEncoder().encode(attempt)
-        else { return }
-        appendGameLine(data)
-    }
-
-    /// Journalise l'élite d'une image (bouton Next).
-    func appendLassoElite(_ elite: LassoElite) {
-        guard let data = try? JSONEncoder().encode(elite)
-        else { return }
-        appendGameLine(data)
-    }
-
-    /// Le BANC FIGÉ (décidé le 2026-10-23, avant tout
-    /// entraînement du réseau) : 1 reçu (groupe) sur 7,
-    /// dans l'ordre des groupes. Ses images ne doivent
-    /// jamais servir à entraîner (ni réseau, ni juge) —
-    /// seulement à mesurer, contre des références.
-    func isBench(sourceNumber: Int) -> Bool {
-        guard let photo = photos.first(where: {
-            $0.number == sourceNumber
-        }) else { return false }
-        let groups = Set(photos.map { $0.group }).sorted()
-        guard let idx = groups.firstIndex(of: photo.group)
-        else { return false }
-        return idx % 7 == 3
-    }
-
-    /// Journalise une tentative de l'étape contours.
-    func appendQuadAttempt(_ attempt: QuadAttempt) {
-        guard let data = try? JSONEncoder().encode(attempt)
-        else { return }
-        appendGameLine(data)
-        loadQuadJournalIfNeeded()
-        quadAttempts.append(attempt)
-    }
-
     // MARK: Apprentissage dérivé du journal (contours)
 
     /// Les tentatives contours relues du journal, et les
