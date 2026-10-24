@@ -30,7 +30,7 @@ import AppKit  // NSApplication, pour le bouton Exit
 /// « Exit » ferme l'application.
 struct CompositeScanView: View {
     @State private var camera = CameraManager()
-    @State private var scanner = CompositeScanner()
+    @StateObject private var scanner = CompositeScanner()
     /// Aperçu commutable (choix mémorisé, partagé avec l'ancien écran) :
     /// vrai = miroir (déplacements intuitifs, texte inversé),
     /// faux = normal (texte lisible, déplacements inversés).
@@ -62,7 +62,17 @@ struct CompositeScanView: View {
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
-    @State private var lasso = LassoSession()
+    // @StateObject, PAS @State : LassoSession est un
+    // ObservableObject (Combine) et SwiftUI ne
+    // s'abonne pas aux changements d'un ObservableObject
+    // tenu par un simple @State — la vue ne se
+    // re-rendait que secouée par d'autres mécanismes
+    // (flux du scanner, puis le moniteur CPU avant son
+    // confinement au build 111). C'était LE bug
+    // d'affichage gelé : image noire jusqu'au prochain
+    // re-rendu forcé, notes et drags « sans effet »
+    // alors que la session travaillait (2026-10-24).
+    @StateObject private var lasso = LassoSession()
     /// Le zoom d'affichage du jeu du lasso (1× à
     /// 4×) : pour MIEUX VOIR, pas pour juger autrement
     /// — les coordonnées du lasso restent relatives
