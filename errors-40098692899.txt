@@ -1,0 +1,1 @@
+508:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift:33:6: error: generic struct 'StateObject' requires that 'CompositeScanner' conform to 'ObservableObject'
