@@ -152,6 +152,8 @@ final class LassoSession: ObservableObject {
         lastManeuver = .none
         pendingBase = []
         lastFamily = ""
+        suggestionFloor = 0
+        skipProbeOnce = false
         currentProbe = nil
         guard let entry, let bank else {
             statusText = "Deck terminé. « Nouveau deck » "
@@ -523,7 +525,9 @@ final class LassoSession: ObservableObject {
                 return ghost
             }
             let pool = Array(
-                history[suggestionFloor...].dropLast())
+                history[min(suggestionFloor,
+                            history.count)...]
+                    .dropLast())
             if let pick = pool.randomElement() {
                 currentProbe = "repetition"
                 currentSource = "sonde"
