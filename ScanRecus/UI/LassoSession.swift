@@ -236,12 +236,17 @@ final class LassoSession: ObservableObject {
             suggestionFloor = max(0, history.count - 1)
         }
         if !wasProbe {
-            // Une suggestion notée 0 (« équivalente »)
-            // est quand même adoptée : c'est la
-            // direction qu'il a indiquée, et elle n'est
-            // pas moins bonne que le fantôme.
-            if rating >= 1
-                || (rating == 0 && wasSuggestion)
+            // Une suggestion est adoptée à TOUTE note
+            // (correction du 2026-10-24) : ce qu'il a
+            // dessiné devient la référence, et la note
+            // dit comment bouger depuis elle — +1 la
+            // resserre, 0 la croise, −1 L'ÉLARGIT.
+            // L'ancienne règle « suggestion jetée si
+            // −1 » contredisait son « −1 = agrandir »
+            // et donnait l'impression que sa note et
+            // son dessin étaient ignorés.
+            if wasSuggestion
+                || rating >= 1
                 || (rating == 0
                     && rated.count < searchBase.count) {
                 // À qualité jugée égale (0), le polygone
@@ -290,8 +295,22 @@ final class LassoSession: ObservableObject {
         current = makeNextCandidate(afterRating: rating,
                                     wasProbe: wasProbe)
         cycle += 1
-        statusText = "Noté. Compare le nouveau lasso "
-            + "au fantôme."
+        if wasSuggestion {
+            switch rating {
+            case 1:
+                statusText = "Ta suggestion, gardée — "
+                    + "je la resserre."
+            case 0:
+                statusText = "Ta suggestion, gardée — "
+                    + "je la croise avec le fantôme."
+            default:
+                statusText = "Ta suggestion, gardée — "
+                    + "je l'élargis."
+            }
+        } else {
+            statusText = "Noté. Compare le nouveau "
+                + "lasso au fantôme."
+        }
     }
 
     /// Termine l'image sans +2 (bouton Next) : l'élite
@@ -400,6 +419,9 @@ final class LassoSession: ObservableObject {
             if !history.isEmpty {
                 history[history.count - 1] = backup
             }
+            statusText = "Tracé refusé : il se croise "
+                + "ou devient trop petit — revenu au "
+                + "tracé de départ."
         }
     }
 

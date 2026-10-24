@@ -432,6 +432,17 @@ struct CompositeScanView: View {
                     }
                     .stroke(Color.white.opacity(0.45),
                             lineWidth: 1.5)
+                    // Les sommets du fantôme en ANNEAUX
+                    // CREUX : repères visuels, PAS des
+                    // poignées — seuls les points jaunes
+                    // pleins se tirent (2026-10-24).
+                    ForEach(0..<ghost.count, id: \.self) { i in
+                        Circle()
+                            .stroke(Color.white.opacity(0.5),
+                                    lineWidth: 1.5)
+                            .frame(width: 7, height: 7)
+                            .position(toScreen(ghost[i]))
+                    }
                 }
                 if lasso.current.count >= 3 {
                     Path { path in
