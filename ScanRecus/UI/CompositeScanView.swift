@@ -30,7 +30,7 @@ import AppKit  // NSApplication, pour le bouton Exit
 /// « Exit » ferme l'application.
 struct CompositeScanView: View {
     @State private var camera = CameraManager()
-    @StateObject private var scanner = CompositeScanner()
+    @State private var scanner = CompositeScanner()
     /// Aperçu commutable (choix mémorisé, partagé avec l'ancien écran) :
     /// vrai = miroir (déplacements intuitifs, texte inversé),
     /// faux = normal (texte lisible, déplacements inversés).
