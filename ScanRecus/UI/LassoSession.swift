@@ -61,13 +61,29 @@ final class LassoSession: ObservableObject {
     private var searchBase: [CGPoint] = []
     private var plusTwoLasso: [CGPoint]?
     private var history: [[CGPoint]] = []
-    private var sigma = 0.05
+    /// La FOULÉE de la machine : l'ampleur de ses
+    /// pas, qu'ELLE choisit et calibre d'après les
+    /// commentaires du juge (définitions de
+    /// Grégoire, 2026-10-24 : « d'autant de pas que
+    /// tu penses »). Départ 0,10 — échelle de voyage,
+    /// pas de polissage.
+    private var sigma = 0.10
     private var currentProbe: String?
     private var currentSource = "recherche"
-    /// Vrai après un −1 : le prochain candidat doit
-    /// EXPLORER (saut global, pas plus large) — exigé
-    /// par Grégoire le 2026-10-23.
-    private var exploreNext = false
+    /// La manœuvre choisie pour le prochain
+    /// candidat, d'après le COMMENTAIRE reçu :
+    /// refermer (+1), ouvrir (−1), autre chose (0),
+    /// libre (défaut, sondes). La machine décide
+    /// l'ampleur et les côtés — jamais le juge.
+    private enum Maneuver {
+        case close, open, other, none
+    }
+    private var maneuver: Maneuver = .none
+    private var lastManeuver: Maneuver = .none
+    private var pendingBase: [CGPoint] = []
+    /// Dernière famille essayée après un 0, pour
+    /// ne pas la resservir (« essaie AUTRE chose »).
+    private var lastFamily = ""
     /// Après la note d'une suggestion, pas de doublon
     /// au cycle suivant, et les doublons « répétition »
     /// ne ressuscitent jamais un tracé d'AVANT la
@@ -76,16 +92,6 @@ final class LassoSession: ObservableObject {
     /// 2026-10-23).
     private var skipProbeOnce = false
     private var suggestionFloor = 0
-    /// Après un +1 : le prochain candidat POLIT
-    /// (retouches fines seulement). Après un 0 —
-    /// « mouvement latéral : amélioration et
-    /// régression à la fois » (sa définition,
-    /// 2026-10-23) — le prochain candidat est un
-    /// CROISEMENT des deux tracés comparés : garder
-    /// ce qui s'est amélioré, refaire le reste.
-    private var polishNext = false
-    private var lateralParents: (a: [CGPoint],
-                                 b: [CGPoint])?
 
     private var entry: BankDerived? {
         deck.indices.contains(index) ? deck[index] : nil
@@ -141,8 +147,11 @@ final class LassoSession: ObservableObject {
         history = []
         searchBase = []
         plusTwoLasso = nil
-        sigma = 0.05
-        exploreNext = false
+        sigma = 0.10
+        maneuver = .none
+        lastManeuver = .none
+        pendingBase = []
+        lastFamily = ""
         currentProbe = nil
         guard let entry, let bank else {
             statusText = "Deck terminé. « Nouveau deck » "
@@ -235,16 +244,41 @@ final class LassoSession: ObservableObject {
             skipProbeOnce = true
             suggestionFloor = max(0, history.count - 1)
         }
+        // Défauts (sonde notée, etc.) : génération
+        // libre depuis la meilleure base connue.
+        maneuver = .none
+        pendingBase = searchBase.isEmpty ? rated
+            : searchBase
+        // La calibration des pas par les COMMENTAIRES
+        // : des +1 répétés sans arriver = pas trop
+        // timides, on allonge la foulée ; un −1 après
+        // une refermeture = dépassé, on la raccourcit ;
+        // des −1 répétés après une ouverture =
+        // ouverture insuffisante, on ouvre plus fort.
+        // C'est la machine qui apprend SON ampleur.
+        if !wasProbe, !wasSuggestion {
+            switch (lastManeuver, rating) {
+            case (.close, 1):
+                sigma = min(0.30, sigma * 1.35)
+            case (.close, -1):
+                sigma = max(0.03, sigma * 0.55)
+            case (.open, -1):
+                sigma = min(0.35, sigma * 1.5)
+            case (.open, 1):
+                sigma = max(0.04, sigma * 0.7)
+            default:
+                break
+            }
+        }
         if !wasProbe {
             // Une suggestion est adoptée à TOUTE note
             // (correction du 2026-10-24) : ce qu'il a
             // dessiné devient la référence, et la note
-            // dit comment bouger depuis elle — +1 la
-            // resserre, 0 la croise, −1 L'ÉLARGIT.
-            // L'ancienne règle « suggestion jetée si
-            // −1 » contredisait son « −1 = agrandir »
-            // et donnait l'impression que sa note et
-            // son dessin étaient ignorés.
+            // — un commentaire — pilote la manœuvre
+            // depuis elle. L'ancienne règle « jetée si
+            // −1 » contredisait son « −1 = ouvre » et
+            // donnait l'impression que sa note et son
+            // dessin étaient ignorés.
             if wasSuggestion
                 || rating >= 1
                 || (rating == 0
@@ -255,32 +289,26 @@ final class LassoSession: ObservableObject {
                 // ne contredit jamais une note.
                 searchBase = rated
             }
-            // La politique de recherche, dans SES mots
-            // (2026-10-23) : +1 = resserrer les arêtes,
-            // 0 = mouvement latéral, −1 = agrandir.
+            // La manœuvre, dans SES mots (2026-10-24) :
+            // la note est un commentaire, la machine
+            // choisit ses pas.
             switch rating {
             case 1:
-                // RESSERRER : pas réduit, et le prochain
-                // candidat ne fera que des retouches
-                // fines (bords et sommets).
-                sigma = max(0.006, sigma * 0.6)
-                polishNext = true
+                // « C'est bien, continue de refermer »
+                // — depuis le tracé noté.
+                maneuver = .close
+                pendingBase = rated
             case 0:
-                // LATÉRAL : ni resserrer ni élargir —
-                // croiser les deux tracés comparés (le
-                // noté et son fantôme). Le pas ne bouge
-                // pas.
-                if let ghostBefore = ghost {
-                    lateralParents = (a: rated,
-                                      b: ghostBefore)
-                }
+                // « Incertitude, essaie autre chose »
+                // — depuis la meilleure base connue.
+                maneuver = .other
+                pendingBase = searchBase.isEmpty ? rated
+                    : searchBase
             default:
-                // −1 = AGRANDIR : le pas grandit
-                // franchement (×1,6, plafond relevé) et
-                // le prochain candidat sera un saut
-                // global d'exploration.
-                sigma = min(0.28, sigma * 1.6)
-                exploreNext = true
+                // « C'est mal, ouvre ton cadre » —
+                // depuis le cadre noté, à ouvrir.
+                maneuver = .open
+                pendingBase = rated
             }
         }
         // Sa mécanique d'affichage : le lasso noté
@@ -299,17 +327,27 @@ final class LassoSession: ObservableObject {
             switch rating {
             case 1:
                 statusText = "Ta suggestion, gardée — "
-                    + "je la resserre."
+                    + "je continue de refermer depuis "
+                    + "elle."
             case 0:
                 statusText = "Ta suggestion, gardée — "
-                    + "je la croise avec le fantôme."
+                    + "j'essaie autre chose depuis elle."
             default:
                 statusText = "Ta suggestion, gardée — "
-                    + "je l'élargis."
+                    + "j'ouvre le cadre depuis elle."
             }
         } else {
-            statusText = "Noté. Compare le nouveau "
-                + "lasso au fantôme."
+            switch rating {
+            case 1:
+                statusText = "« Bien » — je continue de "
+                    + "refermer."
+            case 0:
+                statusText = "Incertitude notée — "
+                    + "j'essaie autre chose."
+            default:
+                statusText = "« Mal » — j'ouvre le "
+                    + "cadre."
+            }
         }
     }
 
@@ -494,37 +532,143 @@ final class LassoSession: ObservableObject {
         }
         currentProbe = nil
         currentSource = "recherche"
-        let forceGlobal = exploreNext
-        exploreNext = false
-        let polish = polishNext
-        polishNext = false
-        let lateral = lateralParents
-        lateralParents = nil
-        let base = searchBase.isEmpty ? current : searchBase
+        let base = pendingBase.isEmpty
+            ? (searchBase.isEmpty ? current : searchBase)
+            : pendingBase
+        let noise = min(0.05, max(0.015, sigma * 0.35))
         for _ in 0..<8 {
             let candidate: [CGPoint]
-            if let lateral,
-               lateral.a.count == lateral.b.count {
-                candidate = Self.crossover(
-                    lateral.a, lateral.b, sigma: sigma)
-            } else if let lateral {
-                candidate = Self.perturb(
-                    lateral.a, sigma: sigma, fineOnly: true)
-            } else {
-                candidate = Self.perturb(
-                    base, sigma: sigma,
-                    globalOnly: forceGlobal,
-                    fineOnly: polish)
+            switch maneuver {
+            case .close:
+                candidate = Self.closedIn(
+                    base, stride: sigma, noise: noise)
+            case .open:
+                candidate = Self.opened(
+                    base, stride: sigma, noise: noise)
+            case .other:
+                candidate = otherCandidate(
+                    base: base, noise: noise)
+            case .none:
+                candidate = Self.perturb(base, sigma: 0.05)
             }
-            let checked = guardrailed(candidate, fallback: nil)
-            if checked != candidate || Self.isSane(candidate) {
+            let checked = guardrailed(candidate,
+                                       fallback: nil)
+            if checked != candidate
+                || Self.isSane(candidate) {
                 history.append(checked)
+                lastManeuver = maneuver
                 return checked
             }
         }
         let fallback = guardrailed(base, fallback: nil)
         history.append(fallback)
+        lastManeuver = maneuver
         return fallback
+    }
+
+    /// « ESSAIE AUTRE CHOSE » (note 0) : changer de
+    /// famille de mouvement par rapport à la
+    /// précédente — voyage, forme, ou croisement
+    /// avec le fantôme.
+    private func otherCandidate(base: [CGPoint],
+                                noise: Double) -> [CGPoint] {
+        var families = ["voyage", "forme", "croisement"]
+        if !lastFamily.isEmpty {
+            families.removeAll { $0 == lastFamily }
+        }
+        let pick = families.randomElement() ?? "forme"
+        lastFamily = pick
+        switch pick {
+        case "voyage":
+            return Self.perturb(base,
+                                sigma: max(sigma, 0.10),
+                                globalOnly: true)
+        case "croisement":
+            if let ghost, ghost.count == base.count {
+                return Self.crossover(
+                    base, ghost, sigma: max(noise, 0.03))
+            }
+            return Self.perturb(base,
+                                sigma: max(0.05, noise * 2))
+        default:
+            return Self.perturb(base,
+                                sigma: max(0.05, noise * 2))
+        }
+    }
+
+    /// REFERMER : contracter le polygone vers son
+    /// centre, de la foulée choisie par la machine,
+    /// plus un bruit fin pour varier les appuis.
+    static func closedIn(_ poly: [CGPoint],
+                         stride: Double,
+                         noise: Double) -> [CGPoint] {
+        let c = centroid(poly)
+        let f = 1 - stride * Double.random(in: 0.7...1.3)
+        let shrunk = poly.map {
+            CGPoint(x: c.x + ($0.x - c.x) * f,
+                    y: c.y + ($0.y - c.y) * f)
+        }
+        return perturb(shrunk, sigma: noise, fineOnly: true)
+    }
+
+    /// OUVRIR LE CADRE : élargir depuis le centre, de
+    /// la foulée choisie — tous les côtés, un axe, ou
+    /// UN seul côté : la machine choisit où ça
+    /// coince (sa définition du −1, 2026-10-24).
+    static func opened(_ poly: [CGPoint],
+                       stride: Double,
+                       noise: Double) -> [CGPoint] {
+        let c = centroid(poly)
+        let roll = Double.random(in: 0..<1)
+        var out = poly
+        if roll < 0.35 {
+            out = poly.map {
+                CGPoint(
+                    x: c.x + ($0.x - c.x) * (1 + stride),
+                    y: c.y + ($0.y - c.y) * (1 + stride))
+            }
+        } else if roll < 0.60 {
+            out = poly.map {
+                CGPoint(
+                    x: c.x + ($0.x - c.x) * (1 + stride),
+                    y: $0.y)
+            }
+        } else if roll < 0.75 {
+            out = poly.map {
+                CGPoint(
+                    x: $0.x,
+                    y: c.y + ($0.y - c.y) * (1 + stride))
+            }
+        } else {
+            let side = Int.random(in: 0..<4)
+            out = poly.map { pt in
+                var q = pt
+                switch side {
+                case 0:
+                    if pt.x < c.x {
+                        q.x = c.x + (pt.x - c.x)
+                            * (1 + stride)
+                    }
+                case 1:
+                    if pt.x > c.x {
+                        q.x = c.x + (pt.x - c.x)
+                            * (1 + stride)
+                    }
+                case 2:
+                    if pt.y < c.y {
+                        q.y = c.y + (pt.y - c.y)
+                            * (1 + stride)
+                    }
+                default:
+                    if pt.y > c.y {
+                        q.y = c.y + (pt.y - c.y)
+                            * (1 + stride)
+                    }
+                }
+                return q
+            }
+        }
+        return perturb(out, sigma: noise, fineOnly: true)
     }
 
     /// Applique les garde-fous durs : coins dans
