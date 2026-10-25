@@ -24,8 +24,14 @@ Entrées :
   - un dossier d'images de la banque (les fichiers servis).
 
 Protocole (hygiène anti-mémorisation) :
-  - Seules les tentatives « machine » (source recherche/sonde)
-    avec fantôme et note dans {−1, 0, +1} sont utilisées.
+  - Tentatives avec fantôme et note dans {−1, 0, +1}.
+    Depuis le build 123, les suggestions de Grégoire
+    (ses formes corrigées, presque toujours notées +1)
+    nourrissent l'ENTRAÎNEMENT : le juge apprend aussi
+    à quoi ressemble un cadre jugé « bien » comme état.
+    L'EXAMEN (banc) reste composé uniquement de
+    propositions machine — c'est le vrai travail du
+    juge qu'on y mesure.
   - Entraînement : tentatives bench = false UNIQUEMENT.
   - Bulletin : tentatives bench = true UNIQUEMENT, images
     telles que servies (aucune augmentation sur l'examen).
@@ -73,7 +79,8 @@ def load_attempts(journal_path):
             continue
         if r.get("stage") != "lasso":
             continue
-        if r.get("source") not in ("recherche", "sonde"):
+        if r.get("source") not in ("recherche", "sonde",
+                                   "suggestion"):
             continue
         if r.get("ghost") is None:
             continue
@@ -86,6 +93,7 @@ def load_attempts(journal_path):
             "rating": int(r["rating"]),
             "bench": bool(r.get("bench")),
             "cycle": int(r.get("cycle", 0)),
+            "source": r.get("source"),
         })
     return attempts
 
@@ -377,7 +385,13 @@ def main():
             args.racine, "jeu.jsonl"))
         resolve = build_resolver(args.racine)
     train = [a for a in attempts if not a["bench"]]
-    test = [a for a in attempts if a["bench"]]
+    test = [a for a in attempts
+            if a["bench"]
+            and a.get("source") != "suggestion"]
+    n_sugg = sum(1 for a in train
+                 if a.get("source") == "suggestion")
+    print(f"suggestions incluses à l'entraînement : "
+          f"{n_sugg}", flush=True)
     print(f"tentatives jugeables : {len(attempts)} "
           f"(entraînement {len(train)} · banc {len(test)})")
     print(f"distribution entraînement : "
@@ -417,6 +431,7 @@ def main():
            "genere": datetime.datetime.now().isoformat(
                timespec="seconds"),
            "n_train": len(train), "n_bench": len(test),
+           "n_suggestions": n_sugg,
            "lazy": {"acc": acc_l, "kappa": kap_l},
            "knn_geom": {"acc": acc_k, "kappa": kap_k},
            "juge_v0": {"acc": acc_n, "kappa": kap_n,
