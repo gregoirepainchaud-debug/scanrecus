@@ -58,7 +58,7 @@ struct CompositeScanView: View {
     /// pas encore codé (il le sera pendant que Grégoire
     /// génère le matériel).
     private enum AppSection {
-        case scanner, materiel, entrainement
+        case scanner, materiel, entrainement, juge
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
@@ -225,6 +225,8 @@ struct CompositeScanView: View {
                                 .tag(AppSection.materiel)
                             Text("Entraînement IA")
                                 .tag(AppSection.entrainement)
+                            Text("Juge")
+                                .tag(AppSection.juge)
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 560)
@@ -243,6 +245,8 @@ struct CompositeScanView: View {
                             materielPanel
                         } else if appSection == .entrainement {
                             lassoPanel
+                        } else if appSection == .juge {
+                            JugeView()
                         } else if isDone,
                                   let ex = scanner.extraction {
                             extractionPanel(ex)
@@ -297,14 +301,20 @@ struct CompositeScanView: View {
         .onDisappear { camera.stop() }
         .onChange(of: appSection) { oldSection, section in
             scanner.setBankingMode(section == .materiel)
-            if section == .entrainement {
-                // Pendant l'entraînement, caméra et
-                // scanner S'ARRÊTENT : chercher un reçu
-                // sous le jeu brûlait le CPU et rendait
-                // le jeu poussif (Grégoire, 2026-10-23).
+            if section == .entrainement
+                || section == .juge {
+                // Pendant l'entraînement (jeu ou juge),
+                // caméra et scanner S'ARRÊTENT :
+                // chercher un reçu sous le jeu brûlait
+                // le CPU et rendait le jeu poussif
+                // (Grégoire, 2026-10-23) ; entraîner
+                // le juge est tout aussi gourmand.
                 camera.stop()
-                lasso.prepare(bank: bank)
-            } else if oldSection == .entrainement {
+                if section == .entrainement {
+                    lasso.prepare(bank: bank)
+                }
+            } else if oldSection == .entrainement
+                        || oldSection == .juge {
                 camera.start(delegate: scanner)
             }
         }
