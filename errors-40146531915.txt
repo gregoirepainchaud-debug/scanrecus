@@ -1,0 +1,8 @@
+223:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:34: error: expected hexadecimal code in braces after unicode escape
+226:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:40: error: expected hexadecimal code in braces after unicode escape
+229:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:34: error: expected hexadecimal code in braces after unicode escape
+232:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:40: error: expected hexadecimal code in braces after unicode escape
+235:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:34: error: Expected hexadecimal code in braces after unicode escape
+238:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:40: error: Expected hexadecimal code in braces after unicode escape
+245:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:34: error: Expected hexadecimal code in braces after unicode escape
+248:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift:447:40: error: Expected hexadecimal code in braces after unicode escape
