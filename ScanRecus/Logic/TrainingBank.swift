@@ -385,10 +385,19 @@ final class TrainingBank {
         backupNote = "Sauvegarde en cours…"
         let dest = folder.appendingPathComponent(
             "Sauvegarde banque", isDirectory: true)
-        let names = ["banque.jsonl"]
-            + photos.map { $0.file }
-            + derived.map { $0.file }
-        let srcRoot = root
+        // Les images vivent dans images/ (résolution
+        // par resolveURL) — la première version de la
+        // sauvegarde les cherchait à la racine du
+        // coffre et les sautait toutes en silence
+        // (corrigé au build 118).
+        let items: [(name: String, src: URL)] =
+            [("banque.jsonl", manifestURL)]
+            + photos.map { ($0.file,
+                            resolveURL(file: $0.file,
+                                       sha: $0.sha256)) }
+            + derived.map { ($0.file,
+                             resolveURL(file: $0.file,
+                                        sha: $0.sha256)) }
         DispatchQueue.global(qos: .utility)
             .async { [weak self] in
                 let fm = FileManager.default
@@ -404,13 +413,16 @@ final class TrainingBank {
                     else { return -1 }
                     return n.int64Value
                 }
-                for name in names {
-                    let src = srcRoot
-                        .appendingPathComponent(name)
+                var missing = 0
+                for item in items {
+                    let src = item.src
                     let dst = dest
-                        .appendingPathComponent(name)
+                        .appendingPathComponent(item.name)
                     let srcSize = fileSize(src)
-                    if srcSize < 0 { continue }
+                    if srcSize < 0 {
+                        missing += 1
+                        continue
+                    }
                     let dstSize = fileSize(dst)
                     if dstSize == srcSize {
                         skipped += 1
@@ -431,6 +443,10 @@ final class TrainingBank {
                         + "Mo), \(skipped) déjà à jour — "
                         + "sous-dossier « Sauvegarde "
                         + "banque » du Drive."
+                        + (missing > 0
+                            ? " \u26a0\ufe0f \(missing) "
+                              + "introuvable(s) !"
+                            : "")
                 }
             }
     }
