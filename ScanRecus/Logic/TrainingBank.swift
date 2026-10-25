@@ -444,7 +444,7 @@ final class TrainingBank {
                         + "sous-dossier « Sauvegarde "
                         + "banque » du Drive."
                         + (missing > 0
-                            ? " \u26a0\ufe0f \(missing) "
+                            ? " ⚠️ \(missing) "
                               + "introuvable(s) !"
                             : "")
                 }
