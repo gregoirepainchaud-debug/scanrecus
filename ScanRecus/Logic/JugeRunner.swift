@@ -48,6 +48,7 @@ final class JugeRunner: ObservableObject {
         atelierPret = FileManager.default
             .fileExists(atPath: venvPython.path)
         loadBulletin()
+        if bulletin != nil { mirrorBulletin() }
     }
 
     func loadBulletin() {
@@ -124,11 +125,74 @@ final class JugeRunner: ObservableObject {
                     + "voir le journal."
             }
             self.loadBulletin()
+            if status == 0 { self.mirrorBulletin() }
         }
     }
 
     func arreter() {
         process?.terminate()
+    }
+
+    // MARK: Miroir Drive du bulletin
+
+    /// Recopie le bulletin à côté du journal sur
+    /// Drive (build 122), pour que Muse puisse le
+    /// lire sans que Grégoire ait à l'envoyer.
+    func mirrorBulletin() {
+        let fm = FileManager.default
+        let src = jugeDir.appendingPathComponent(
+            "bulletin.json")
+        guard fm.fileExists(atPath: src.path) else { return }
+        guard let folder = driveFolder() else {
+            log("Miroir Drive : dossier introuvable — "
+                + "bulletin en local seulement.")
+            return
+        }
+        let dst = folder.appendingPathComponent(
+            "bulletin-juge.json")
+        let srcSize = (try? fm.attributesOfItem(
+            atPath: src.path))?[.size] as? NSNumber
+        let dstSize = (try? fm.attributesOfItem(
+            atPath: dst.path))?[.size] as? NSNumber
+        if srcSize != nil, srcSize == dstSize { return }
+        do {
+            if fm.fileExists(atPath: dst.path) {
+                try fm.removeItem(at: dst)
+            }
+            try fm.copyItem(at: src, to: dst)
+            log("Bulletin recopié vers Drive "
+                + "(bulletin-juge.json).")
+        } catch {
+            log("Miroir Drive : échec ("
+                + error.localizedDescription + ")")
+        }
+    }
+
+    /// Même résolution que la banque : dossier
+    /// choisi (journalFolderPath) ou Drive détecté
+    /// dans CloudStorage.
+    private func driveFolder() -> URL? {
+        let fm = FileManager.default
+        if let chosen = UserDefaults.standard.string(
+            forKey: "journalFolderPath"),
+           !chosen.isEmpty {
+            return URL(fileURLWithPath: chosen)
+        }
+        let cloud = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/CloudStorage")
+        if let entries = try? fm.contentsOfDirectory(
+            at: cloud, includingPropertiesForKeys: nil) {
+            for entry in entries
+            where entry.lastPathComponent
+                .hasPrefix("GoogleDrive") {
+                let drive = entry.appendingPathComponent(
+                    "My Drive")
+                if fm.fileExists(atPath: drive.path) {
+                    return drive
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: Mécanique des processus
