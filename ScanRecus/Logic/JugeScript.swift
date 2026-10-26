@@ -356,7 +356,8 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     Xtr = torch.tensor(np.stack(Xtr)).to(dev)
     ytr = torch.tensor(ytr).to(dev)
     Xte = torch.tensor(np.stack(Xte)).to(dev)
-    if Xte2:
+    has_extra = len(Xte2) > 0
+    if has_extra:
         Xte2 = torch.tensor(np.stack(Xte2)).to(dev)
 
     class Net(nn.Module):
@@ -406,7 +407,7 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     with torch.no_grad():
         pred = net(Xte).argmax(1).tolist()
         pred2 = (net(Xte2).argmax(1).tolist()
-                 if Xte2 else None)
+                 if has_extra else None)
     torch.save(net.state_dict(),
                os.path.join(sortie, "juge-modele.pt"))
     return ([CLASSES[i] for i in pred],
