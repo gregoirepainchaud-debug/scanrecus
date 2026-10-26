@@ -7,22 +7,30 @@ import UniformTypeIdentifiers
 /// réseau de contours entraîné (contours-v0.pt,
 /// dans l'atelier partagé avec le juge) son lasso
 /// de départ pour une image, via le script Python
-/// de l'atelier (contours.py --devine). Renvoie
-/// nil si aucun modèle n'existe, si l'atelier
-/// n'est pas prêt ou si la prédiction échoue —
-/// l'appelant retombe alors sur la boîte neutre.
+/// de l'atelier (contours.py --devine).
+/// Trois issues distinguées (build 135) :
+/// .aucunModele (rien à tenter — la boîte neutre
+/// est le comportement normal), .echec (un modèle
+/// existe mais la proposition a échoué — à
+/// MONTRER, pas à taire) et .lasso (la proposition).
 /// Appel BLOQUANT (démarrage de Python +
 /// inférence, quelques secondes) : toujours
 /// l'appeler hors du fil principal.
 enum Proposeur {
-    static func propose(image: CGImage) -> [CGPoint]? {
+    enum Proposition {
+        case aucunModele
+        case echec
+        case lasso([CGPoint])
+    }
+
+    static func propose(image: CGImage) -> Proposition {
         let fm = FileManager.default
         guard let base = fm.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask).first?
             .appendingPathComponent("ScanRecus",
                                     isDirectory: true)
-        else { return nil }
+        else { return .aucunModele }
         let atelier = base.appendingPathComponent(
             "Juge", isDirectory: true)
         let python = atelier.appendingPathComponent(
@@ -31,27 +39,28 @@ enum Proposeur {
             "contours-v0.pt")
         guard fm.fileExists(atPath: python.path),
               fm.fileExists(atPath: modele.path)
-        else { return nil }
-        // Le script, écrit s'il manque (il l'est
-        // normalement par les onglets Juge et
-        // Contours quand ils préparent l'atelier).
+        else { return .aucunModele }
+        // Le script, TOUJOURS réécrit depuis la
+        // source embarquée (build 135) : au build
+        // 134, il n'était écrit que s'il manquait —
+        // l'atelier gardait donc la version du
+        // build 133, sans le mode --devine, et
+        // chaque appel échouait en silence.
         let script = atelier.appendingPathComponent(
             "contours.py")
-        if !fm.fileExists(atPath: script.path) {
-            try? ContoursScript.source.write(
-                to: script, atomically: true,
-                encoding: .utf8)
-        }
+        try? ContoursScript.source.write(
+            to: script, atomically: true,
+            encoding: .utf8)
         // L'image décodée, en PNG temporaire.
         let tmp = atelier.appendingPathComponent(
             "proposition.png")
         guard let dest = CGImageDestinationCreateWithURL(
             tmp as CFURL,
             UTType.png.identifier as CFString, 1, nil)
-        else { return nil }
+        else { return .echec }
         CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest)
-        else { return nil }
+        else { return .echec }
         // L'appel, avec garde-fou de durée.
         let proc = Process()
         proc.executableURL = python
@@ -61,7 +70,7 @@ enum Proposeur {
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
-        do { try proc.run() } catch { return nil }
+        do { try proc.run() } catch { return .echec }
         let sema = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             proc.waitUntilExit()
@@ -69,15 +78,15 @@ enum Proposeur {
         }
         if sema.wait(timeout: .now() + 90) == .timedOut {
             proc.terminate()
-            return nil
+            return .echec
         }
         guard proc.terminationStatus == 0
-        else { return nil }
+        else { return .echec }
         let data = pipe.fileHandleForReading
             .readDataToEndOfFile()
         guard let texte = String(data: data,
                                  encoding: .utf8)
-        else { return nil }
+        else { return .echec }
         // La dernière ligne JSON du flux (le script
         // peut imprimer un avertissement avant le
         // résultat).
@@ -99,8 +108,8 @@ enum Proposeur {
                 return CGPoint(x: p[0].doubleValue,
                                y: p[1].doubleValue)
             }
-            if poly.count >= 4 { return poly }
+            if poly.count >= 4 { return .lasso(poly) }
         }
-        return nil
+        return .echec
     }
 }

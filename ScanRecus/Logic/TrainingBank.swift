@@ -140,6 +140,21 @@ struct QuadAttempt: Codable {
     var rawProposal: [[Double]]? = nil
 }
 
+/// L'ouverture d'une photo du jeu du lasso
+/// (build 135) : l'origine du premier lasso —
+/// « traceur » (le réseau a proposé), « init-neutre »
+/// (boîte neutre, aucun modèle) ou « traceur-echec »
+/// (un modèle existe mais rien d'exploitable n'est
+/// revenu). Une ligne par photo servie.
+struct OuvertureRecord: Codable {
+    var ts: String
+    var stage: String = "ouverture"
+    var file: String
+    var sourceNumber: Int
+    var group: Int
+    var origine: String
+}
+
 /// Une tentative du JEU DU LASSO (2026-10-23) : le
 /// lasso proposé, le fantôme auquel il a été comparé,
 /// et la note relative de Grégoire (−1/0/+1/+2 ; nil
@@ -464,6 +479,18 @@ final class TrainingBank {
     func appendLassoAttempt(_ attempt: LassoAttempt) {
         guard let data = try? JSONEncoder().encode(attempt)
         else { return }
+        appendGameLine(data)
+    }
+
+    /// Journalise l'ouverture d'une photo
+    /// (build 135) : qui a produit le premier
+    /// lasso. Sans elle, l'activation du traceur
+    /// était invérifiable — une retouche de
+    /// Grégoire réécrit la source de la première
+    /// tentative en « suggestion ».
+    func appendOuverture(_ record: OuvertureRecord) {
+        guard let data = try? JSONEncoder()
+            .encode(record) else { return }
         appendGameLine(data)
     }
 

@@ -57,7 +57,12 @@ import Combine
 ///   journal), passé par les garde-fous
 ///   habituels ; sinon, la boîte neutre. Le
 ///   traceur ne fait qu'OUVRIR : notes, recherche
-///   et élites restent le jeu.
+///   et élites restent le jeu. (Build 135 : chaque
+///   ouverture est journalisée — stage
+///   « ouverture » — et un échec du traceur est
+///   AFFICHÉ au statut, jamais silencieux : au
+///   build 134, le script périmé de l'atelier
+///   faisait échouer tous les appels sans trace.)
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -338,33 +343,63 @@ final class LassoSession: ObservableObject {
                         width: cg.width, height: cg.height)
                     var polygon = self.guardrailed(
                         Self.neutralStart(), fallback: nil)
-                    var departTraceur = false
-                    if let prop = proposition {
+                    var origine = "init-neutre"
+                    switch proposition {
+                    case .lasso(let prop):
                         let checked = self.guardrailed(
                             prop, fallback: nil)
                         if Self.isSane(checked),
                            abs(Self.signedArea(checked))
                             >= self.minAreaFraction() {
                             polygon = checked
-                            departTraceur = true
+                            origine = "traceur"
+                        } else {
+                            origine = "traceur-echec"
                         }
+                    case .echec:
+                        origine = "traceur-echec"
+                    case .aucunModele:
+                        origine = "init-neutre"
                     }
                     self.current = polygon
                     self.searchBase = polygon
                     self.history = [polygon]
                     self.cycle = 1
-                    self.currentSource = departTraceur
-                        ? "traceur" : "init-neutre"
+                    self.currentSource = origine
                     self.currentProbe = nil
-                    self.statusText = departTraceur
-                        ? "Premier lasso — proposition "
-                            + "du traceur. Note-le "
-                            + "(−1 / 0 / +1 / +2), "
+                    if let entry = self.entry,
+                       let bank = self.bank {
+                        bank.appendOuverture(
+                            OuvertureRecord(
+                                ts: Self.tsFormatter
+                                    .string(from: Date()),
+                                file: entry.file,
+                                sourceNumber: bank.photos
+                                    .first {
+                                        $0.id == entry.sourceId
+                                    }?.number ?? 0,
+                                group: entry.group,
+                                origine: origine))
+                    }
+                    switch origine {
+                    case "traceur":
+                        self.statusText = "Premier lasso "
+                            + "— proposition du traceur. "
+                            + "Note-le (−1 / 0 / +1 / +2), "
                             + "corrige-le, ou Next."
-                        : "Premier lasso "
+                    case "traceur-echec":
+                        self.statusText = "Premier lasso "
+                            + "(départ neutre — le "
+                            + "traceur n'a pas répondu). "
+                            + "Note-le (−1 / 0 / +1 / +2), "
+                            + "ou Next si l'image est "
+                            + "finie."
+                    default:
+                        self.statusText = "Premier lasso "
                             + "(départ neutre) — note-le "
                             + "(−1 / 0 / +1 / +2), ou "
                             + "Next si l'image est finie."
+                    }
                 }
             }
     }
