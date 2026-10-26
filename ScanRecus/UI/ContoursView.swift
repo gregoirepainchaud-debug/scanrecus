@@ -1,0 +1,168 @@
+import SwiftUI
+
+/// Onglet « Contours » (build 133) : le TEST
+/// DÉCISIF — un premier réseau qui apprend les
+/// contours de reçus de Grégoire depuis ses
+/// seules élites (+2), jamais depuis ses notes.
+/// Bulletin sur des photos jamais entraînées
+/// (banc de fortune + le vrai banc, encore
+/// mince), comparé à la boîte neutre : la
+/// « première proposition » actuelle du jeu.
+struct ContoursView: View {
+    // @StateObject, PAS @State : ContoursRunner
+    // est un ObservableObject (leçon du build 115).
+    @StateObject private var runner = ContoursRunner()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Réseau de contours — v0 (élites seulement)")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Le traceur apprend tes tracés finis "
+                 + "(tes +2) : on lui enseigne des "
+                 + "destinations, pas une procédure. "
+                 + "Son bulletin est calculé sur des "
+                 + "photos jamais entraînées, contre "
+                 + "la boîte neutre — le point de "
+                 + "départ actuel du jeu.")
+                .font(.system(size: 11.5))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button("Préparer l'atelier") {
+                    runner.preparer()
+                }
+                .disabled(runner.running
+                          || runner.atelierPret)
+                Button("Entraîner le traceur") {
+                    runner.entrainer()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
+                if runner.running {
+                    Button("Arrêter") { runner.arreter() }
+                }
+                Text("Époques :")
+                    .font(.system(size: 11.5))
+                TextField("", text: $runner.epochsText)
+                    .frame(width: 52)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(runner.running)
+                Text("(défaut 60 — l'atelier est le "
+                     + "même que celui du juge)")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+                Text(runner.atelierPret
+                     ? "Atelier : prêt"
+                     : "Atelier : à préparer (une seule "
+                       + "fois, quelques minutes)")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
+            }
+
+            if runner.running || runner.progress >= 0 {
+                HStack(spacing: 10) {
+                    if runner.progress < 0 {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        ProgressView(
+                            value: max(runner.progress, 0),
+                            total: 100)
+                            .frame(maxWidth: 320)
+                    }
+                    Text(runner.progress >= 0
+                         ? "\(Int(runner.progress)) % — "
+                           + runner.phase
+                         : runner.phase)
+                        .font(.system(size: 11.5,
+                                      design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if let b = runner.bulletin {
+                bulletinCard(b)
+            }
+
+            ScrollView {
+                Text(runner.logLines.joined(separator: "\n"))
+                    .font(.system(size: 10.5,
+                                  design: .monospaced))
+                    .frame(maxWidth: .infinity,
+                           alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(height: 100)
+            .background(Color(nsColor: .textBackgroundColor))
+            .border(Color.secondary.opacity(0.3))
+        }
+        .onAppear { runner.refreshState() }
+    }
+
+    private func bulletinCard(_ b: [String: Any]) -> some View {
+        func num(_ dict: [String: Any]?, _ cle: String)
+            -> Double? {
+            (dict?[cle] as? NSNumber)?.doubleValue
+        }
+        let dev = b["dev"] as? [String: Any]
+        let box = dev?["boite_neutre"] as? [String: Any]
+        let banc = b["banc"] as? [String: Any]
+        let nE = (b["n_train_elites"] as? NSNumber)?
+            .intValue ?? 0
+        let nP = (b["n_train_photos"] as? NSNumber)?
+            .intValue ?? 0
+        let app = (b["appareil"] as? String) ?? "?"
+        let ep = (b["epochs"] as? NSNumber)?.intValue
+        let epTxt = ep != nil ? ", \(ep!) époques" : ""
+        let titre = "Bulletin — traceur v0 (\(nE) "
+            + "élites / \(nP) photos d'entraînement, "
+            + "appareil : \(app)\(epTxt))"
+        func ligne(_ nom: String,
+                   _ dict: [String: Any]?) -> String {
+            guard let e = num(dict, "erreur_mediane_pct"),
+                  let i = num(dict, "iou_mediane")
+            else { return nom + " : —" }
+            return String(
+                format: "%@ : erreur médiane %.1f %% "
+                    + "· IoU %.2f", nom, e, i)
+        }
+        let nDev = (dev?["n"] as? NSNumber)?.intValue ?? 0
+        let nBanc = (banc?["n"] as? NSNumber)?.intValue ?? 0
+        var verdict = ""
+        if let e = num(dev, "erreur_mediane_pct"),
+           let bx = num(box, "erreur_mediane_pct"),
+           bx > 0 {
+            let ratio = e / bx
+            if ratio <= 0.5 {
+                verdict = "Verdict : signal net — le "
+                    + "réseau écrase le point de départ."
+            } else if ratio <= 0.85 {
+                verdict = "Verdict : signal faible — "
+                    + "mieux que la boîte, sans plus."
+            } else {
+                verdict = "Verdict : pas de signal — "
+                    + "le réseau ne bat pas la boîte "
+                    + "neutre."
+            }
+        }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(titre)
+                .font(.system(size: 12, weight: .semibold))
+            Text(ligne("Banc de fortune (\(nDev) "
+                       + "photos jamais entraînées)",
+                       dev))
+            Text(ligne("Boîte neutre (point de départ "
+                       + "actuel)", box))
+            Text(ligne("Vrai banc (\(nBanc) élites — "
+                       + "encore trop peu pour "
+                       + "conclure)", banc))
+            if !verdict.isEmpty {
+                Text(verdict).fontWeight(.semibold)
+            }
+        }
+        .font(.system(size: 11.5, design: .monospaced))
+        .padding(8)
+        .background(Color.secondary.opacity(0.08))
+    }
+}

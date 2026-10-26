@@ -58,7 +58,8 @@ struct CompositeScanView: View {
     /// pas encore codé (il le sera pendant que Grégoire
     /// génère le matériel).
     private enum AppSection {
-        case scanner, materiel, entrainement, juge
+        case scanner, materiel, entrainement, juge,
+             contours
     }
     @State private var appSection: AppSection = .scanner
     @State private var bank = TrainingBank()
@@ -227,6 +228,8 @@ struct CompositeScanView: View {
                                 .tag(AppSection.entrainement)
                             Text("Juge")
                                 .tag(AppSection.juge)
+                            Text("Contours")
+                                .tag(AppSection.contours)
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 560)
@@ -247,6 +250,8 @@ struct CompositeScanView: View {
                             lassoPanel
                         } else if appSection == .juge {
                             JugeView()
+                        } else if appSection == .contours {
+                            ContoursView()
                         } else if isDone,
                                   let ex = scanner.extraction {
                             extractionPanel(ex)
