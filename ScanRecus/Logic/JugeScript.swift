@@ -574,6 +574,7 @@ def main():
                         "per_class": {
                             str(k): v for k, v in p_n.items()}}}
     out = {"appareil": DEVICE,
+           "epochs": args.epochs,
            "juge_version": "v1-recadre-equilibre-par-photo",
            "n_photos_train": len({a.get("sn") for a in train
                                   if a.get("sn") is not None}),

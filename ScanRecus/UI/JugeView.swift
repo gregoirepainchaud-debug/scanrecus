@@ -37,6 +37,17 @@ struct JugeView: View {
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
+                Text("Époques :")
+                    .font(.system(size: 11.5))
+                TextField("", text: $runner.epochsText)
+                    .frame(width: 52)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(runner.running)
+                Text("(défaut 40 — plus d'époques "
+                     + "= plus long, et risque "
+                     + "d'apprendre par cœur)")
+                    .font(.system(size: 11.5))
+                    .foregroundColor(.secondary)
                 Text(runner.atelierPret
                      ? "Atelier : prêt"
                      : "Atelier : à préparer (une seule "
@@ -100,14 +111,18 @@ struct JugeView: View {
         let nB = (b["n_bench"] as? NSNumber)?.intValue ?? 0
         let nT = (b["n_train"] as? NSNumber)?.intValue ?? 0
         let app = (b["appareil"] as? String) ?? "?"
+        let ep = (b["epochs"] as? NSNumber)?.intValue
         return VStack(alignment: .leading, spacing: 2) {
             Text("Bulletin — banc figé (\(nB) exemples "
                  + "d'examen, \(nT) d'entraînement, "
-                 + "appareil : \(app))")
+                 + "appareil : \(app)"
+                 + (ep != nil ? ", \(ep!) époques" : "")
+                 + ")")
                 .font(.system(size: 12, weight: .semibold))
             Text(ligne("Juge paresseux", "lazy"))
             Text(ligne("Juge géométrie seule", "knn_geom"))
-            Text(ligne("Juge (voit l'image)", "juge_v0"))
+            Text(ligne("Juge (recadré, voit la zone)",
+                       "juge_v0"))
                 .fontWeight(.semibold)
         }
         .font(.system(size: 11.5, design: .monospaced))

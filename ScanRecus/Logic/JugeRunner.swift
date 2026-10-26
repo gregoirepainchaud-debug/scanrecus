@@ -16,6 +16,10 @@ final class JugeRunner: ObservableObject {
     @Published var running = false
     @Published var atelierPret = false
     @Published var bulletin: [String: Any]?
+    /// Nombre d'époques demandé (build 127) : champ
+    /// de l'onglet, persisté, validé au lancement
+    /// (1 à 500, défaut 40).
+    @Published var epochsText: String = "40"
 
     let jugeDir: URL
     let racine: URL
@@ -34,6 +38,10 @@ final class JugeRunner: ObservableObject {
             "Atelier", isDirectory: true)
         try? FileManager.default.createDirectory(
             at: jugeDir, withIntermediateDirectories: true)
+        if let saved = UserDefaults.standard.string(
+            forKey: "jugeEpochs"), !saved.isEmpty {
+            epochsText = saved
+        }
         refreshState()
     }
 
@@ -106,15 +114,28 @@ final class JugeRunner: ObservableObject {
         }
     }
 
+    /// Valeur validée du champ époques : un entier
+    /// entre 1 et 500, sinon le défaut (40).
+    var epochsValides: Int {
+        let t = epochsText.trimmingCharacters(
+            in: .whitespaces)
+        guard let v = Int(t) else { return 40 }
+        return min(500, max(1, v))
+    }
+
     func entrainer() {
         guard !running, atelierPret else { return }
         writeScript()
+        let ep = epochsValides
+        epochsText = String(ep)
+        UserDefaults.standard.set(epochsText,
+                                  forKey: "jugeEpochs")
         progress = 0
         run(executable: venvPython.path,
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--epochs", "40"],
+                   "--epochs", String(ep)],
             phase: "Démarrage…") { [weak self] status in
             guard let self else { return }
             if status == 0 {
