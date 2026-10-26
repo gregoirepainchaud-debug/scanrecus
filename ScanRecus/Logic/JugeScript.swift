@@ -50,6 +50,16 @@ Protocole (hygiène anti-mémorisation) :
     juge reconnaît la photo et sa saveur de
     verdicts au lieu de juger le cadre ; (2)
     l'entraînement est ÉQUILIBRÉ PAR PHOTO
+    Depuis le build 129, la préparation des exemples
+    est mise en CACHE sur disque (prep-cache.npz),
+    gardée par un sceau : empreinte du script et des
+    listes d'exemples (tentatives, découpage). Si
+    quoi que ce soit change — journal, code — le
+    sceau casse et tout est re-rendu. Le nombre
+    d'époques n'entre pas dans le sceau : c'est la
+    variable qu'on teste sans repayer la taxe de
+    préparation. Le bulletin note le mode utilisé
+    (« cache » ou « rendu complet »).
     (échantillonnage pondéré : chaque photo pèse
     le même total, quelle que soit la longueur de
     sa séance — ex. 47 tentatives pour une photo,
@@ -64,7 +74,7 @@ Protocole (hygiène anti-mémorisation) :
 
 Sorties : bulletin imprimé + bulletin.json + juge-v0.pt.
 """
-import argparse, json, math, os, random, sys, collections
+import argparse, hashlib, json, math, os, random, sys, collections
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -77,6 +87,26 @@ except Exception as e:
 
 SIZE = 160
 CLASSES = [-1, 0, 1]
+
+# Petit cache de décodage : chaque fichier servi est
+# décodé une seule fois par lancement (chaque tentative
+# est rendue en 3 variantes consécutives du même
+# fichier). Fenêtre courte : la banque compte des
+# centaines de copies distinctes, on ne garde que les
+# 8 dernières.
+_DECODE = {}
+_DECODE_ORDER = []
+
+
+def _open_rgb(path):
+    img = _DECODE.get(path)
+    if img is None:
+        img = Image.open(path).convert("RGB")
+        _DECODE[path] = img
+        _DECODE_ORDER.append(path)
+        while len(_DECODE_ORDER) > 8:
+            _DECODE.pop(_DECODE_ORDER.pop(0), None)
+    return img
 
 
 def pts(poly):
@@ -136,7 +166,7 @@ def render_sample(img_path, ghost, cand, crop_jitter=False,
     L'augmentation (entraînement seulement) est un
     tremblement de la fenêtre de recadrage : décalage
     et échelle légère, tirés de rng."""
-    img = Image.open(img_path).convert("RGB")
+    img = _open_rgb(img_path)
     W, H = img.size
     g = [(x * W, y * H) for x, y in ghost]
     c = [(x * W, y * H) for x, y in cand]
@@ -351,16 +381,65 @@ def metrics(y_true, y_pred):
 # ---------------- Entraînement ----------------------
 DEVICE = "cpu"
 
-def train_and_eval(train, test, resolve, epochs=40, seed=11,
-                   smoke=False, sortie=".", extra=None):
-    import torch
-    import torch.nn as nn
-    torch.manual_seed(seed)
-    rng = random.Random(seed)
-    dev = torch.device(DEVICE)
+
+def _sceau(train, test, extra):
+    """Empreinte de tout ce qui détermine les
+    exemples préparés : le code du script lui-même
+    et les listes d'exemples (fichier, polygones,
+    note, photo, source). Le nombre d'époques n'y
+    est PAS : c'est la variable expérimentale."""
+    try:
+        src = open(os.path.abspath(__file__),
+                   encoding="utf-8").read()
+    except Exception:
+        src = "script-illisible"
+    def ser(a):
+        return [a.get("file"), a["rating"], a.get("sn"),
+                a.get("source"), a["ghost"], a["cand"]]
+    payload = {"script": hashlib.sha256(
+                   src.encode("utf-8")).hexdigest(),
+               "size": SIZE,
+               "train": [ser(a) for a in train],
+               "test": [ser(a) for a in test],
+               "extra": [ser(a) for a in (extra or [])]}
+    return hashlib.sha256(json.dumps(
+        payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+
+
+def prepare_samples(train, test, extra, resolve, sortie,
+                    rng):
+    """Rend les tenseurs d'entrée, ou les recharge
+    du cache si le sceau est valide. Retourne
+    (Xtr, ytr, wtr, Xte, Xte2 ou None, mode) où mode
+    vaut « cache » ou « rendu complet »."""
+    sceau = _sceau(train, test, extra)
+    cache_path = os.path.join(sortie, "prep-cache.npz")
 
     def path_of(a):
         return a.get("_path") or resolve(a["file"])
+
+    if os.path.exists(cache_path):
+        try:
+            z = np.load(cache_path)
+            fichiers = set(z.files)
+            if str(z["sceau"].item()) == sceau:
+                donnees = {k: z[k] for k in fichiers}
+                print("PHASE préparation des exemples "
+                      "(cache — sceau valide)",
+                      flush=True)
+                print("PROGRES 20", flush=True)
+                return (donnees["Xtr"],
+                        list(donnees["ytr"]),
+                        list(donnees["wtr"]),
+                        donnees["Xte"],
+                        donnees.get("Xte2"),
+                        "cache")
+            print("cache présent mais sceau différent "
+                  "— repréparation complète", flush=True)
+        except Exception as e:
+            print(f"cache illisible ({e}) — "
+                  "repréparation complète", flush=True)
 
     print("PHASE préparation des exemples", flush=True)
     # Équilibrage par photo (juge v1) : chaque photo
@@ -373,8 +452,10 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     for idx, a in enumerate(train):
         pw = 1.0 / photo_counts[a.get("sn")]
         for j in (False, True, True):
-            Xtr.append(render_sample(path_of(a), a["ghost"],
-                                     a["cand"], crop_jitter=j,
+            Xtr.append(render_sample(path_of(a),
+                                     a["ghost"],
+                                     a["cand"],
+                                     crop_jitter=j,
                                      rng=rng))
             ytr.append(CLASSES.index(a["rating"]))
             wtr.append(pw)
@@ -397,13 +478,44 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
                                       a["ghost"],
                                       a["cand"]))
     print("PROGRES 20", flush=True)
-    yte = [CLASSES.index(a["rating"]) for a in test]
-    Xtr = torch.tensor(np.stack(Xtr)).to(dev)
+    Xtr_a = np.stack(Xtr)
+    Xte_a = np.stack(Xte)
+    Xte2_a = np.stack(Xte2) if Xte2 else None
+    try:
+        tmp = cache_path + ".tmp"
+        with open(tmp, "wb") as f:
+            np.savez(f, sceau=np.array(sceau),
+                     Xtr=Xtr_a, ytr=np.array(ytr),
+                     wtr=np.array(wtr), Xte=Xte_a,
+                     **({"Xte2": Xte2_a}
+                        if Xte2_a is not None else {}))
+        os.replace(tmp, cache_path)
+        print("exemples mis en cache pour les "
+              "prochains lancements", flush=True)
+    except Exception as e:
+        print(f"mise en cache impossible ({e}) — "
+              "l'entraînement continue", flush=True)
+    return (Xtr_a, ytr, wtr, Xte_a, Xte2_a,
+            "rendu complet")
+
+
+def train_and_eval(train, test, resolve, epochs=40, seed=11,
+                   smoke=False, sortie=".", extra=None):
+    import torch
+    import torch.nn as nn
+    torch.manual_seed(seed)
+    rng = random.Random(seed)
+    dev = torch.device(DEVICE)
+
+    (Xtr, ytr, wtr, Xte, Xte2,
+     prep_mode) = prepare_samples(
+        train, test, extra, resolve, sortie, rng)
+    Xtr = torch.tensor(Xtr).to(dev)
     ytr = torch.tensor(ytr).to(dev)
-    Xte = torch.tensor(np.stack(Xte)).to(dev)
-    has_extra = len(Xte2) > 0
+    Xte = torch.tensor(Xte).to(dev)
+    has_extra = Xte2 is not None
     if has_extra:
-        Xte2 = torch.tensor(np.stack(Xte2)).to(dev)
+        Xte2 = torch.tensor(Xte2).to(dev)
 
     class Net(nn.Module):
         def __init__(self):
@@ -461,7 +573,8 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     torch.save(net.state_dict(),
                os.path.join(sortie, "juge-modele.pt"))
     return ([CLASSES[i] for i in pred],
-            [CLASSES[i] for i in pred2] if pred2 else None)
+            [CLASSES[i] for i in pred2] if pred2 else None,
+            prep_mode)
 
 
 def main():
@@ -537,7 +650,7 @@ def main():
     acc_l, kap_l, _ = metrics(y_true, lazy)
     pred_knn = knn_predict(train, test)
     acc_k, kap_k, _ = metrics(y_true, pred_knn)
-    pred_net, pred_strict = train_and_eval(
+    pred_net, pred_strict, prep_mode = train_and_eval(
         train, test, resolve, epochs=args.epochs,
         smoke=args.smoke, sortie=args.sortie,
         extra=strict)
@@ -575,6 +688,7 @@ def main():
                             str(k): v for k, v in p_n.items()}}}
     out = {"appareil": DEVICE,
            "epochs": args.epochs,
+           "preparation": prep_mode,
            "juge_version": "v1-recadre-equilibre-par-photo",
            "n_photos_train": len({a.get("sn") for a in train
                                   if a.get("sn") is not None}),
