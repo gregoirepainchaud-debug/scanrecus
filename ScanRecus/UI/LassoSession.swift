@@ -50,6 +50,14 @@ import Combine
 ///   Au premier soir du sélecteur, les 6 candidats
 ///   quasi frères rendaient son choix presque
 ///   aléatoire : 73 % de « mal » sur ses choix.)
+/// - PROPOSITION DU TRACEUR (build 134) : quand
+///   un modèle entraîné existe (contours-v0.pt),
+///   la première proposition d'une photo est le
+///   lasso du traceur (source « traceur » au
+///   journal), passé par les garde-fous
+///   habituels ; sinon, la boîte neutre. Le
+///   traceur ne fait qu'OUVRIR : notes, recherche
+///   et élites restent le jeu.
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -292,13 +300,16 @@ final class LassoSession: ObservableObject {
         statusText = "Chargement de l'image…"
         let entryId = entry.id
         // Le décodage part en arrière-plan (basse
-        // priorité) ; le fil principal ne reçoit que le
-        // résultat. L'amorce est NEUTRE : ni Vision ni
-        // l'outil de zone — une boîte de départ qui ne
-        // doit rien à aucun système de perception
-        // (décision de Grégoire, 2026-10-23 : la boîte
-        // noire, c'est NOTRE réseau ; un point de départ
-        // emprunté ancrerait toute la grimpe).
+        // priorité), suivi de la proposition du
+        // traceur ; le fil principal ne reçoit que
+        // le résultat. Le départ emprunté à un
+        // système EXTÉRIEUR reste interdit
+        // (décision de Grégoire, 2026-10-23) — mais
+        // le traceur est NOTRE réseau, nourri de
+        // ses élites : depuis le build 134, c'est
+        // lui qui ouvre quand un modèle existe.
+        // Sans modèle ou en cas d'échec : la boîte
+        // neutre, comme avant.
         DispatchQueue.global(qos: .utility)
             .async { [weak self] in
                 guard let self else { return }
@@ -316,6 +327,8 @@ final class LassoSession: ObservableObject {
                     }
                     return
                 }
+                let proposition = Proposeur.propose(
+                    image: cg)
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.entry?.id == entryId
@@ -323,18 +336,35 @@ final class LassoSession: ObservableObject {
                     self.displayImage = cg
                     self.imageSize = CGSize(
                         width: cg.width, height: cg.height)
-                    let polygon = self.guardrailed(
+                    var polygon = self.guardrailed(
                         Self.neutralStart(), fallback: nil)
+                    var departTraceur = false
+                    if let prop = proposition {
+                        let checked = self.guardrailed(
+                            prop, fallback: nil)
+                        if Self.isSane(checked),
+                           abs(Self.signedArea(checked))
+                            >= self.minAreaFraction() {
+                            polygon = checked
+                            departTraceur = true
+                        }
+                    }
                     self.current = polygon
                     self.searchBase = polygon
                     self.history = [polygon]
                     self.cycle = 1
-                    self.currentSource = "init-neutre"
+                    self.currentSource = departTraceur
+                        ? "traceur" : "init-neutre"
                     self.currentProbe = nil
-                    self.statusText = "Premier lasso "
-                        + "(départ neutre) — note-le "
-                        + "(−1 / 0 / +1 / +2), ou Next si "
-                        + "l'image est finie."
+                    self.statusText = departTraceur
+                        ? "Premier lasso — proposition "
+                            + "du traceur. Note-le "
+                            + "(−1 / 0 / +1 / +2), "
+                            + "corrige-le, ou Next."
+                        : "Premier lasso "
+                            + "(départ neutre) — note-le "
+                            + "(−1 / 0 / +1 / +2), ou "
+                            + "Next si l'image est finie."
                 }
             }
     }

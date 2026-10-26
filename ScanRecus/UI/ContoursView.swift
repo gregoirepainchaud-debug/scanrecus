@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Onglet « Contours » (build 133) : le TEST
 /// DÉCISIF — un premier réseau qui apprend les
@@ -12,6 +13,7 @@ struct ContoursView: View {
     // @StateObject, PAS @State : ContoursRunner
     // est un ObservableObject (leçon du build 115).
     @StateObject private var runner = ContoursRunner()
+    @State private var rapportCopie = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -129,23 +131,7 @@ struct ContoursView: View {
         }
         let nDev = (dev?["n"] as? NSNumber)?.intValue ?? 0
         let nBanc = (banc?["n"] as? NSNumber)?.intValue ?? 0
-        var verdict = ""
-        if let e = num(dev, "erreur_mediane_pct"),
-           let bx = num(box, "erreur_mediane_pct"),
-           bx > 0 {
-            let ratio = e / bx
-            if ratio <= 0.5 {
-                verdict = "Verdict : signal net — le "
-                    + "réseau écrase le point de départ."
-            } else if ratio <= 0.85 {
-                verdict = "Verdict : signal faible — "
-                    + "mieux que la boîte, sans plus."
-            } else {
-                verdict = "Verdict : pas de signal — "
-                    + "le réseau ne bat pas la boîte "
-                    + "neutre."
-            }
-        }
+        let verdict = verdictTexte(dev: dev, box: box)
         return VStack(alignment: .leading, spacing: 2) {
             Text(titre)
                 .font(.system(size: 12, weight: .semibold))
@@ -160,9 +146,103 @@ struct ContoursView: View {
             if !verdict.isEmpty {
                 Text(verdict).fontWeight(.semibold)
             }
+            Button(rapportCopie ? "Rapport copié ✓"
+                   : "Copier le rapport") {
+                copierRapport(b)
+            }
         }
         .font(.system(size: 11.5, design: .monospaced))
         .padding(8)
         .background(Color.secondary.opacity(0.08))
+    }
+
+    private func verdictTexte(dev: [String: Any]?,
+                              box: [String: Any]?)
+        -> String {
+        guard let e = (dev?["erreur_mediane_pct"]
+                       as? NSNumber)?.doubleValue,
+              let bx = (box?["erreur_mediane_pct"]
+                        as? NSNumber)?.doubleValue,
+              bx > 0
+        else { return "" }
+        let ratio = e / bx
+        if ratio <= 0.5 {
+            return "Verdict : signal net — le réseau "
+                + "écrase le point de départ."
+        }
+        if ratio <= 0.85 {
+            return "Verdict : signal faible — mieux "
+                + "que la boîte, sans plus."
+        }
+        return "Verdict : pas de signal — le réseau "
+            + "ne bat pas la boîte neutre."
+    }
+
+    /// Le rapport en texte brut, pour le
+    /// presse-papiers (demande de Grégoire,
+    /// build 134) : un clic, puis coller dans le
+    /// chat — tout le bulletin, chiffres par
+    /// photo compris.
+    private func rapportTexte(_ b: [String: Any])
+        -> String {
+        func n(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.2f", v)
+        }
+        let dev = b["dev"] as? [String: Any]
+        let box = dev?["boite_neutre"] as? [String: Any]
+        let banc = b["banc"] as? [String: Any]
+        let nE = (b["n_train_elites"] as? NSNumber)?
+            .intValue ?? 0
+        let nP = (b["n_train_photos"] as? NSNumber)?
+            .intValue ?? 0
+        let app = (b["appareil"] as? String) ?? "?"
+        let ep = (b["epochs"] as? NSNumber)?.intValue
+        let epTxt = ep != nil ? "\(ep!) époques" : ""
+        func details(_ d: [String: Any]?) -> [String] {
+            guard let arr = d?["par_photo"]
+                as? [[String: Any]] else { return [] }
+            return arr.map { p in
+                let num = (p["photo"] as? NSNumber)?
+                    .intValue ?? 0
+                return "  photo \(num) : erreur "
+                    + "\(n(p, "erreur_pct")) % · IoU "
+                    + "\(n(p, "iou"))"
+            }
+        }
+        var lignes: [String] = []
+        lignes.append("Traceur v0 — bulletin du "
+            + "\(b["genere"] as? String ?? "?")")
+        lignes.append("Entraînement : \(nE) élites / "
+            + "\(nP) photos · appareil \(app) · "
+            + epTxt)
+        lignes.append("Banc de fortune ("
+            + "\((dev?["n"] as? NSNumber)?.intValue ?? 0) "
+            + "photos jamais entraînées) : erreur "
+            + "médiane \(n(dev, "erreur_mediane_pct")) "
+            + "% · IoU \(n(dev, "iou_mediane"))")
+        lignes += details(dev)
+        lignes.append("Boîte neutre : erreur médiane "
+            + "\(n(box, "erreur_mediane_pct")) % · IoU "
+            + "\(n(box, "iou_mediane"))")
+        lignes.append("Vrai banc ("
+            + "\((banc?["n"] as? NSNumber)?.intValue ?? 0) "
+            + "élites) : erreur médiane "
+            + "\(n(banc, "erreur_mediane_pct")) % · "
+            + "IoU \(n(banc, "iou_mediane"))")
+        lignes += details(banc)
+        let v = verdictTexte(dev: dev, box: box)
+        if !v.isEmpty { lignes.append(v) }
+        return lignes.joined(separator: "\n")
+    }
+
+    private func copierRapport(_ b: [String: Any]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            rapportTexte(b), forType: .string)
+        rapportCopie = true
     }
 }

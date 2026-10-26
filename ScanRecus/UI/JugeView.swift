@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Onglet « Juge » (build 121) : l'entraînement du
 /// juge artificiel, sans détour — préparation de
@@ -10,6 +11,7 @@ struct JugeView: View {
     // @StateObject, PAS @State : JugeRunner est un
     // ObservableObject (leçon du build 115).
     @StateObject private var runner = JugeRunner()
+    @State private var rapportCopie = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -125,9 +127,72 @@ struct JugeView: View {
             Text(ligne("Juge (recadré, voit la zone)",
                        "juge_v0"))
                 .fontWeight(.semibold)
+            Button(rapportCopie ? "Rapport copié ✓"
+                   : "Copier le rapport") {
+                copierRapport(b)
+            }
         }
         .font(.system(size: 11.5, design: .monospaced))
         .padding(8)
         .background(Color.secondary.opacity(0.08))
+    }
+
+    /// Le rapport en texte brut, pour le
+    /// presse-papiers (build 134, comme l'onglet
+    /// Contours) : un clic, puis coller dans le
+    /// chat.
+    private func rapportTexte(_ b: [String: Any])
+        -> String {
+        func ligneDict(_ nom: String,
+                       _ d: [String: Any]?) -> String {
+            guard let acc = (d?["acc"] as? NSNumber)?
+                    .doubleValue,
+                  let kap = (d?["kappa"] as? NSNumber)?
+                    .doubleValue
+            else { return nom + " : —" }
+            return String(
+                format: "%@ : accord %.0f %% · kappa %.2f",
+                nom, acc * 100, kap)
+        }
+        let nB = (b["n_bench"] as? NSNumber)?.intValue ?? 0
+        let nT = (b["n_train"] as? NSNumber)?.intValue ?? 0
+        let app = (b["appareil"] as? String) ?? "?"
+        let ep = (b["epochs"] as? NSNumber)?.intValue
+        let epTxt = ep != nil ? " · \(ep!) époques" : ""
+        let prep = (b["preparation"] as? String) ?? "?"
+        var lignes: [String] = []
+        lignes.append("Juge — bulletin du "
+            + "\(b["genere"] as? String ?? "?")")
+        lignes.append("Banc figé : \(nB) exemples "
+            + "d'examen · entraînement \(nT) · "
+            + "appareil \(app)\(epTxt) · préparation "
+            + prep)
+        lignes.append(ligneDict("Juge paresseux",
+                                b["lazy"] as? [String: Any]))
+        lignes.append(ligneDict("Juge géométrie seule",
+                                b["knn_geom"] as? [String: Any]))
+        lignes.append(ligneDict(
+            "Juge (recadré, voit la zone)",
+            b["juge_v0"] as? [String: Any]))
+        if let st = b["strict"] as? [String: Any] {
+            let nS = (st["n"] as? NSNumber)?.intValue ?? 0
+            lignes.append("Examen strict (\(nS) "
+                + "exemples) :")
+            lignes.append("  " + ligneDict(
+                "Juge", st["juge_v0"] as? [String: Any]))
+            lignes.append("  " + ligneDict(
+                "Géométrie",
+                st["knn_geom"] as? [String: Any]))
+            lignes.append("  " + ligneDict(
+                "Paresseux", st["lazy"] as? [String: Any]))
+        }
+        return lignes.joined(separator: "\n")
+    }
+
+    private func copierRapport(_ b: [String: Any]) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(
+            rapportTexte(b), forType: .string)
+        rapportCopie = true
     }
 }

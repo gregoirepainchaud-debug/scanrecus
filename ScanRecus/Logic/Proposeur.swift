@@ -1,0 +1,106 @@
+import Foundation
+import CoreGraphics
+import ImageIO
+import UniformTypeIdentifiers
+
+/// Proposition du TRACEUR (build 134) : demande au
+/// réseau de contours entraîné (contours-v0.pt,
+/// dans l'atelier partagé avec le juge) son lasso
+/// de départ pour une image, via le script Python
+/// de l'atelier (contours.py --devine). Renvoie
+/// nil si aucun modèle n'existe, si l'atelier
+/// n'est pas prêt ou si la prédiction échoue —
+/// l'appelant retombe alors sur la boîte neutre.
+/// Appel BLOQUANT (démarrage de Python +
+/// inférence, quelques secondes) : toujours
+/// l'appeler hors du fil principal.
+enum Proposeur {
+    static func propose(image: CGImage) -> [CGPoint]? {
+        let fm = FileManager.default
+        guard let base = fm.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask).first?
+            .appendingPathComponent("ScanRecus",
+                                    isDirectory: true)
+        else { return nil }
+        let atelier = base.appendingPathComponent(
+            "Juge", isDirectory: true)
+        let python = atelier.appendingPathComponent(
+            "venv/bin/python3")
+        let modele = atelier.appendingPathComponent(
+            "contours-v0.pt")
+        guard fm.fileExists(atPath: python.path),
+              fm.fileExists(atPath: modele.path)
+        else { return nil }
+        // Le script, écrit s'il manque (il l'est
+        // normalement par les onglets Juge et
+        // Contours quand ils préparent l'atelier).
+        let script = atelier.appendingPathComponent(
+            "contours.py")
+        if !fm.fileExists(atPath: script.path) {
+            try? ContoursScript.source.write(
+                to: script, atomically: true,
+                encoding: .utf8)
+        }
+        // L'image décodée, en PNG temporaire.
+        let tmp = atelier.appendingPathComponent(
+            "proposition.png")
+        guard let dest = CGImageDestinationCreateWithURL(
+            tmp as CFURL,
+            UTType.png.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        guard CGImageDestinationFinalize(dest)
+        else { return nil }
+        // L'appel, avec garde-fou de durée.
+        let proc = Process()
+        proc.executableURL = python
+        proc.arguments = [script.path,
+                          "--devine", tmp.path,
+                          "--sortie", atelier.path]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return nil }
+        let sema = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            proc.waitUntilExit()
+            sema.signal()
+        }
+        if sema.wait(timeout: .now() + 90) == .timedOut {
+            proc.terminate()
+            return nil
+        }
+        guard proc.terminationStatus == 0
+        else { return nil }
+        let data = pipe.fileHandleForReading
+            .readDataToEndOfFile()
+        guard let texte = String(data: data,
+                                 encoding: .utf8)
+        else { return nil }
+        // La dernière ligne JSON du flux (le script
+        // peut imprimer un avertissement avant le
+        // résultat).
+        for ligne in texte.split(separator: "\n")
+            .reversed() {
+            let l = ligne.trimmingCharacters(
+                in: .whitespaces)
+            guard l.hasPrefix("{"),
+                  let d = l.data(using: .utf8),
+                  let obj = try? JSONSerialization
+                    .jsonObject(with: d)
+                    as? [String: Any],
+                  let pts = obj["lasso"]
+                    as? [[NSNumber]]
+            else { continue }
+            let poly = pts.compactMap {
+                p -> CGPoint? in
+                guard p.count == 2 else { return nil }
+                return CGPoint(x: p[0].doubleValue,
+                               y: p[1].doubleValue)
+            }
+            if poly.count >= 4 { return poly }
+        }
+        return nil
+    }
+}

@@ -502,6 +502,132 @@ def train_and_eval(train_xy, dev_items, banc_items,
     return model, bulletin
 
 
+# ---------------- Proposition (mode devine) ----
+
+def mask_to_polygon(mask_bool, rays=72,
+                    max_vertices=24):
+    """Masque -> polygone ordonné. Un reçu est
+    convexe : depuis le centroïde du masque, on
+    lance des rayons et on garde le point du
+    masque le plus lointain sur chacun — un
+    polygone ordonné par construction. Puis
+    simplification de Douglas-Peucker jusqu'à
+    au plus `max_vertices` sommets (min 4)."""
+    ys, xs = np.nonzero(mask_bool)
+    if len(xs) < 50:
+        return None
+    cx, cy = xs.mean(), ys.mean()
+    H, W = mask_bool.shape
+    pts = []
+    for k in range(rays):
+        th = 2 * math.pi * k / rays
+        dx, dy = math.cos(th), math.sin(th)
+        best = None
+        r = 0.0
+        while True:
+            r += 1.0
+            x = int(round(cx + dx * r))
+            y = int(round(cy + dy * r))
+            if not (0 <= x < W and 0 <= y < H):
+                break
+            if mask_bool[y, x]:
+                best = (x, y)
+        if best is not None:
+            pts.append((best[0] / W, best[1] / H))
+    if len(pts) < 4:
+        return None
+    # Dédoublonner les points consécutifs proches.
+    dedup = [pts[0]]
+    for p in pts[1:]:
+        if abs(p[0] - dedup[-1][0]) > 1e-4 or            abs(p[1] - dedup[-1][1]) > 1e-4:
+            dedup.append(p)
+    if len(dedup) < 4:
+        return None
+    return _douglas_peucker(dedup, max_vertices)
+
+
+def _douglas_peucker(pts, max_vertices):
+    """Simplification d'un polygone FERMÉ :
+    partir du diamètre (paire la plus éloignée),
+    puis raffiner par seuils décroissants
+    jusqu'à tenir dans le budget de sommets."""
+    def seg_dist(p, a, b):
+        ax, ay = a
+        bx, by = b
+        px, py = p
+        dx, dy = bx - ax, by - ay
+        L2 = dx * dx + dy * dy
+        if L2 == 0:
+            return math.hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0,
+                         ((px - ax) * dx + (py - ay) * dy)
+                         / L2))
+        return math.hypot(px - (ax + t * dx),
+                          py - (ay + t * dy))
+
+    def dp(chain, eps):
+        if len(chain) <= 2:
+            return chain
+        a, b = chain[0], chain[-1]
+        dmax, idx = 0.0, -1
+        for i in range(1, len(chain) - 1):
+            d = seg_dist(chain[i], a, b)
+            if d > dmax:
+                dmax, idx = d, i
+        if dmax > eps:
+            left = dp(chain[:idx + 1], eps)
+            right = dp(chain[idx:], eps)
+            return left[:-1] + right
+        return [a, b]
+
+    n = len(pts)
+    # Ancre : le point le plus éloigné du premier.
+    j = max(range(n),
+            key=lambda i: (pts[i][0] - pts[0][0]) ** 2
+            + (pts[i][1] - pts[0][1]) ** 2)
+    chain1 = pts[:j + 1]
+    chain2 = pts[j:] + [pts[0]]
+    eps = 0.002
+    for _ in range(24):
+        out = dp(chain1, eps)[:-1] + dp(chain2, eps)[:-1]
+        if len(out) <= max_vertices:
+            return out if len(out) >= 4 else pts[:max(4, len(pts))]
+        eps *= 1.6
+    return out if len(out) >= 4 else None
+
+
+def devine(image_path, sortie):
+    """Charge contours-v0.pt, prédit le masque
+    de l'image, imprime le polygone en JSON sur
+    stdout (coordonnées normalisées)."""
+    import torch
+    modele = os.path.join(sortie, "contours-v0.pt")
+    if not os.path.exists(modele):
+        print(json.dumps({"erreur": "aucun modèle"}))
+        return 3
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    model = build_model(torch).to(device)
+    model.load_state_dict(torch.load(
+        modele, map_location=device))
+    model.eval()
+    img = load_image_256(image_path)
+    x = torch.from_numpy(
+        np.asarray(img, dtype=np.float32) / 255.0
+    ).permute(2, 0, 1).unsqueeze(0).to(device)
+    with torch.no_grad():
+        prob = torch.sigmoid(model(x))[0, 0].cpu().numpy()
+    poly = mask_to_polygon(prob > 0.5)
+    if poly is None:
+        print(json.dumps({"erreur": "masque inexploitable"}))
+        return 4
+    print(json.dumps({"lasso": [[round(px, 4), round(py, 4)]
+                                for px, py in poly]}))
+    return 0
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -511,7 +637,14 @@ def main():
     ap.add_argument("--sortie", default=".")
     ap.add_argument("--epochs", type=int, default=60)
     ap.add_argument("--synthetique", action="store_true")
+    ap.add_argument("--devine", default=None,
+                    help="chemin d'une image : prédit "
+                         "son contour et imprime le "
+                         "polygone en JSON")
     args = ap.parse_args()
+
+    if args.devine:
+        return devine(args.devine, args.sortie)
 
     print("PHASE Chargement des élites…", flush=True)
     rng = np.random.default_rng(13)
