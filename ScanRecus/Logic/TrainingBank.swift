@@ -476,6 +476,9 @@ final class TrainingBank {
 
     private var progressCache: (size: Int,
                                 value: LassoProgress)?
+    private var memoryCache: (size: Int,
+                              value: [(features: [Double],
+                                       rating: Int)])?
 
     /// Relit les jauges du jeu du lasso dans jeu.jsonl
     /// (cache invalidé par la taille du fichier —
@@ -562,6 +565,132 @@ final class TrainingBank {
         guard let idx = groups.firstIndex(of: photo.group)
         else { return false }
         return idx % 7 == 3
+    }
+
+    /// Une photo d'EXAMEN (build 131) : banc par
+    /// photo (1 sur 7 dans son groupe — comme le
+    /// script du juge) OU banc historique par groupe
+    /// (isBench). Ces photos ne reçoivent aucune
+    /// aide du juge : il ne doit pas être examiné
+    /// sur des candidats qu'il a choisis, et sa
+    /// mémoire ne doit pas apprendre d'elles.
+    func isExamPhoto(sourceNumber: Int) -> Bool {
+        if isBench(sourceNumber: sourceNumber) {
+            return true
+        }
+        guard let photo = photos.first(where: {
+            $0.number == sourceNumber
+        }) else { return false }
+        let inGroup = photos
+            .filter { $0.group == photo.group }
+            .map { $0.number }
+            .sorted()
+        guard let idx = inGroup.firstIndex(
+            of: sourceNumber) else { return false }
+        return idx % 7 == 3
+    }
+
+    /// La mémoire du juge GÉOMÉTRIE (build 131) :
+    /// descripteurs des tentatives du journal
+    /// (fantôme présent, note −1/0/+1, sources
+    /// recherche/sonde/suggestion), HORS photos
+    /// d'examen — la même matière que le k-NN de
+    /// juge.py, pour que le sélecteur de candidats
+    /// juge comme le bulletin mesure. Cache
+    /// invalidé par la taille du journal.
+    func geometryMemory() -> [(features: [Double],
+                               rating: Int)] {
+        let url = root.appendingPathComponent("jeu.jsonl")
+        let size = (try? FileManager.default
+            .attributesOfItem(atPath: url.path))?[.size]
+            as? Int ?? 0
+        if let cache = memoryCache, cache.size == size {
+            return cache.value
+        }
+        var out: [(features: [Double], rating: Int)] = []
+        if let text = try? String(contentsOf: url,
+                                  encoding: .utf8) {
+            for line in text.split(separator: "\n") {
+                guard let data = line.data(using: .utf8),
+                      let obj = try? JSONSerialization
+                        .jsonObject(with: data)
+                        as? [String: Any],
+                      obj["stage"] as? String == "lasso",
+                      let source = obj["source"]
+                        as? String,
+                      ["recherche", "sonde", "suggestion"]
+                        .contains(source),
+                      let rating = (obj["rating"]
+                        as? NSNumber)?.intValue,
+                      [-1, 0, 1].contains(rating),
+                      let sn = (obj["sourceNumber"]
+                        as? NSNumber)?.intValue,
+                      !isExamPhoto(sourceNumber: sn),
+                      let cand = Self.polyJSON(
+                        obj["lasso"]),
+                      let ghost = Self.polyJSON(
+                        obj["ghost"])
+                else { continue }
+                let cycle = (obj["cycle"] as? NSNumber)?
+                    .intValue ?? 0
+                out.append((features: Self.geomFeatures(
+                    cand: cand, ghost: ghost,
+                    cycle: cycle), rating: rating))
+            }
+        }
+        memoryCache = (size, out)
+        return out
+    }
+
+    /// Conversion défensive d'un polygone JSON
+    /// ([[x, y], ...]) en [[Double]].
+    static func polyJSON(_ value: Any?) -> [[Double]]? {
+        guard let arr = value as? [Any] else {
+            return nil
+        }
+        var out: [[Double]] = []
+        for pt in arr {
+            guard let pair = pt as? [Any],
+                  pair.count == 2,
+                  let x = pair[0] as? NSNumber,
+                  let y = pair[1] as? NSNumber
+            else { return nil }
+            out.append([x.doubleValue, y.doubleValue])
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// Les descripteurs géométriques d'une
+    /// tentative — IDENTIQUES à ceux de juge.py (le
+    /// bulletin et le sélecteur parlent la même
+    /// langue) : log du rapport d'aires
+    /// candidat/fantôme, distance des centroïdes,
+    /// écart du nombre de sommets, cycle.
+    static func geomFeatures(cand: [[Double]],
+                             ghost: [[Double]],
+                             cycle: Int) -> [Double] {
+        func area(_ p: [[Double]]) -> Double {
+            var s = 0.0
+            for i in p.indices {
+                let a = p[i]
+                let b = p[(i + 1) % p.count]
+                s += a[0] * b[1] - b[0] * a[1]
+            }
+            return abs(s) / 2
+        }
+        func cen(_ p: [[Double]]) -> (Double, Double) {
+            (p.reduce(0.0) { $0 + $1[0] }
+                / Double(p.count),
+             p.reduce(0.0) { $0 + $1[1] }
+                / Double(p.count))
+        }
+        let cc = cen(cand)
+        let cg = cen(ghost)
+        return [log(max(1e-6, area(cand))
+                    / max(1e-6, area(ghost))),
+                hypot(cc.0 - cg.0, cc.1 - cg.1),
+                Double(cand.count - ghost.count),
+                Double(cycle)]
     }
 
     // MARK: Apprentissage dérivé du journal (contours)

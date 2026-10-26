@@ -35,6 +35,16 @@ import Combine
 ///   photos non jouées d'abord ; une photo bankée
 ///   entre-temps (0 terminaison) passe devant les
 ///   générations suivantes (Grégoire, 2026-10-25).
+/// - SÉLECTION AIDÉE (build 131, Grégoire) : la
+///   recherche génère un paquet de candidats et le
+///   juge GÉOMÉTRIE (k-NN du journal — le seul juge
+///   au-dessus du hasard : kappa 0,64 à l'examen
+///   multi-scènes) choisit celui qu'il prédit le
+///   mieux noté. Jamais sur les photos d'examen ;
+///   choix étiquetés « juge » au journal ; 1 tirage
+///   sur 5 reste libre. Le juge neuronal, lui,
+///   n'agit pas : promu seulement s'il bat la
+///   géométrie à l'examen, par un geste délibéré.
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -77,6 +87,18 @@ final class LassoSession: ObservableObject {
     private var sigma = 0.10
     private var currentProbe: String?
     private var currentSource = "recherche"
+    /// Le candidat affiché a-t-il été choisi par le
+    /// juge géométrie (build 131) ? Il sera étiqueté
+    /// « juge » au journal quand il sera noté.
+    /// Drapeau SÉPARÉ de currentProbe : une sonde
+    /// saute la calibration des pas (wasProbe), un
+    /// choix du juge ne doit pas la sauter.
+    private var aideJuge = false
+    /// La mémoire du juge géométrie, relue du
+    /// journal via la banque aux mêmes moments que
+    /// les jauges — chaque note l'enrichit aussitôt.
+    private var knnMemoire: [(features: [Double],
+                              rating: Int)] = []
     /// La manœuvre choisie pour le prochain
     /// candidat, d'après le COMMENTAIRE reçu :
     /// refermer (+1), ouvrir (−1), autre chose (0),
@@ -126,6 +148,7 @@ final class LassoSession: ObservableObject {
     func prepare(bank: TrainingBank) {
         self.bank = bank
         progress = bank.lassoProgress()
+        knnMemoire = bank.geometryMemory()
         deck = Self.generationDeck(bank: bank,
                                    progress: progress)
         index = 0
@@ -136,7 +159,10 @@ final class LassoSession: ObservableObject {
     }
 
     private func refreshProgress() {
-        if let bank { progress = bank.lassoProgress() }
+        if let bank {
+            progress = bank.lassoProgress()
+            knnMemoire = bank.geometryMemory()
+        }
     }
 
     func nouveauDeck() {
@@ -250,6 +276,7 @@ final class LassoSession: ObservableObject {
         suggestionFloor = 0
         skipProbeOnce = false
         currentProbe = nil
+        aideJuge = false
         guard let entry, let bank else {
             statusText = "Génération terminée. "
                 + "« Nouveau deck » pour la suivante "
@@ -325,7 +352,9 @@ final class LassoSession: ObservableObject {
             group: entry.group, generationAngle: entry.angle,
             cycle: cycle, lasso: Self.pts(current),
             ghost: ghost.map { Self.pts($0) },
-            rating: rating, probe: currentProbe,
+            rating: rating,
+            probe: currentProbe
+                ?? (aideJuge ? "juge" : nil),
             source: currentSource,
             bench: bank.isBench(sourceNumber: srcNum)))
         totalRatings += 1
@@ -448,6 +477,10 @@ final class LassoSession: ObservableObject {
                     + "cadre."
             }
         }
+        if aideJuge {
+            statusText += " Candidat choisi par le "
+                + "juge géométrie."
+        }
     }
 
     /// Termine l'image sans +2 (bouton Next) : l'élite
@@ -535,6 +568,7 @@ final class LassoSession: ObservableObject {
             }
             currentProbe = nil
             currentSource = "suggestion"
+            aideJuge = false
         } else {
             applySuggestion(candidate)
         }
@@ -603,12 +637,14 @@ final class LassoSession: ObservableObject {
         }
         currentProbe = nil
         currentSource = "suggestion"
+        aideJuge = false
     }
 
     // MARK: Génération des candidats
 
     private func makeNextCandidate(afterRating rating: Int,
                                    wasProbe: Bool) -> [CGPoint] {
+        aideJuge = false
         // Doublon aveugle (~9 %) : mesure de cohérence,
         // invisible pour le joueur. Jamais juste après
         // la note d'une suggestion ; la répétition ne
@@ -638,7 +674,15 @@ final class LassoSession: ObservableObject {
             ? (searchBase.isEmpty ? current : searchBase)
             : pendingBase
         let noise = min(0.05, max(0.015, sigma * 0.35))
-        for _ in 0..<8 {
+        // Un PAQUET de candidats sains (build 131) :
+        // avant, le premier sain était servi tel quel
+        // — d'où les propositions « stupides » qui
+        // rendaient le jeu pénible. Le juge géométrie
+        // choisit maintenant dans le paquet, quand il
+        // a le droit de le faire (voir plus bas).
+        var pool: [[CGPoint]] = []
+        for _ in 0..<24 {
+            if pool.count >= 6 { break }
             let candidate: [CGPoint]
             switch maneuver {
             case .close:
@@ -657,15 +701,127 @@ final class LassoSession: ObservableObject {
                                        fallback: nil)
             if checked != candidate
                 || Self.isSane(candidate) {
-                history.append(checked)
-                lastManeuver = maneuver
-                return checked
+                if !pool.contains(checked) {
+                    pool.append(checked)
+                }
             }
         }
-        let fallback = guardrailed(base, fallback: nil)
-        history.append(fallback)
+        if pool.isEmpty {
+            let fallback = guardrailed(base,
+                                        fallback: nil)
+            history.append(fallback)
+            lastManeuver = maneuver
+            return fallback
+        }
+        var chosen = pool[0]
+        // Sélection aidée par le juge géométrie :
+        // interdite sur les photos d'examen (il ne
+        // doit pas être examiné sur ses propres
+        // choix), et 1 fois sur 5 le tirage reste
+        // libre — l'exploration entretient la
+        // diversité des données.
+        if pool.count > 1, let reference = ghost,
+           knnMemoire.count >= 20, let bank, let entry,
+           !bank.isExamPhoto(
+               sourceNumber: bank.photos.first {
+                   $0.id == entry.sourceId
+               }?.number ?? 0) {
+            if Double.random(in: 0..<1) < 0.8,
+               let pick = knnBest(pool: pool,
+                                  reference: reference) {
+                chosen = pick
+                aideJuge = true
+            } else {
+                chosen = pool.randomElement() ?? pool[0]
+            }
+        }
+        history.append(chosen)
         lastManeuver = maneuver
-        return fallback
+        return chosen
+    }
+
+    /// Le choix du juge GÉOMÉTRIE dans le paquet :
+    /// k-NN (k = 7) sur les descripteurs du journal,
+    /// standardisés comme dans juge.py. Retenu : le
+    /// candidat dont la classe prédite est la
+    /// meilleure (+1 > 0 > −1), départagé par la
+    /// part des votes de sa classe.
+    private func knnBest(pool: [[CGPoint]],
+                         reference: [CGPoint])
+        -> [CGPoint]? {
+        let memoire = knnMemoire
+        let n = memoire.count
+        guard n >= 20 else { return nil }
+        var mu = [Double](repeating: 0, count: 4)
+        var sd = [Double](repeating: 0, count: 4)
+        for m in memoire {
+            for j in 0..<4 { mu[j] += m.features[j] }
+        }
+        for j in 0..<4 { mu[j] /= Double(n) }
+        for m in memoire {
+            for j in 0..<4 {
+                let d = m.features[j] - mu[j]
+                sd[j] += d * d
+            }
+        }
+        for j in 0..<4 {
+            sd[j] = sqrt(sd[j] / Double(n))
+            if sd[j] == 0 { sd[j] = 1 }
+        }
+        let zMemoire: [[Double]] = memoire.map { m in
+            (0..<4).map {
+                (m.features[$0] - mu[$0]) / sd[$0]
+            }
+        }
+        let refPts = Self.pts(reference)
+        let k = min(7, n)
+        func prediction(_ cand: [CGPoint])
+            -> (classe: Int, part: Double) {
+            let f = TrainingBank.geomFeatures(
+                cand: Self.pts(cand), ghost: refPts,
+                cycle: cycle + 1)
+            let z = (0..<4).map {
+                (f[$0] - mu[$0]) / sd[$0]
+            }
+            var dists: [(Double, Int)] = []
+            for i in 0..<n {
+                var dd = 0.0
+                for j in 0..<4 {
+                    let dz = zMemoire[i][j] - z[j]
+                    dd += dz * dz
+                }
+                dists.append((sqrt(dd),
+                              memoire[i].rating))
+            }
+            dists.sort { $0.0 < $1.0 }
+            var votes: [Int: Int] = [:]
+            for i in 0..<k {
+                votes[dists[i].1, default: 0] += 1
+            }
+            var bestClasse = -1
+            var bestVotes = -1
+            for (classe, v) in votes {
+                if v > bestVotes
+                    || (v == bestVotes
+                        && classe > bestClasse) {
+                    bestVotes = v
+                    bestClasse = classe
+                }
+            }
+            return (bestClasse,
+                    Double(bestVotes) / Double(k))
+        }
+        var bestPoly: [CGPoint]? = nil
+        var bestScore = -Double.infinity
+        for cand in pool {
+            let pr = prediction(cand)
+            let score = Double(pr.classe) + pr.part
+            if score > bestScore {
+                bestScore = score
+                bestPoly = cand
+            }
+        }
+        return bestPoly
     }
 
     /// « ESSAIE AUTRE CHOSE » (note 0) : changer de
