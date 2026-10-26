@@ -40,12 +40,26 @@ Protocole (hygiène anti-mémorisation) :
     sur une photo. Le groupe historique du banc
     (groupe 5) reste tenu à l'écart de l'entraînement
     et forme l'« examen strict », rapporté à part.
+    Depuis le build 126, le juge est en version v1 :
+    (1) ses entrées sont RECADRÉES sur la zone jugée
+    (boîte fantôme ∪ candidat, marge de 35 %) au
+    lieu de la photo entière — le bulletin du
+    2026-10-25 (examen principal : accord 44 %,
+    kappa 0,07, comportement opposé selon la
+    scène) a montré que sur la photo entière, le
+    juge reconnaît la photo et sa saveur de
+    verdicts au lieu de juger le cadre ; (2)
+    l'entraînement est ÉQUILIBRÉ PAR PHOTO
+    (échantillonnage pondéré : chaque photo pèse
+    le même total, quelle que soit la longueur de
+    sa séance — ex. 47 tentatives pour une photo,
+    2 pour une autre).
   - Entraînement : tentatives bench = false UNIQUEMENT.
   - Bulletin : tentatives bench = true UNIQUEMENT, images
     telles que servies (aucune augmentation sur l'examen).
-  - Augmentation (entraînement seulement) : translations et
-    échelles légères, appliquées identiquement à l'image et
-    aux deux polygones. Aucun flip (le texte des reçus n'est
+  - Augmentation (entraînement seulement) : tremblement
+    de la fenêtre de recadrage (décalage et échelle
+    légère). Aucun flip (le texte des reçus n'est
     jamais miroir dans la vraie banque).
 
 Sorties : bulletin imprimé + bulletin.json + juge-v0.pt.
@@ -107,30 +121,54 @@ def load_attempts(journal_path):
     return attempts
 
 
-def render_sample(img_path, ghost, cand, jitter=None, rng=None):
+def render_sample(img_path, ghost, cand, crop_jitter=False,
+                  rng=None):
     """Retourne un tenseur numpy (5, SIZE, SIZE) float32 :
-    RGB + masque fantôme + masque candidat."""
+    RGB + masque fantôme + masque candidat.
+
+    Juge v1 (build 126) : l'entrée est RECADRÉE sur la
+    zone jugée — la boîte englobante du fantôme et du
+    candidat, élargie d'une marge de 35 % — au lieu de
+    la photo entière. Le recadrage retire au juge
+    l'identité de la scène (table, séance) et le force
+    à regarder le rapport entre la ligne du cadre et
+    le bord du papier dans la zone utile.
+    L'augmentation (entraînement seulement) est un
+    tremblement de la fenêtre de recadrage : décalage
+    et échelle légère, tirés de rng."""
     img = Image.open(img_path).convert("RGB")
     W, H = img.size
     g = [(x * W, y * H) for x, y in ghost]
     c = [(x * W, y * H) for x, y in cand]
-    if jitter is not None:
-        # Translation identique pour l'image et les deux
-        # polygones : le jugement reste valide, seule la
-        # position absolue change.
-        dx = jitter[0] * W
-        dy = jitter[1] * H
-        img = img.transform(
-            (W, H), Image.AFFINE, (1, 0, -dx, 0, 1, -dy),
-            resample=Image.BILINEAR, fillcolor=(0, 0, 0))
-        g = [(x + dx, y + dy) for x, y in g]
-        c = [(x + dx, y + dy) for x, y in c]
+    xs = [q[0] for q in g + c]
+    ys = [q[1] for q in g + c]
+    x0, x1 = min(xs), max(xs)
+    y0, y1 = min(ys), max(ys)
+    bw, bh = max(1.0, x1 - x0), max(1.0, y1 - y0)
+    X0, Y0 = x0 - 0.35 * bw, y0 - 0.35 * bh
+    X1, Y1 = x1 + 0.35 * bw, y1 + 0.35 * bh
+    if crop_jitter and rng is not None:
+        ww, hh = X1 - X0, Y1 - Y0
+        cx = (X0 + X1) / 2 + rng.uniform(-0.06, 0.06) * ww
+        cy = (Y0 + Y1) / 2 + rng.uniform(-0.06, 0.06) * hh
+        sc = rng.uniform(0.92, 1.08)
+        ww, hh = ww * sc, hh * sc
+        X0, X1 = cx - ww / 2, cx + ww / 2
+        Y0, Y1 = cy - hh / 2, cy + hh / 2
+    X0 = int(max(0.0, min(X0, W - 2.0)))
+    Y0 = int(max(0.0, min(Y0, H - 2.0)))
+    X1 = int(max(float(X0 + 1), min(X1, float(W))))
+    Y1 = int(max(float(Y0 + 1), min(Y1, float(H))))
+    img = img.crop((X0, Y0, X1, Y1))
     img = img.resize((SIZE, SIZE), Image.BILINEAR)
-    scale = SIZE / W, SIZE / H
+    def to_grid(poly):
+        return [((x - X0) / (X1 - X0) * SIZE,
+                 (y - Y0) / (Y1 - Y0) * SIZE)
+                for x, y in poly]
     def mask(poly):
         m = Image.new("F", (SIZE, SIZE), 0.0)
         d = ImageDraw.Draw(m)
-        sp = [(x * scale[0], y * scale[1]) for x, y in poly]
+        sp = to_grid(poly)
         d.polygon(sp, fill=0.30)
         d.line(sp + [sp[0]], fill=1.0, width=2)
         return np.asarray(m, dtype=np.float32)
@@ -325,14 +363,21 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
         return a.get("_path") or resolve(a["file"])
 
     print("PHASE préparation des exemples", flush=True)
-    Xtr, ytr = [], []
+    # Équilibrage par photo (juge v1) : chaque photo
+    # pèse le même poids total dans l'entraînement,
+    # quelle que soit la longueur de sa séance.
+    photo_counts = collections.Counter(
+        a.get("sn") for a in train)
+    Xtr, ytr, wtr = [], [], []
     total_tr = max(1, len(train))
     for idx, a in enumerate(train):
-        variants = [None, (0.02, -0.015), (-0.018, 0.022)]
-        for j in variants:
+        pw = 1.0 / photo_counts[a.get("sn")]
+        for j in (False, True, True):
             Xtr.append(render_sample(path_of(a), a["ghost"],
-                                     a["cand"], jitter=j, rng=rng))
+                                     a["cand"], crop_jitter=j,
+                                     rng=rng))
             ytr.append(CLASSES.index(a["rating"]))
+            wtr.append(pw)
         if idx % 5 == 0:
             print(f"PROGRES {int(15 * idx / total_tr)}",
                   flush=True)
@@ -387,13 +432,18 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     opt = torch.optim.Adam(net.parameters(), lr=1e-3,
                            weight_decay=1e-4)
     n = len(Xtr)
+    probs = np.array(wtr, dtype=np.float64)
+    probs = probs / probs.sum()
+    np_rng = np.random.default_rng(seed)
     dernier = [20]
     for ep in range(epochs):
         print(f"PHASE époque {ep + 1}/{epochs}", flush=True)
         net.train()
-        perm = torch.randperm(n)
+        perm = torch.tensor(
+            np_rng.choice(n, size=n, replace=True, p=probs),
+            dtype=torch.long)
         for i in range(0, n, 32):
-            idx = perm[i:i + 32]
+            idx = perm[i:i + 32].to(dev)
             opt.zero_grad()
             loss = lossf(net(Xtr[idx]), ytr[idx])
             loss.backward()
@@ -499,7 +549,7 @@ def main():
           f"accord {acc_l:.0%} · kappa {kap_l:.2f}")
     print(f"juge géométrie seule (k-NN)      : "
           f"accord {acc_k:.0%} · kappa {kap_k:.2f}")
-    print(f"juge v0 (voit l'image)           : "
+    print(f"juge v1 (recadré, voit la zone)  : "
           f"accord {acc_n:.0%} · kappa {kap_n:.2f}")
     for cl in CLASSES:
         ok, tot = per[cl]
@@ -524,6 +574,9 @@ def main():
                         "per_class": {
                             str(k): v for k, v in p_n.items()}}}
     out = {"appareil": DEVICE,
+           "juge_version": "v1-recadre-equilibre-par-photo",
+           "n_photos_train": len({a.get("sn") for a in train
+                                  if a.get("sn") is not None}),
            "banc_photos": sorted(bench_photos),
            "strict": bloc_strict,
            "genere": datetime.datetime.now().isoformat(
