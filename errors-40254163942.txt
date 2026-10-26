@@ -1,0 +1,1 @@
+654:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/JugeView.swift:116:49: error: the compiler is unable to type-check this expression in reasonable time; try breaking up the expression into distinct sub-expressions
