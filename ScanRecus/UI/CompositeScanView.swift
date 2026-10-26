@@ -669,13 +669,15 @@ struct CompositeScanView: View {
                     .controlSize(.large)
                     .keyboardShortcut("n", modifiers: [])
                 Button("Nouveau deck") {
-                    lasso.reshuffle()
+                    lasso.nouveauDeck()
                 }
             }
             .disabled(lasso.current.isEmpty)
             Text(lasso.statsText)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)
+            Text(lasso.generationText)
+                .font(.system(size: 13, weight: .medium))
             if let note = lasso.lastRating {
                 Text("✓ Note enregistrée : "
                     + (note > 0 ? "+\(note)" : "\(note)"))

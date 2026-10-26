@@ -191,6 +191,15 @@ struct LassoProgress {
     var sondesIdentiques = 0
     var sondesIdentiquesOK = 0
     var cyclesMedian: Int?
+    /// Registre des générations (Grégoire,
+    /// 2026-10-25) : terminaisons par photo — une
+    /// image compte comme jouée si elle s'est
+    /// terminée avec engagement (+2, ou Next après
+    /// au moins un cycle de notes) — et l'ordre de
+    /// ces terminaisons (pour servir la plus
+    /// ancienne d'abord à génération égale).
+    var completionsParPhoto: [Int: Int] = [:]
+    var dernieresTerminaisons: [Int] = []
     var coherencePct: Int? {
         guard sondesIdentiques > 0 else { return nil }
         return Int((100.0 * Double(sondesIdentiquesOK)
@@ -512,6 +521,21 @@ final class TrainingBank {
                     if let c = (obj["cycles"]
                         as? NSNumber)?.intValue {
                         cycles.append(c)
+                    }
+                    if let sn = (obj["sourceNumber"]
+                        as? NSNumber)?.intValue {
+                        let had = (obj["hadPlusTwo"]
+                            as? NSNumber)?.boolValue
+                            ?? false
+                        let cyc = (obj["cycles"]
+                            as? NSNumber)?.intValue
+                            ?? 0
+                        if had || cyc >= 1 {
+                            prog.completionsParPhoto[
+                                sn, default: 0] += 1
+                            prog.dernieresTerminaisons
+                                .append(sn)
+                        }
                     }
                 }
             }

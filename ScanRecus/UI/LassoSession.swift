@@ -28,6 +28,13 @@ import Combine
 ///   carré de 100 px de côté (pixels de l'image) ;
 /// - le banc figé (1 reçu sur 7, par groupe) est
 ///   drapeau-isé dans chaque enregistrement.
+/// - le paquet sert les photos ORIGINALES (jamais
+///   les copies tournées — du stock mécanique, pas
+///   du temps de jeu) dans l'ordre des GÉNÉRATIONS :
+///   registre des terminaisons relu du journal,
+///   photos non jouées d'abord ; une photo bankée
+///   entre-temps (0 terminaison) passe devant les
+///   générations suivantes (Grégoire, 2026-10-25).
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -118,12 +125,13 @@ final class LassoSession: ObservableObject {
 
     func prepare(bank: TrainingBank) {
         self.bank = bank
-        deck = bank.derived.shuffled()
+        progress = bank.lassoProgress()
+        deck = Self.generationDeck(bank: bank,
+                                   progress: progress)
         index = 0
         imagesDone = 0
         totalRatings = 0
         lastRating = nil
-        progress = bank.lassoProgress()
         loadCurrent()
     }
 
@@ -131,9 +139,96 @@ final class LassoSession: ObservableObject {
         if let bank { progress = bank.lassoProgress() }
     }
 
-    func reshuffle() {
+    func nouveauDeck() {
         guard let bank else { return }
         prepare(bank: bank)
+    }
+
+    /// L'ordre des générations (fonction pure) :
+    /// d'abord les photos les moins terminées ; à
+    /// égalité, celle terminée il y a le plus
+    /// longtemps (jamais = -1, donc en tête de son
+    /// niveau) ; puis le numéro de photo.
+    static func generationOrder(
+        _ items: [(number: Int, done: Int, last: Int)]
+    ) -> [Int] {
+        items.sorted { a, b in
+            if a.done != b.done { return a.done < b.done }
+            if a.last != b.last { return a.last < b.last }
+            return a.number < b.number
+        }.map { $0.number }
+    }
+
+    /// Le paquet : UNE entrée par photo — la photo
+    /// ORIGINALE, synthétisée en entrée de paquet —
+    /// dans l'ordre des générations.
+    static func generationDeck(
+        bank: TrainingBank, progress: LassoProgress
+    ) -> [BankDerived] {
+        var lastMap: [Int: Int] = [:]
+        for (i, sn) in progress.dernieresTerminaisons
+            .enumerated() {
+            lastMap[sn] = i
+        }
+        let items: [(number: Int, done: Int,
+                      last: Int)] = bank.photos.map {
+            photo in
+            (number: photo.number,
+             done: progress.completionsParPhoto[
+                photo.number] ?? 0,
+             last: lastMap[photo.number] ?? -1)
+        }
+        let byNumber = Dictionary(
+            uniqueKeysWithValues: bank.photos.map {
+                ($0.number, $0) })
+        return generationOrder(items).compactMap { num in
+            guard let photo = byNumber[num] else {
+                return nil
+            }
+            return BankDerived(
+                id: photo.id + "#orig",
+                sourceId: photo.id,
+                group: photo.group,
+                angle: 0,
+                sha256: photo.sha256,
+                file: photo.file,
+                width: photo.width,
+                height: photo.height,
+                ts: photo.ts)
+        }
+    }
+
+    /// L'étiquette « Génération » du panneau de jeu :
+    /// la génération de la photo affichée (sa 1re,
+    /// 2e… partie), les photos encore à jouer dans
+    /// cette génération, et l'état de la banque —
+    /// pour savoir quand une génération complète
+    /// est bouclée.
+    var generationText: String {
+        guard let bank else { return "" }
+        let total = bank.photos.count
+        let done = progress.completionsParPhoto
+        let playedOnce = done.filter {
+            $0.value >= 1
+        }.count
+        guard let entry,
+              let photo = bank.photos.first(where: {
+                  $0.id == entry.sourceId })
+        else {
+            let m = done.values.min() ?? 0
+            return "Chaque photo jouée au moins "
+                + "\(m) fois · \(total) photos en "
+                + "banque — « Nouveau deck » pour la "
+                + "génération \(m + 1)"
+        }
+        let g = (done[photo.number] ?? 0) + 1
+        let restantes = bank.photos.filter {
+            (done[$0.number] ?? 0) < g
+        }.count
+        return "Génération \(g) · \(restantes) "
+            + "photo(s) à jouer dans cette "
+            + "génération · \(playedOnce)/\(total) "
+            + "photos jouées au moins une fois"
     }
 
     // MARK: Chargement d'une image
@@ -156,8 +251,10 @@ final class LassoSession: ObservableObject {
         skipProbeOnce = false
         currentProbe = nil
         guard let entry, let bank else {
-            statusText = "Deck terminé. « Nouveau deck » "
-                + "pour rejouer."
+            statusText = "Génération terminée. "
+                + "« Nouveau deck » pour la suivante "
+                + "— les photos nouvelles passeront "
+                + "en premier."
             return
         }
         statusText = "Chargement de l'image…"
@@ -364,8 +461,9 @@ final class LassoSession: ObservableObject {
     /// on avance à la suivante. Chaque note étant déjà
     /// journalisée à la seconde où elle est donnée,
     /// quitter l'app ne perd rien ; et reprendre plus
-    /// tard = un deck neuf, mélangé (prepare), donc une
-    /// image au hasard pour recommencer.
+    /// tard = un paquet reconstruit par prepare selon
+    /// le registre des générations, qui ressert
+    /// d'abord les photos non jouées.
     private func finishImage(elite: [CGPoint],
                              hadPlusTwo: Bool) {
         guard let entry, let bank else { return }
