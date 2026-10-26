@@ -112,12 +112,13 @@ struct JugeView: View {
         let nT = (b["n_train"] as? NSNumber)?.intValue ?? 0
         let app = (b["appareil"] as? String) ?? "?"
         let ep = (b["epochs"] as? NSNumber)?.intValue
+        let epTxt = ep != nil ? ", \(ep!) époques" : ""
+        let titre = "Bulletin — banc figé (\(nB) "
+            + "exemples d'examen, \(nT) "
+            + "d'entraînement, appareil : \(app)"
+            + epTxt + ")"
         return VStack(alignment: .leading, spacing: 2) {
-            Text("Bulletin — banc figé (\(nB) exemples "
-                 + "d'examen, \(nT) d'entraînement, "
-                 + "appareil : \(app)"
-                 + (ep != nil ? ", \(ep!) époques" : "")
-                 + ")")
+            Text(titre)
                 .font(.system(size: 12, weight: .semibold))
             Text(ligne("Juge paresseux", "lazy"))
             Text(ligne("Juge géométrie seule", "knn_geom"))
