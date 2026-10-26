@@ -32,6 +32,14 @@ Protocole (hygiène anti-mémorisation) :
     L'EXAMEN (banc) reste composé uniquement de
     propositions machine — c'est le vrai travail du
     juge qu'on y mesure.
+    Depuis le build 124, le banc est recalculé par
+    le script depuis le manifeste, PAR PHOTO (1 sur
+    7 dans chaque groupe de reçus) : l'ancien banc
+    par groupe ne retenait qu'un seul reçu (9
+    groupes seulement), et l'examen entier tenait
+    sur une photo. Le groupe historique du banc
+    (groupe 5) reste tenu à l'écart de l'entraînement
+    et forme l'« examen strict », rapporté à part.
   - Entraînement : tentatives bench = false UNIQUEMENT.
   - Bulletin : tentatives bench = true UNIQUEMENT, images
     telles que servies (aucune augmentation sur l'examen).
@@ -94,6 +102,7 @@ def load_attempts(journal_path):
             "bench": bool(r.get("bench")),
             "cycle": int(r.get("cycle", 0)),
             "source": r.get("source"),
+            "sn": r.get("sourceNumber"),
         })
     return attempts
 
@@ -208,6 +217,45 @@ def synthetic_dataset(n=240, seed=7):
     return samples
 
 
+def bench_sets(racine):
+    """(photos du banc par photo, photos de
+    l'examen strict) depuis le manifeste de la
+    banque. Banc par photo : dans chaque groupe,
+    les photos d'indice %7 == 3 (triées par
+    numéro). Examen strict : le ou les groupes
+    d'indice %7 == 3 dans la liste triée des
+    groupes (le découpage historique)."""
+    man = os.path.join(racine, "banque.jsonl")
+    photos = {}
+    if not os.path.exists(man):
+        return set(), set()
+    for line in open(man):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r = json.loads(line)
+        except Exception:
+            continue
+        if r.get("type") == "photo":
+            e = r["photo"]
+            photos[e["number"]] = e["group"]
+    by_group = {}
+    for n, g in photos.items():
+        by_group.setdefault(g, []).append(n)
+    bench = set()
+    for ns in by_group.values():
+        for i, n in enumerate(sorted(ns)):
+            if i % 7 == 3:
+                bench.add(n)
+    groups = sorted(by_group)
+    strict_groups = {g for i, g in enumerate(groups)
+                     if i % 7 == 3}
+    strict = {n for n, g in photos.items()
+              if g in strict_groups}
+    return bench, strict
+
+
 # ---------------- Baselines -------------------------
 def geom_features(a):
     def area(p):
@@ -266,7 +314,7 @@ def metrics(y_true, y_pred):
 DEVICE = "cpu"
 
 def train_and_eval(train, test, resolve, epochs=40, seed=11,
-                   smoke=False, sortie="."):
+                   smoke=False, sortie=".", extra=None):
     import torch
     import torch.nn as nn
     torch.manual_seed(seed)
@@ -297,11 +345,19 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
         if idx % 5 == 0:
             print(f"PROGRES {15 + int(5 * idx / total_te)}",
                   flush=True)
+    Xte2 = []
+    if extra:
+        for a in extra:
+            Xte2.append(render_sample(path_of(a),
+                                      a["ghost"],
+                                      a["cand"]))
     print("PROGRES 20", flush=True)
     yte = [CLASSES.index(a["rating"]) for a in test]
     Xtr = torch.tensor(np.stack(Xtr)).to(dev)
     ytr = torch.tensor(ytr).to(dev)
     Xte = torch.tensor(np.stack(Xte)).to(dev)
+    if Xte2:
+        Xte2 = torch.tensor(np.stack(Xte2)).to(dev)
 
     class Net(nn.Module):
         def __init__(self):
@@ -349,9 +405,12 @@ def train_and_eval(train, test, resolve, epochs=40, seed=11,
     net.eval()
     with torch.no_grad():
         pred = net(Xte).argmax(1).tolist()
+        pred2 = (net(Xte2).argmax(1).tolist()
+                 if Xte2 else None)
     torch.save(net.state_dict(),
                os.path.join(sortie, "juge-modele.pt"))
-    return [CLASSES[i] for i in pred]
+    return ([CLASSES[i] for i in pred],
+            [CLASSES[i] for i in pred2] if pred2 else None)
 
 
 def main():
@@ -384,14 +443,32 @@ def main():
         attempts = load_attempts(os.path.join(
             args.racine, "jeu.jsonl"))
         resolve = build_resolver(args.racine)
-    train = [a for a in attempts if not a["bench"]]
+    bench_photos, strict_photos = (
+        (set(), set()) if args.smoke
+        else bench_sets(args.racine))
+    def in_bench(a):
+        if bench_photos:
+            return a.get("sn") in bench_photos
+        return a["bench"]
+    def in_strict(a):
+        if strict_photos:
+            return a.get("sn") in strict_photos
+        return a["bench"]
+    train = [a for a in attempts
+             if not in_bench(a) and not in_strict(a)]
     test = [a for a in attempts
-            if a["bench"]
+            if in_bench(a)
             and a.get("source") != "suggestion"]
+    strict = [a for a in attempts
+              if in_strict(a)
+              and a.get("source") != "suggestion"]
     n_sugg = sum(1 for a in train
                  if a.get("source") == "suggestion")
     print(f"suggestions incluses à l'entraînement : "
           f"{n_sugg}", flush=True)
+    if bench_photos:
+        print(f"photos du banc : "
+              f"{sorted(bench_photos)}", flush=True)
     print(f"tentatives jugeables : {len(attempts)} "
           f"(entraînement {len(train)} · banc {len(test)})")
     print(f"distribution entraînement : "
@@ -409,10 +486,10 @@ def main():
     acc_l, kap_l, _ = metrics(y_true, lazy)
     pred_knn = knn_predict(train, test)
     acc_k, kap_k, _ = metrics(y_true, pred_knn)
-    pred_net = train_and_eval(train, test, resolve,
-                              epochs=args.epochs,
-                              smoke=args.smoke,
-                              sortie=args.sortie)
+    pred_net, pred_strict = train_and_eval(
+        train, test, resolve, epochs=args.epochs,
+        smoke=args.smoke, sortie=args.sortie,
+        extra=strict)
     acc_n, kap_n, per = metrics(y_true, pred_net)
 
     print("PROGRES 100", flush=True)
@@ -427,7 +504,27 @@ def main():
         ok, tot = per[cl]
         print(f"  classe {cl:+d} : {ok}/{tot} retrouvées")
     import datetime
+    bloc_strict = None
+    if strict and pred_strict is not None:
+        y_s = [a["rating"] for a in strict]
+        a_l, k_l, _ = metrics(y_s, [majority] * len(y_s))
+        a_k, k_k, _ = metrics(y_s, knn_predict(train, strict))
+        a_n, k_n, p_n = metrics(y_s, pred_strict)
+        print("\n===== EXAMEN STRICT (groupe historique, "
+              "jamais entraîné) =====")
+        print(f"exemples : {len(y_s)} · juge : accord "
+              f"{a_n:.0%} · kappa {k_n:.2f} · paresseux "
+              f"{a_l:.0%} · géométrie {a_k:.0%}")
+        bloc_strict = {
+            "n": len(y_s),
+            "lazy": {"acc": a_l, "kappa": k_l},
+            "knn_geom": {"acc": a_k, "kappa": k_k},
+            "juge_v0": {"acc": a_n, "kappa": k_n,
+                        "per_class": {
+                            str(k): v for k, v in p_n.items()}}}
     out = {"appareil": DEVICE,
+           "banc_photos": sorted(bench_photos),
+           "strict": bloc_strict,
            "genere": datetime.datetime.now().isoformat(
                timespec="seconds"),
            "n_train": len(train), "n_bench": len(test),
