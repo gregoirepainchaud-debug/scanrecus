@@ -45,6 +45,11 @@ import Combine
 ///   sur 5 reste libre. Le juge neuronal, lui,
 ///   n'agit pas : promu seulement s'il bat la
 ///   géométrie à l'examen, par un geste délibéré.
+///   (Build 132 : paquet DIVERSIFIÉ — foulées
+///   échelonnées de 0,5× à 1,9× la foulée courante.
+///   Au premier soir du sélecteur, les 6 candidats
+///   quasi frères rendaient son choix presque
+///   aléatoire : 73 % de « mal » sur ses choix.)
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -673,29 +678,42 @@ final class LassoSession: ObservableObject {
         let base = pendingBase.isEmpty
             ? (searchBase.isEmpty ? current : searchBase)
             : pendingBase
-        let noise = min(0.05, max(0.015, sigma * 0.35))
         // Un PAQUET de candidats sains (build 131) :
         // avant, le premier sain était servi tel quel
         // — d'où les propositions « stupides » qui
         // rendaient le jeu pénible. Le juge géométrie
         // choisit maintenant dans le paquet, quand il
         // a le droit de le faire (voir plus bas).
+        // DIVERSIFIÉ au build 132 : les foulées sont
+        // échelonnées (0,5× à 1,9× la foulée
+        // courante) — au premier soir, les 6 quasi-
+        // frères aux descripteurs confondus rendaient
+        // le choix du juge presque aléatoire. Choisir
+        // la foulée fait partie du jugement de la
+        // machine (sémantique des notes de Grégoire).
+        let echelons: [Double] = [0.5, 0.75, 1.0, 1.0,
+                                  1.4, 1.9]
         var pool: [[CGPoint]] = []
-        for _ in 0..<24 {
+        for essai in 0..<36 {
             if pool.count >= 6 { break }
+            let mult = echelons[essai % echelons.count]
+            let foulée = min(0.45, sigma * mult)
+            let noise = min(0.05,
+                            max(0.015, foulée * 0.35))
             let candidate: [CGPoint]
             switch maneuver {
             case .close:
                 candidate = Self.closedIn(
-                    base, stride: sigma, noise: noise)
+                    base, stride: foulée, noise: noise)
             case .open:
                 candidate = Self.opened(
-                    base, stride: sigma, noise: noise)
+                    base, stride: foulée, noise: noise)
             case .other:
                 candidate = otherCandidate(
                     base: base, noise: noise)
             case .none:
-                candidate = Self.perturb(base, sigma: 0.05)
+                candidate = Self.perturb(
+                    base, sigma: 0.05 * mult)
             }
             let checked = guardrailed(candidate,
                                        fallback: nil)
