@@ -676,6 +676,11 @@ struct CompositeScanView: View {
                 Button("Nouveau deck") {
                     lasso.nouveauDeck()
                 }
+                Button(lasso.modeRevision
+                       ? "Retour au jeu"
+                       : "Réviser mes élites") {
+                    lasso.basculerRevision()
+                }
             }
             .disabled(lasso.current.isEmpty)
             Text(lasso.statsText)

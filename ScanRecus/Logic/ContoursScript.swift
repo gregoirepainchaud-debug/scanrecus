@@ -171,7 +171,15 @@ def load_elites(journal_path):
             "lasso": [(float(p[0]), float(p[1]))
                       for p in lasso],
         })
-    return out
+    # Dernière élite par fichier (build 136) : le
+    # mode Révision du jeu ajoute une nouvelle
+    # ligne pour le même fichier servi — c'est
+    # elle qui fait foi, l'ancienne est remplacée
+    # (le journal, lui, garde tout).
+    par_fichier = {}
+    for e in out:
+        par_fichier[e["file"]] = e
+    return list(par_fichier.values())
 
 
 # ---------------- Images / masques ----------------
@@ -504,25 +512,69 @@ def train_and_eval(train_xy, dev_items, banc_items,
 
 # ---------------- Proposition (mode devine) ----
 
-def mask_to_polygon(mask_bool, rays=72,
-                    max_vertices=24):
-    """Masque -> polygone ordonné. Un reçu est
-    convexe : depuis le centroïde du masque, on
-    lance des rayons et on garde le point du
-    masque le plus lointain sur chacun — un
-    polygone ordonné par construction. Puis
-    simplification de Douglas-Peucker jusqu'à
-    au plus `max_vertices` sommets (min 4)."""
+def _largest_component(mask):
+    """Ne garde que la plus grande composante
+    connexe (8-connexité) du masque. Les îlots
+    parasites — quelques pixels faux positifs
+    loin du reçu — devenaient des pics
+    aberrants dans le polygone servi (retour
+    terrain de Grégoire, build 136)."""
+    from collections import deque
+    H, W = mask.shape
+    seen = np.zeros((H, W), dtype=bool)
+    best = []
+    ys, xs = np.nonzero(mask)
+    for y0, x0 in zip(ys.tolist(), xs.tolist()):
+        if seen[y0, x0]:
+            continue
+        comp = []
+        dq = deque([(y0, x0)])
+        seen[y0, x0] = True
+        while dq:
+            y, x = dq.popleft()
+            comp.append((y, x))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < H and 0 <= nx < W \
+                            and mask[ny, nx] \
+                            and not seen[ny, nx]:
+                        seen[ny, nx] = True
+                        dq.append((ny, nx))
+        if len(comp) > len(best):
+            best = comp
+    out = np.zeros((H, W), dtype=bool)
+    for y, x in best:
+        out[y, x] = True
+    return out
+
+
+def mask_to_polygon(mask_bool, rays=144,
+                    max_vertices=28):
+    """Masque -> polygone ordonné (build 136 :
+    extraction renforcée). Un reçu est convexe :
+    depuis le centroïde de sa plus grande
+    composante connexe, on lance des rayons et
+    on garde le point du masque le plus lointain
+    sur chacun — un polygone ordonné par
+    construction. Le profil des rayons est
+    ensuite lissé (médiane circulaire) : un
+    rayon qui dépasse ses voisins de plus de
+    30 % est ramené à la médiane — le contour
+    d'un reçu est régulier, un pic ne l'est
+    pas. Puis simplification de Douglas-Peucker
+    douce jusqu'à au plus `max_vertices`
+    sommets (min 4)."""
+    mask_bool = _largest_component(mask_bool)
     ys, xs = np.nonzero(mask_bool)
     if len(xs) < 50:
         return None
     cx, cy = xs.mean(), ys.mean()
     H, W = mask_bool.shape
-    pts = []
+    radii = [None] * rays
     for k in range(rays):
         th = 2 * math.pi * k / rays
         dx, dy = math.cos(th), math.sin(th)
-        best = None
         r = 0.0
         while True:
             r += 1.0
@@ -531,15 +583,42 @@ def mask_to_polygon(mask_bool, rays=72,
             if not (0 <= x < W and 0 <= y < H):
                 break
             if mask_bool[y, x]:
-                best = (x, y)
-        if best is not None:
-            pts.append((best[0] / W, best[1] / H))
-    if len(pts) < 4:
+                radii[k] = r
+    present = [k for k in range(rays)
+               if radii[k] is not None]
+    if len(present) < rays // 2:
         return None
+    # Rayons sans touche : recopier le plus
+    # proche voisin présent (circulaire).
+    for k in range(rays):
+        if radii[k] is None:
+            for d in range(1, rays):
+                if radii[(k - d) % rays] is not None:
+                    radii[k] = radii[(k - d) % rays]
+                    break
+                if radii[(k + d) % rays] is not None:
+                    radii[k] = radii[(k + d) % rays]
+                    break
+    # Médiane circulaire (fenêtre 5) + rappel des
+    # rayons aberrants à la médiane locale.
+    med = []
+    for k in range(rays):
+        w = sorted(radii[(k + j) % rays]
+                   for j in (-2, -1, 0, 1, 2))
+        med.append(w[2])
+    pts = []
+    for k in range(rays):
+        r = radii[k]
+        if med[k] > 0 and r > 1.30 * med[k]:
+            r = med[k]
+        th = 2 * math.pi * k / rays
+        pts.append(((cx + math.cos(th) * r) / W,
+                    (cy + math.sin(th) * r) / H))
     # Dédoublonner les points consécutifs proches.
     dedup = [pts[0]]
     for p in pts[1:]:
-        if abs(p[0] - dedup[-1][0]) > 1e-4 or            abs(p[1] - dedup[-1][1]) > 1e-4:
+        if abs(p[0] - dedup[-1][0]) > 1e-4 or \
+                abs(p[1] - dedup[-1][1]) > 1e-4:
             dedup.append(p)
     if len(dedup) < 4:
         return None
@@ -587,7 +666,7 @@ def _douglas_peucker(pts, max_vertices):
             + (pts[i][1] - pts[0][1]) ** 2)
     chain1 = pts[:j + 1]
     chain2 = pts[j:] + [pts[0]]
-    eps = 0.002
+    eps = 0.0015
     for _ in range(24):
         out = dp(chain1, eps)[:-1] + dp(chain2, eps)[:-1]
         if len(out) <= max_vertices:

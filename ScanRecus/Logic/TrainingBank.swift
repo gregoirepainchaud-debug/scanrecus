@@ -495,6 +495,39 @@ final class TrainingBank {
     }
 
     /// Journalise l'élite d'une image (bouton Next).
+    /// Les dernières élites par fichier servi
+    /// (build 136) : relit jeu.jsonl et garde,
+    /// pour chaque fichier, la ligne lasso-elite
+    /// la plus récente — la matière du mode
+    /// Révision du jeu (et le miroir de ce que
+    /// contours.py retiendra à l'entraînement).
+    func dernieresElites() -> [String: [[Double]]] {
+        var out: [String: [[Double]]] = [:]
+        let url = root.appendingPathComponent("jeu.jsonl")
+        guard let text = try? String(contentsOf: url,
+                                     encoding: .utf8)
+        else { return out }
+        for line in text.split(separator: "\n") {
+            guard let data = line.data(using: .utf8),
+                  let obj = try? JSONSerialization
+                    .jsonObject(with: data)
+                    as? [String: Any],
+                  obj["stage"] as? String == "lasso-elite",
+                  let file = obj["file"] as? String,
+                  let lasso = obj["lasso"]
+                    as? [[NSNumber]]
+            else { continue }
+            let pts = lasso.compactMap {
+                q -> [Double]? in
+                q.count == 2
+                    ? [q[0].doubleValue, q[1].doubleValue]
+                    : nil
+            }
+            if pts.count >= 4 { out[file] = pts }
+        }
+        return out
+    }
+
     func appendLassoElite(_ elite: LassoElite) {
         guard let data = try? JSONEncoder().encode(elite)
         else { return }

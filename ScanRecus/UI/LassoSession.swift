@@ -63,6 +63,16 @@ import Combine
 ///   AFFICHÉ au statut, jamais silencieux : au
 ///   build 134, le script périmé de l'atelier
 ///   faisait échouer tous les appels sans trace.)
+/// - RÉVISION DES ÉLITES (build 136) : mode où
+///   le paquet = les photos qui ont une élite ;
+///   l'ouverture montre la DERNIÈRE élite par
+///   fichier, modifiable ; +2 ou Next
+///   enregistrent la version corrigée, qui
+///   remplace l'ancienne à l'entraînement
+///   (contours.py ne garde que la dernière).
+///   Convention de Grégoire (2026-10-26) : le
+///   contour du reçu complet — la ligne passe
+///   derrière les doigts, sans détour.
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -81,6 +91,11 @@ final class LassoSession: ObservableObject {
     /// La dernière note donnée : le retour visible
     /// immédiat qu'elle est bien rentrée.
     @Published private(set) var lastRating: Int?
+    /// Mode Révision des élites (build 136) :
+    /// le paquet ne sert que les photos qui ont
+    /// une élite, et l'ouverture la montre.
+    @Published var modeRevision = false
+    private var elitesRevision: [String: [CGPoint]] = [:]
     @Published private(set) var imagesDone = 0
     @Published private(set) var totalRatings = 0
 
@@ -167,8 +182,9 @@ final class LassoSession: ObservableObject {
         self.bank = bank
         progress = bank.lassoProgress()
         knnMemoire = bank.geometryMemory()
-        deck = Self.generationDeck(bank: bank,
-                                   progress: progress)
+        modeRevision = false
+        elitesRevision = [:]
+        construireDeck()
         index = 0
         imagesDone = 0
         totalRatings = 0
@@ -185,7 +201,45 @@ final class LassoSession: ObservableObject {
 
     func nouveauDeck() {
         guard let bank else { return }
-        prepare(bank: bank)
+        if modeRevision {
+            refreshProgress()
+            construireDeck()
+            index = 0
+            loadCurrent()
+        } else {
+            prepare(bank: bank)
+        }
+    }
+
+    /// Construit le paquet selon le mode : jeu
+    /// (ordre des générations) ou révision
+    /// (photos avec élite seulement, même ordre,
+    /// dernières élites chargées du journal).
+    private func construireDeck() {
+        guard let bank else { deck = []; return }
+        if modeRevision {
+            let dernieres = bank.dernieresElites()
+            elitesRevision = dernieres.mapValues {
+                $0.map { CGPoint(x: $0[0], y: $0[1]) }
+            }
+            deck = Self.generationDeck(
+                bank: bank, progress: progress)
+                .filter { dernieres[$0.file] != nil }
+        } else {
+            deck = Self.generationDeck(
+                bank: bank, progress: progress)
+        }
+    }
+
+    /// Bascule entre le jeu et la révision des
+    /// élites (build 136).
+    func basculerRevision() {
+        guard bank != nil else { return }
+        modeRevision.toggle()
+        refreshProgress()
+        construireDeck()
+        index = 0
+        loadCurrent()
     }
 
     /// L'ordre des générations (fonction pure) :
@@ -249,6 +303,12 @@ final class LassoSession: ObservableObject {
     /// pour savoir quand une génération complète
     /// est bouclée.
     var generationText: String {
+        if modeRevision {
+            return "Révision des élites · "
+                + "\(deck.count) photo(s) avec élite "
+                + "— la dernière version fait foi "
+                + "à l'entraînement."
+        }
         guard let bank else { return "" }
         let total = bank.photos.count
         let done = progress.completionsParPhoto
@@ -332,8 +392,9 @@ final class LassoSession: ObservableObject {
                     }
                     return
                 }
-                let proposition = Proposeur.propose(
-                    image: cg)
+                let proposition: Proposeur.Proposition =
+                    self.modeRevision ? .aucunModele
+                        : Proposeur.propose(image: cg)
                 DispatchQueue.main.async { [weak self] in
                     guard let self,
                           self.entry?.id == entryId
@@ -344,6 +405,22 @@ final class LassoSession: ObservableObject {
                     var polygon = self.guardrailed(
                         Self.neutralStart(), fallback: nil)
                     var origine = "init-neutre"
+                    var departElite = false
+                    if self.modeRevision,
+                       let entry = self.entry,
+                       let elite = self.elitesRevision[
+                        entry.file] {
+                        let checked = self.guardrailed(
+                            elite, fallback: nil)
+                        if Self.isSane(checked),
+                           abs(Self.signedArea(checked))
+                            >= self.minAreaFraction() {
+                            polygon = checked
+                            origine = "revision"
+                            departElite = true
+                        }
+                    }
+                    if !departElite {
                     switch proposition {
                     case .lasso(let prop):
                         let checked = self.guardrailed(
@@ -360,6 +437,7 @@ final class LassoSession: ObservableObject {
                         origine = "traceur-echec"
                     case .aucunModele:
                         origine = "init-neutre"
+                    }
                     }
                     self.current = polygon
                     self.searchBase = polygon
@@ -382,6 +460,15 @@ final class LassoSession: ObservableObject {
                                 origine: origine))
                     }
                     switch origine {
+                    case "revision":
+                        self.statusText = "Révision — "
+                            + "ton élite actuelle. "
+                            + "Corrige-la : le contour "
+                            + "du reçu complet, la ligne "
+                            + "passe derrière les doigts, "
+                            + "sans détour. +2 (ou Next) "
+                            + "enregistre la version "
+                            + "corrigée."
                     case "traceur":
                         self.statusText = "Premier lasso "
                             + "— proposition du traceur. "
@@ -414,6 +501,19 @@ final class LassoSession: ObservableObject {
     func rate(_ rating: Int) {
         guard let entry, let bank, !current.isEmpty
         else { return }
+        if modeRevision {
+            if rating == 2 {
+                finishImage(elite: current,
+                            hadPlusTwo: true)
+            } else {
+                statusText = "Mode révision : +2 "
+                    + "enregistre l'élite corrigée ; "
+                    + "Next passe à la suivante (et "
+                    + "enregistre aussi l'état "
+                    + "courant)."
+            }
+            return
+        }
         let srcNum = bank.photos
             .first { $0.id == entry.sourceId }?.number ?? 0
         bank.appendLassoAttempt(LassoAttempt(
@@ -556,6 +656,15 @@ final class LassoSession: ObservableObject {
     /// Termine l'image sans +2 (bouton Next) : l'élite
     /// est le meilleur lasso connu de l'image.
     func next() {
+        if modeRevision {
+            // En révision, l'état courant (corrigé
+            // ou non) devient l'élite — pas la base
+            // de recherche, qui perdrait la
+            // correction en silence.
+            finishImage(elite: current,
+                        hadPlusTwo: false)
+            return
+        }
         finishImage(elite: plusTwoLasso ?? searchBase,
                     hadPlusTwo: plusTwoLasso != nil)
     }
@@ -581,6 +690,9 @@ final class LassoSession: ObservableObject {
                 lasso: Self.pts(elite), cycles: cycle,
                 hadPlusTwo: hadPlusTwo,
                 bench: bank.isBench(sourceNumber: srcNum)))
+        }
+        if modeRevision {
+            elitesRevision[entry.file] = elite
         }
         imagesDone += 1
         index += 1
