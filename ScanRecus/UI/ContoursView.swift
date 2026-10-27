@@ -41,6 +41,11 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
+                Button("Évaluer seulement") {
+                    runner.evaluer()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
@@ -117,9 +122,13 @@ struct ContoursView: View {
         let app = (b["appareil"] as? String) ?? "?"
         let ep = (b["epochs"] as? NSNumber)?.intValue
         let epTxt = ep != nil ? ", \(ep!) époques" : ""
+        let modeTxt = (b["mode"] as? String)
+            == "evaluation"
+            ? " — ÉVALUATION SEULE du modèle existant"
+            : ""
         let titre = "Bulletin — traceur v0 (\(nE) "
             + "élites / \(nP) photos d'entraînement, "
-            + "appareil : \(app)\(epTxt))"
+            + "appareil : \(app)\(epTxt))" + modeTxt
         func ligne(_ nom: String,
                    _ dict: [String: Any]?) -> String {
             guard let e = num(dict, "erreur_mediane_pct"),
@@ -253,9 +262,16 @@ struct ContoursView: View {
         var lignes: [String] = []
         lignes.append("Traceur v0 — bulletin du "
             + "\(b["genere"] as? String ?? "?")")
-        lignes.append("Entraînement : \(nE) élites / "
-            + "\(nP) photos · appareil \(app) · "
-            + epTxt)
+        if (b["mode"] as? String) == "evaluation" {
+            lignes.append("Évaluation seule du "
+                + "modèle existant (aucun "
+                + "entraînement) : \(nE) élites / "
+                + "\(nP) photos · appareil \(app)")
+        } else {
+            lignes.append("Entraînement : \(nE) "
+                + "élites / \(nP) photos · appareil "
+                + "\(app) · " + epTxt)
+        }
         lignes.append("Banc de fortune ("
             + "\((dev?["n"] as? NSNumber)?.intValue ?? 0) "
             + "photos jamais entraînées) : erreur "

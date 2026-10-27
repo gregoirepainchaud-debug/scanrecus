@@ -370,63 +370,33 @@ def synthetic_dataset(rng, n_train=36, n_dev=6):
 
 # ---------------- Entraînement ----------------
 
-def train_and_eval(train_xy, dev_items, banc_items,
-                   resolve, epochs, seed=13,
-                   strict_items=None):
-    import torch
-    import torch.nn.functional as Fn
-
+def pick_device(torch):
+    """Le meilleur appareil de calcul dispo-
+    nible : MPS (Apple Silicon), sinon CUDA,
+    sinon le CPU."""
     if torch.backends.mps.is_available():
-        device = torch.device("mps")
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")
-    else:
-        device = torch.device("cpu")
-    print(f"appareil : {device}", flush=True)
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
-    torch.manual_seed(seed)
-    X, Y = train_xy
-    n = len(X)
-    print(f"exemples d'entraînement (augmentés) : {n}",
-          flush=True)
-    model = build_model(torch).to(device)
-    opt = torch.optim.AdamW(model.parameters(),
-                            lr=1e-3, weight_decay=1e-4)
-    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
-        opt, T_max=max(1, epochs))
-    bce = torch.nn.BCEWithLogitsLoss()
 
-    def dice_loss(logits, y):
-        p = torch.sigmoid(logits)
-        inter = (p * y).sum(dim=(1, 2, 3))
-        tot = p.sum(dim=(1, 2, 3)) + y.sum(dim=(1, 2, 3))
-        return 1 - ((2 * inter + 1) / (tot + 1)).mean()
-
-    rng = np.random.default_rng(seed)
-    batch = 16
-    for ep in range(epochs):
-        model.train()
-        order = rng.permutation(n)
-        tot_loss = 0.0
-        for i in range(0, n, batch):
-            idx = order[i:i + batch]
-            xb = torch.from_numpy(
-                X[idx].astype(np.float32) / 255.0
-            ).permute(0, 3, 1, 2).to(device)
-            yb = torch.from_numpy(
-                (Y[idx] > 0).astype(np.float32)
-            ).unsqueeze(1).to(device)
-            opt.zero_grad()
-            logits = model(xb)
-            loss = bce(logits, yb) + dice_loss(logits, yb)
-            loss.backward()
-            opt.step()
-            tot_loss += float(loss.item()) * len(idx)
-        sched.step()
-        pct = 20 + int(76 * (ep + 1) / max(1, epochs))
-        print(f"PROGRES {pct}", flush=True)
-        print(f"époque {ep + 1}/{epochs} — perte "
-              f"{tot_loss / n:.4f}", flush=True)
+def evaluate_model(model, device, dev_items,
+                   banc_items, resolve,
+                   strict_items=None):
+    """Évalue un traceur sur les photos d'examen
+    (banc de fortune / vrai banc / strict) et
+    assemble le bulletin, SANS entraîner.
+    Build 140 : cette évaluation vivait soudée
+    à l'entraînement dans train_and_eval — on
+    ne pouvait mesurer un changement
+    d'extraction (build 139) qu'en payant un
+    entraînement complet. Elle est maintenant
+    autonome : l'entraînement l'appelle, et le
+    mode --evalue l'appelle seule sur le modèle
+    existant. Le bulletin produit est le même
+    dans les deux cas."""
+    import torch
 
     model.eval()
 
@@ -534,7 +504,6 @@ def train_and_eval(train_xy, dev_items, banc_items,
 
     bulletin = {
         "appareil": str(device),
-        "epochs": epochs,
         "dev": {
             "n": len(dev_res),
             "erreur_mediane_pct": med(
@@ -595,6 +564,66 @@ def train_and_eval(train_xy, dev_items, banc_items,
         "fenetre_pct_diag": SNAP_FENETRE_PCT,
         "seuil_marche": SNAP_SEUIL_MARCHE,
     }
+    return bulletin
+
+
+def train_and_eval(train_xy, dev_items, banc_items,
+                   resolve, epochs, seed=13,
+                   strict_items=None):
+    import torch
+    import torch.nn.functional as Fn
+
+    device = pick_device(torch)
+    print(f"appareil : {device}", flush=True)
+
+    torch.manual_seed(seed)
+    X, Y = train_xy
+    n = len(X)
+    print(f"exemples d'entraînement (augmentés) : {n}",
+          flush=True)
+    model = build_model(torch).to(device)
+    opt = torch.optim.AdamW(model.parameters(),
+                            lr=1e-3, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(
+        opt, T_max=max(1, epochs))
+    bce = torch.nn.BCEWithLogitsLoss()
+
+    def dice_loss(logits, y):
+        p = torch.sigmoid(logits)
+        inter = (p * y).sum(dim=(1, 2, 3))
+        tot = p.sum(dim=(1, 2, 3)) + y.sum(dim=(1, 2, 3))
+        return 1 - ((2 * inter + 1) / (tot + 1)).mean()
+
+    rng = np.random.default_rng(seed)
+    batch = 16
+    for ep in range(epochs):
+        model.train()
+        order = rng.permutation(n)
+        tot_loss = 0.0
+        for i in range(0, n, batch):
+            idx = order[i:i + batch]
+            xb = torch.from_numpy(
+                X[idx].astype(np.float32) / 255.0
+            ).permute(0, 3, 1, 2).to(device)
+            yb = torch.from_numpy(
+                (Y[idx] > 0).astype(np.float32)
+            ).unsqueeze(1).to(device)
+            opt.zero_grad()
+            logits = model(xb)
+            loss = bce(logits, yb) + dice_loss(logits, yb)
+            loss.backward()
+            opt.step()
+            tot_loss += float(loss.item()) * len(idx)
+        sched.step()
+        pct = 20 + int(76 * (ep + 1) / max(1, epochs))
+        print(f"PROGRES {pct}", flush=True)
+        print(f"époque {ep + 1}/{epochs} — perte "
+              f"{tot_loss / n:.4f}", flush=True)
+
+    bulletin = evaluate_model(
+        model, device, dev_items, banc_items,
+        resolve, strict_items=strict_items)
+    bulletin["epochs"] = epochs
     return model, bulletin
 
 
@@ -956,6 +985,121 @@ def devine(image_path, sortie):
     return 0
 
 
+# ---------------- Découpage / évalue seule ---
+
+def prepare_splits(racine):
+    """Le découpage d'examen du journal, calculé
+    de la même façon pour l'entraînement et pour
+    l'évaluation seule (build 140) : examen =
+    banc par photo + groupe strict (exclus de
+    l'entraînement) ; dans le pool restant, banc
+    de fortune = photos mises de côté 1 sur 7,
+    jamais entraînées dans le run."""
+    elites = load_elites(os.path.join(
+        racine, "jeu.jsonl"))
+    bench, strict = bench_sets(racine)
+    resolve = build_resolver(racine)
+    exam = bench | strict
+    pool = [e for e in elites if e["sn"] not in exam]
+    banc_items = [e for e in elites if e["sn"] in bench]
+    strict_items = [e for e in elites
+                    if e["sn"] in strict]
+    photos_pool = sorted({e["sn"] for e in pool})
+    dev_photos = {p for i, p in enumerate(photos_pool)
+                  if i % 7 == 3}
+    train_elites = [e for e in pool
+                    if e["sn"] not in dev_photos]
+    dev_items = [e for e in pool
+                 if e["sn"] in dev_photos]
+    return {
+        "elites": elites, "resolve": resolve,
+        "pool": pool, "banc_items": banc_items,
+        "strict_items": strict_items,
+        "photos_pool": photos_pool,
+        "dev_photos": dev_photos,
+        "train_elites": train_elites,
+        "dev_items": dev_items,
+    }
+
+
+def evaluer_seul(args):
+    """Mode évaluation seule (build 140) :
+    charge le modèle existant (contours-v0.pt
+    dans --sortie) et régénère le bulletin SANS
+    entraîner — le modèle n'est ni retouché ni
+    réécrit. C'est le geste qui rend les
+    réglages d'extraction mesurables en une
+    minute au lieu de vingt. Le bulletin
+    déclare son mode (« evaluation ») et la
+    date du fichier modèle mesuré : un bulletin
+    d'évaluation ne doit jamais pouvoir passer
+    pour un bulletin d'entraînement."""
+    import torch
+    modele = os.path.join(args.sortie,
+                          "contours-v0.pt")
+    if not os.path.exists(modele):
+        print("Évaluation seule impossible : "
+              "aucun modèle (contours-v0.pt) dans "
+              "le dossier de sortie — entraînez "
+              "d'abord le traceur.", flush=True)
+        return 3
+    sp = prepare_splits(args.racine)
+    print(f"élites : {len(sp['elites'])} au total · "
+          f"{len(sp['dev_items'])} au banc de "
+          f"fortune · {len(sp['banc_items'])} au "
+          f"banc · {len(sp['strict_items'])} au "
+          f"strict", flush=True)
+    if not (sp["dev_items"] or sp["banc_items"]
+            or sp["strict_items"]):
+        print("Aucune photo d'examen à évaluer.",
+              flush=True)
+        return 2
+    device = pick_device(torch)
+    print(f"appareil : {device}", flush=True)
+    model = build_model(torch).to(device)
+    model.load_state_dict(torch.load(
+        modele, map_location=device))
+    for it in (sp["dev_items"] + sp["banc_items"]
+               + sp["strict_items"]):
+        it["_img"] = None
+    print("PHASE Évaluation du modèle existant…",
+          flush=True)
+    print("PROGRES 30", flush=True)
+    bulletin = evaluate_model(
+        model, device, sp["dev_items"],
+        sp["banc_items"], sp["resolve"],
+        strict_items=sp["strict_items"])
+    bulletin["mode"] = "evaluation"
+    bulletin["synthetique"] = False
+    bulletin["n_train_elites"] = len(
+        sp["train_elites"])
+    bulletin["n_train_photos"] = (
+        len(sp["photos_pool"])
+        - len(sp["dev_photos"]))
+    bulletin["dev_photos"] = sorted(sp["dev_photos"])
+    import datetime
+    bulletin["modele_mtime"] = (
+        datetime.datetime.fromtimestamp(
+            os.path.getmtime(modele))
+        .strftime("%Y-%m-%dT%H:%M:%S"))
+    bulletin["genere"] = datetime.datetime.now(
+    ).strftime("%Y-%m-%dT%H:%M:%S")
+    out = os.path.join(args.sortie,
+                       "bulletin-contours.json")
+    with open(out, "w") as f:
+        json.dump(bulletin, f, indent=1,
+                  sort_keys=True)
+    dev = bulletin["dev"]
+    print(f"DEV : erreur médiane "
+          f"{dev['erreur_mediane_pct']} % · IoU "
+          f"{dev['iou_mediane']} · boîte neutre "
+          f"{dev['boite_neutre']['erreur_mediane_pct']} %",
+          flush=True)
+    print(f"bulletin écrit : {out}", flush=True)
+    print("PROGRES 100", flush=True)
+    return 0
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -964,6 +1108,10 @@ def main():
         "~/Library/Application Support/ScanRecus/Atelier"))
     ap.add_argument("--sortie", default=".")
     ap.add_argument("--epochs", type=int, default=60)
+    ap.add_argument("--evalue", action="store_true",
+                    help="évaluation seule : charge le "
+                         "modèle existant et régénère "
+                         "le bulletin sans entraîner")
     ap.add_argument("--synthetique", action="store_true")
     ap.add_argument("--devine", default=None,
                     help="chemin d'une image : prédit "
@@ -976,6 +1124,14 @@ def main():
 
     print("PHASE Chargement des élites…", flush=True)
     rng = np.random.default_rng(13)
+
+    if args.evalue:
+        if args.synthetique:
+            print("Le mode évaluation seule exige "
+                  "un modèle entraîné : pas de mode "
+                  "synthétique.", flush=True)
+            return 2
+        return evaluer_seul(args)
 
     if args.synthetique:
         print("mode synthétique (test fumée)", flush=True)
@@ -992,30 +1148,21 @@ def main():
         bulletin["n_train_elites"] = n_train_elites
         bulletin["n_train_photos"] = n_train_photos
     else:
-        elites = load_elites(os.path.join(
-            args.racine, "jeu.jsonl"))
-        bench, strict = bench_sets(args.racine)
-        resolve = build_resolver(args.racine)
-        exam = bench | strict
-        pool = [e for e in elites if e["sn"] not in exam]
-        banc_items = [e for e in elites if e["sn"] in bench]
-        strict_items = [e for e in elites
-                        if e["sn"] in strict]
+        sp = prepare_splits(args.racine)
+        elites = sp["elites"]
+        resolve = sp["resolve"]
+        pool = sp["pool"]
+        banc_items = sp["banc_items"]
+        strict_items = sp["strict_items"]
+        photos_pool = sp["photos_pool"]
+        dev_photos = sp["dev_photos"]
+        train_elites = sp["train_elites"]
+        dev_items = sp["dev_items"]
         print(f"élites : {len(elites)} au total · "
               f"{len(pool)} hors examen · "
               f"{len(banc_items)} au banc · "
               f"{len(strict_items)} au strict",
               flush=True)
-        # Banc de fortune : photos du pool mises de
-        # côté (1 sur 7, règle du banc), jamais
-        # entraînées dans ce run.
-        photos_pool = sorted({e["sn"] for e in pool})
-        dev_photos = {p for i, p in enumerate(photos_pool)
-                      if i % 7 == 3}
-        train_elites = [e for e in pool
-                        if e["sn"] not in dev_photos]
-        dev_items = [e for e in pool
-                     if e["sn"] in dev_photos]
         print(f"entraînement : {len(train_elites)} "
               f"élites / {len(photos_pool) - len(dev_photos)} "
               f"photos · dev (jamais entraînées) : "

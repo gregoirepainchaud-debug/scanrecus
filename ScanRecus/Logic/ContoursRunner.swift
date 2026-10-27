@@ -152,6 +152,35 @@ final class ContoursRunner: ObservableObject {
         }
     }
 
+    /// Évaluation seule (build 140) : régénère le
+    /// bulletin depuis le modèle existant, sans
+    /// entraîner — le geste qui rend les réglages
+    /// d'extraction mesurables en ~1 minute.
+    func evaluer() {
+        guard !running, atelierPret else { return }
+        writeScript()
+        progress = 0
+        run(executable: venvPython.path,
+            args: [scriptURL.path,
+                   "--racine", racine.path,
+                   "--sortie", jugeDir.path,
+                   "--evalue"],
+            phase: "Évaluation seule…") {
+            [weak self] status in
+            guard let self else { return }
+            if status == 0 {
+                self.progress = 100
+                self.phase = "Terminé — bulletin "
+                    + "d'évaluation à jour."
+            } else {
+                self.phase = "Échec (code \(status)) — "
+                    + "voir le journal."
+            }
+            self.loadBulletin()
+            if status == 0 { self.mirrorBulletin() }
+        }
+    }
+
     func arreter() {
         process?.terminate()
     }
