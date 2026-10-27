@@ -459,7 +459,27 @@ def train_and_eval(train_xy, dev_items, banc_items,
             # le masque brut ; l'écart entre les
             # deux nombres est le prix (ou le gain)
             # de l'extraction elle-même.
-            servi = mask_to_polygon(pred_m > 0)
+            # Build 139 : le servi évalué passe par
+            # le MÊME raffinage que le devine — la
+            # luminance pleine résolution de la
+            # photo d'origine (ou, en mode
+            # synthétique, l'image elle-même).
+            gray = None
+            if it.get("_img") is not None:
+                gray = np.asarray(
+                    it["_img"].convert("L"),
+                    dtype=np.float64)
+            elif it.get("file"):
+                try:
+                    gray = np.asarray(
+                        Image.open(resolve(it["file"]))
+                        .convert("L"),
+                        dtype=np.float64)
+                except Exception:
+                    gray = None
+            st = {}
+            servi = mask_to_polygon(pred_m > 0,
+                                    gray=gray, stats=st)
             if servi is not None:
                 servi_m = np.asarray(
                     rasterize(servi), dtype=np.uint8)
@@ -474,6 +494,8 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 "iou": round(iou(pred_m, true_m), 3),
                 "servi_erreur_pct": s_err,
                 "servi_iou": s_iou,
+                "servi_depl_med_pct":
+                    st.get("depl_med_pct"),
                 "_true": true_m,
             })
             print(f"{label} photo {it['sn']} : erreur "
@@ -527,6 +549,8 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 dev_res, "servi_erreur_pct"),
             "servi_iou_mediane": med_servi(
                 dev_res, "servi_iou"),
+            "servi_depl_mediane_pct": med_servi(
+                dev_res, "servi_depl_med_pct"),
             "boite_neutre": {
                 "erreur_mediane_pct": med(box_err),
                 "iou_mediane": med(
@@ -544,6 +568,8 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 banc_res, "servi_erreur_pct"),
             "servi_iou_mediane": med_servi(
                 banc_res, "servi_iou"),
+            "servi_depl_mediane_pct": med_servi(
+                banc_res, "servi_depl_med_pct"),
             "par_photo": banc_res,
         },
     }
@@ -558,8 +584,17 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 strict_res, "servi_erreur_pct"),
             "servi_iou_mediane": med_servi(
                 strict_res, "servi_iou"),
+            "servi_depl_mediane_pct": med_servi(
+                strict_res, "servi_depl_med_pct"),
             "par_photo": strict_res,
         }
+    # La recette du raffinage fait partie du
+    # bulletin (build 139) : deux bulletins ne
+    # sont comparables qu'à recette égale.
+    bulletin["raffinage"] = {
+        "fenetre_pct_diag": SNAP_FENETRE_PCT,
+        "seuil_marche": SNAP_SEUIL_MARCHE,
+    }
     return model, bulletin
 
 
@@ -602,8 +637,113 @@ def _largest_component(mask):
     return out
 
 
+# ---------------- Raffinage (build 139) ------
+
+SNAP_FENETRE_PCT = 2.0  # fenêtre de recherche du
+# bord réel, en % de la diagonale, de part et
+# d'autre du point servi par le masque
+SNAP_SEUIL_MARCHE = 24.0  # marche de luminance
+# minimale (0-255) pour accepter un déplacement
+
+
+def _bilinear(gray, xs, ys):
+    """Échantillonnage bilinéaire vectorisé de
+    l'image de luminance ; NaN hors image."""
+    gh, gw = gray.shape
+    x0 = np.floor(xs).astype(int)
+    y0 = np.floor(ys).astype(int)
+    fx = xs - x0
+    fy = ys - y0
+    ok = (x0 >= 0) & (y0 >= 0) & (x0 < gw - 1) \
+        & (y0 < gh - 1)
+    x0c = np.clip(x0, 0, gw - 2)
+    y0c = np.clip(y0, 0, gh - 2)
+    v = ((1 - fx) * (1 - fy) * gray[y0c, x0c]
+         + fx * (1 - fy) * gray[y0c, x0c + 1]
+         + (1 - fx) * fy * gray[y0c + 1, x0c]
+         + fx * fy * gray[y0c + 1, x0c + 1])
+    return np.where(ok, v, np.nan)
+
+
+def _snap_radii(gray, cx, cy, radii, med, W, H):
+    """Glisse chaque rayon vers le bord réel de
+    la photo pleine résolution. Pour chaque
+    rayon : profil de luminance le long du rayon
+    dans la fenêtre ±SNAP_FENETRE_PCT autour du
+    point du masque ; parmi les marches franches
+    (≥ SNAP_SEUIL_MARCHE), on retient la plus
+    PROCHE du point — le masque est déjà bon, le
+    raffinage est local (une ligne imprimée à
+    l'intérieur du reçu ne doit pas attirer le
+    bord). Aucune marche franche -> abstention
+    (déplacement 0). Les déplacements sont
+    ensuite lissés par médiane circulaire
+    (fenêtre 5) et les rayons reclampés dans la
+    bande [0,6×, 1,3×] de la médiane locale du
+    build 136 : jamais un pic réintroduit.
+    Retourne (rayons raffinés, déplacements
+    appliqués en pixels du masque)."""
+    gh, gw = gray.shape
+    S = (W + H) / 2.0
+    win = SNAP_FENETRE_PCT / 100.0 * math.sqrt(2)
+    s_vals = np.linspace(-win, win, 81)
+    cnx, cny = cx / W, cy / H
+    depl = [0.0] * len(radii)
+    for k in range(len(radii)):
+        th = 2 * math.pi * k / len(radii)
+        ex = (cx + math.cos(th) * radii[k]) / W
+        ey = (cy + math.sin(th) * radii[k]) / H
+        vx, vy = ex - cnx, ey - cny
+        dist = math.hypot(vx, vy)
+        if dist < 1e-9:
+            continue
+        ux, uy = vx / dist, vy / dist
+        px = cnx + (dist + s_vals) * ux
+        py = cny + (dist + s_vals) * uy
+        prof = _bilinear(gray, px * (gw - 1),
+                         py * (gh - 1))
+        if np.isnan(prof).any():
+            continue
+        grad = np.abs(prof[4:] - prof[:-4])
+        # grad[i] est centré sur prof[i + 2].
+        best = None
+        for i in range(2, len(grad) - 2):
+            if grad[i] < grad[i - 1] \
+                    or grad[i] < grad[i + 1]:
+                continue
+            c = i + 2  # centre dans prof
+            if c < 6 or c > len(prof) - 7:
+                continue
+            marche = abs(
+                float(np.mean(prof[c + 2:c + 6]))
+                - float(np.mean(prof[c - 6:c - 2])))
+            if marche < SNAP_SEUIL_MARCHE:
+                continue
+            s = float(s_vals[c])
+            if best is None or abs(s) < abs(best):
+                best = s
+        if best is not None:
+            depl[k] = best * S
+    # Médiane circulaire des déplacements.
+    n = len(depl)
+    lisse = []
+    for k in range(n):
+        w = sorted(depl[(k + j) % n]
+                   for j in (-2, -1, 0, 1, 2))
+        lisse.append(w[2])
+    out = []
+    for k in range(n):
+        r = radii[k] + lisse[k]
+        if med[k] > 0:
+            r = min(max(r, 0.6 * med[k]),
+                    1.3 * med[k])
+        out.append(max(r, 2.0))
+    return out, lisse
+
+
 def mask_to_polygon(mask_bool, rays=144,
-                    max_vertices=28):
+                    max_vertices=28, gray=None,
+                    stats=None):
     """Masque -> polygone ordonné (build 136 :
     extraction renforcée). Un reçu est convexe :
     depuis le centroïde de sa plus grande
@@ -617,7 +757,24 @@ def mask_to_polygon(mask_bool, rays=144,
     d'un reçu est régulier, un pic ne l'est
     pas. Puis simplification de Douglas-Peucker
     douce jusqu'à au plus `max_vertices`
-    sommets (min 4)."""
+    sommets (min 4).
+
+    Build 139 : si `gray` (luminance pleine
+    résolution) est fourni, chaque rayon est
+    ensuite RAFFINÉ sur le bord réel par
+    _snap_radii — fenêtre ±2 % de la diagonale,
+    marche franche la plus proche, abstention
+    sans marche, déplacements lissés et
+    reclampés. Le bulletin nº 4 a montré que
+    l'extraction régularise le masque sur le
+    jamais-vu (strict servi 0,82 % contre
+    1,82 %) mais laisse un plancher d'environ
+    0,25 % sur le connu : c'est ce plancher que
+    le raffinage attaque, sans toucher à la
+    régularisation. `stats`, si fourni, reçoit
+    « depl_med_pct » (déplacement médian
+    appliqué, % de la diagonale) et « snap_frac »
+    (part des rayons déplacés d'au moins 1 px)."""
     mask_bool = _largest_component(mask_bool)
     ys, xs = np.nonzero(mask_bool)
     if len(xs) < 50:
@@ -659,11 +816,33 @@ def mask_to_polygon(mask_bool, rays=144,
         w = sorted(radii[(k + j) % rays]
                    for j in (-2, -1, 0, 1, 2))
         med.append(w[2])
-    pts = []
+    base = []
     for k in range(rays):
         r = radii[k]
         if med[k] > 0 and r > 1.30 * med[k]:
             r = med[k]
+        base.append(r)
+    if gray is not None:
+        try:
+            g = np.asarray(gray, dtype=np.float64)
+            if g.ndim == 2 and g.size > 0:
+                base, depl = _snap_radii(
+                    g, cx, cy, base, med, W, H)
+                if stats is not None:
+                    diag = math.hypot(W, H)
+                    stats["depl_med_pct"] = round(
+                        float(np.median(
+                            [abs(d) for d in depl]))
+                        / diag * 100, 2)
+                    stats["snap_frac"] = round(
+                        sum(1 for d in depl
+                            if abs(d) >= 1.0)
+                        / len(depl), 3)
+        except Exception:
+            pass
+    pts = []
+    for k in range(rays):
+        r = base[k]
         th = 2 * math.pi * k / rays
         pts.append(((cx + math.cos(th) * r) / W,
                     (cy + math.sin(th) * r) / H))
@@ -751,12 +930,29 @@ def devine(image_path, sortie):
     ).permute(2, 0, 1).unsqueeze(0).to(device)
     with torch.no_grad():
         prob = torch.sigmoid(model(x))[0, 0].cpu().numpy()
-    poly = mask_to_polygon(prob > 0.5)
+    # Raffinage sur la photo pleine résolution
+    # (build 139) : la même image que celle
+    # réduite à 256 pour le réseau, mais lue dans
+    # sa taille native pour la luminance.
+    gray = None
+    try:
+        gray = np.asarray(
+            Image.open(image_path).convert("L"),
+            dtype=np.float64)
+    except Exception:
+        gray = None
+    st = {}
+    poly = mask_to_polygon(prob > 0.5, gray=gray,
+                           stats=st)
     if poly is None:
         print(json.dumps({"erreur": "masque inexploitable"}))
         return 4
-    print(json.dumps({"lasso": [[round(px, 4), round(py, 4)]
-                                for px, py in poly]}))
+    out = {"lasso": [[round(px, 4), round(py, 4)]
+                     for px, py in poly]}
+    if "depl_med_pct" in st:
+        out["depl_med_pct"] = st["depl_med_pct"]
+        out["snap_frac"] = st.get("snap_frac")
+    print(json.dumps(out))
     return 0
 
 

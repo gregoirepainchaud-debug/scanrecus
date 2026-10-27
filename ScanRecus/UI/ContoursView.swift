@@ -133,6 +133,11 @@ struct ContoursView: View {
                 base += String(
                     format: " · servi %.1f %%", sv)
             }
+            if let dp = num(dict,
+                            "servi_depl_mediane_pct") {
+                base += String(
+                    format: " · dépl. %.2f %%", dp)
+            }
             return base
         }
         let nDev = (dev?["n"] as? NSNumber)?.intValue ?? 0
@@ -235,9 +240,15 @@ struct ContoursView: View {
             -> String {
             guard d?["servi_erreur_mediane_pct"]
                 is NSNumber else { return "" }
-            return " · servi "
+            var s = " · servi "
                 + "\(n(d, "servi_erreur_mediane_pct")) % "
                 + "(IoU \(n(d, "servi_iou_mediane")))"
+            if d?["servi_depl_mediane_pct"]
+                is NSNumber {
+                s += " · dépl. méd. "
+                    + "\(n(d, "servi_depl_mediane_pct")) %"
+            }
+            return s
         }
         var lignes: [String] = []
         lignes.append("Traceur v0 — bulletin du "
