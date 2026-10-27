@@ -371,7 +371,8 @@ def synthetic_dataset(rng, n_train=36, n_dev=6):
 # ---------------- Entraînement ----------------
 
 def train_and_eval(train_xy, dev_items, banc_items,
-                   resolve, epochs, seed=13):
+                   resolve, epochs, seed=13,
+                   strict_items=None):
     import torch
     import torch.nn.functional as Fn
 
@@ -463,6 +464,15 @@ def train_and_eval(train_xy, dev_items, banc_items,
 
     dev_res = evaluate(dev_items, "dev")
     banc_res = evaluate(banc_items, "banc")
+    # Examen strict (build 137) : le groupe de
+    # reçus jamais entraîné — calculé et exclu
+    # de l'entraînement depuis le début, mais
+    # jamais ÉVALUÉ avant ce correctif : le
+    # bulletin n'avait donc aucune section
+    # « strict » et le test du document jamais
+    # vu restait sans mesure.
+    strict_res = evaluate(strict_items or [],
+                          "strict")
 
     # Baseline boîte neutre sur le même dev.
     nm = np.asarray(neutral_mask(), dtype=np.uint8)
@@ -470,9 +480,7 @@ def train_and_eval(train_xy, dev_items, banc_items,
     for it, r in zip(dev_items, dev_res):
         box_err.append(chamfer_pct(nm, r["_true"]))
         box_iou.append(iou(nm, r["_true"]))
-    for r in dev_res:
-        r.pop("_true", None)
-    for r in banc_res:
+    for r in dev_res + banc_res + strict_res:
         r.pop("_true", None)
 
     def med(v):
@@ -507,6 +515,15 @@ def train_and_eval(train_xy, dev_items, banc_items,
             "par_photo": banc_res,
         },
     }
+    if strict_res:
+        bulletin["strict"] = {
+            "n": len(strict_res),
+            "erreur_mediane_pct": med(
+                [r["erreur_pct"] for r in strict_res]),
+            "iou_mediane": med(
+                [r["iou"] for r in strict_res]),
+            "par_photo": strict_res,
+        }
     return model, bulletin
 
 
@@ -784,13 +801,15 @@ def main():
         if X is None:
             print("Aucune image lisible.", flush=True)
             return 2
-        for it in dev_items + banc_items:
+        for it in (dev_items + banc_items
+                   + strict_items):
             it["_img"] = None
         print("PHASE Entraînement du traceur…",
               flush=True)
         model, bulletin = train_and_eval(
             (X, Y), dev_items, banc_items,
-            resolve=resolve, epochs=args.epochs)
+            resolve=resolve, epochs=args.epochs,
+            strict_items=strict_items)
         bulletin["synthetique"] = False
         bulletin["n_train_elites"] = len(train_elites)
         bulletin["n_train_photos"] = (

@@ -143,6 +143,13 @@ struct ContoursView: View {
             Text(ligne("Vrai banc (\(nBanc) élites — "
                        + "encore trop peu pour "
                        + "conclure)", banc))
+            if let st = b["strict"] as? [String: Any] {
+                let nSt = (st["n"] as? NSNumber)?
+                    .intValue ?? 0
+                Text(ligne("Examen strict — reçu "
+                           + "jamais vu (\(nSt) élites)",
+                           st))
+            }
             if !verdict.isEmpty {
                 Text(verdict).fontWeight(.semibold)
             }
@@ -234,6 +241,15 @@ struct ContoursView: View {
             + "\(n(banc, "erreur_mediane_pct")) % · "
             + "IoU \(n(banc, "iou_mediane"))")
         lignes += details(banc)
+        if let st = b["strict"] as? [String: Any] {
+            lignes.append("Examen strict — reçu "
+                + "jamais vu ("
+                + "\((st["n"] as? NSNumber)?.intValue ?? 0) "
+                + "élites) : erreur médiane "
+                + "\(n(st, "erreur_mediane_pct")) % · "
+                + "IoU \(n(st, "iou_mediane"))")
+            lignes += details(st)
+        }
         let v = verdictTexte(dev: dev, box: box)
         if !v.isEmpty { lignes.append(v) }
         return lignes.joined(separator: "\n")
