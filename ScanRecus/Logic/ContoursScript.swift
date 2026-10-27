@@ -451,10 +451,29 @@ def train_and_eval(train_xy, dev_items, banc_items,
             true_m = np.asarray(rasterize(it["lasso"]),
                                 dtype=np.uint8)
             pred_m = predict_mask(img)
+            # Le POLYGONE SERVI (build 138) : ce que
+            # le jeu reçoit réellement — le masque
+            # passé par l'extraction du mode devine
+            # (mask_to_polygon), rempli et comparé
+            # au même tracé. Le bulletin mesurait
+            # le masque brut ; l'écart entre les
+            # deux nombres est le prix (ou le gain)
+            # de l'extraction elle-même.
+            servi = mask_to_polygon(pred_m > 0)
+            if servi is not None:
+                servi_m = np.asarray(
+                    rasterize(servi), dtype=np.uint8)
+                s_err = round(
+                    chamfer_pct(servi_m, true_m), 2)
+                s_iou = round(iou(servi_m, true_m), 3)
+            else:
+                s_err, s_iou = None, None
             res.append({
                 "photo": it["sn"],
                 "erreur_pct": round(chamfer_pct(pred_m, true_m), 2),
                 "iou": round(iou(pred_m, true_m), 3),
+                "servi_erreur_pct": s_err,
+                "servi_iou": s_iou,
                 "_true": true_m,
             })
             print(f"{label} photo {it['sn']} : erreur "
@@ -486,6 +505,11 @@ def train_and_eval(train_xy, dev_items, banc_items,
     def med(v):
         return round(float(np.median(v)), 2) if v else None
 
+    def med_servi(res, cle):
+        vals = [r[cle] for r in res
+                if r.get(cle) is not None]
+        return med(vals)
+
     bulletin = {
         "appareil": str(device),
         "epochs": epochs,
@@ -499,6 +523,10 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 2) if dev_res else None,
             "iou_mediane": med(
                 [r["iou"] for r in dev_res]),
+            "servi_erreur_mediane_pct": med_servi(
+                dev_res, "servi_erreur_pct"),
+            "servi_iou_mediane": med_servi(
+                dev_res, "servi_iou"),
             "boite_neutre": {
                 "erreur_mediane_pct": med(box_err),
                 "iou_mediane": med(
@@ -512,6 +540,10 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 [r["erreur_pct"] for r in banc_res]),
             "iou_mediane": med(
                 [r["iou"] for r in banc_res]),
+            "servi_erreur_mediane_pct": med_servi(
+                banc_res, "servi_erreur_pct"),
+            "servi_iou_mediane": med_servi(
+                banc_res, "servi_iou"),
             "par_photo": banc_res,
         },
     }
@@ -522,6 +554,10 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 [r["erreur_pct"] for r in strict_res]),
             "iou_mediane": med(
                 [r["iou"] for r in strict_res]),
+            "servi_erreur_mediane_pct": med_servi(
+                strict_res, "servi_erreur_pct"),
+            "servi_iou_mediane": med_servi(
+                strict_res, "servi_iou"),
             "par_photo": strict_res,
         }
     return model, bulletin

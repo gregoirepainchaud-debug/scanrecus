@@ -125,9 +125,15 @@ struct ContoursView: View {
             guard let e = num(dict, "erreur_mediane_pct"),
                   let i = num(dict, "iou_mediane")
             else { return nom + " : —" }
-            return String(
+            var base = String(
                 format: "%@ : erreur médiane %.1f %% "
                     + "· IoU %.2f", nom, e, i)
+            if let sv = num(dict,
+                            "servi_erreur_mediane_pct") {
+                base += String(
+                    format: " · servi %.1f %%", sv)
+            }
+            return base
         }
         let nDev = (dev?["n"] as? NSNumber)?.intValue ?? 0
         let nBanc = (banc?["n"] as? NSNumber)?.intValue ?? 0
@@ -215,10 +221,23 @@ struct ContoursView: View {
             return arr.map { p in
                 let num = (p["photo"] as? NSNumber)?
                     .intValue ?? 0
-                return "  photo \(num) : erreur "
+                var l = "  photo \(num) : erreur "
                     + "\(n(p, "erreur_pct")) % · IoU "
                     + "\(n(p, "iou"))"
+                if p["servi_erreur_pct"] is NSNumber {
+                    l += " · servi "
+                        + "\(n(p, "servi_erreur_pct")) %"
+                }
+                return l
             }
+        }
+        func serviSuffix(_ d: [String: Any]?)
+            -> String {
+            guard d?["servi_erreur_mediane_pct"]
+                is NSNumber else { return "" }
+            return " · servi "
+                + "\(n(d, "servi_erreur_mediane_pct")) % "
+                + "(IoU \(n(d, "servi_iou_mediane")))"
         }
         var lignes: [String] = []
         lignes.append("Traceur v0 — bulletin du "
@@ -230,7 +249,8 @@ struct ContoursView: View {
             + "\((dev?["n"] as? NSNumber)?.intValue ?? 0) "
             + "photos jamais entraînées) : erreur "
             + "médiane \(n(dev, "erreur_mediane_pct")) "
-            + "% · IoU \(n(dev, "iou_mediane"))")
+            + "% · IoU \(n(dev, "iou_mediane"))"
+            + serviSuffix(dev))
         lignes += details(dev)
         lignes.append("Boîte neutre : erreur médiane "
             + "\(n(box, "erreur_mediane_pct")) % · IoU "
@@ -239,7 +259,8 @@ struct ContoursView: View {
             + "\((banc?["n"] as? NSNumber)?.intValue ?? 0) "
             + "élites) : erreur médiane "
             + "\(n(banc, "erreur_mediane_pct")) % · "
-            + "IoU \(n(banc, "iou_mediane"))")
+            + "IoU \(n(banc, "iou_mediane"))"
+            + serviSuffix(banc))
         lignes += details(banc)
         if let st = b["strict"] as? [String: Any] {
             lignes.append("Examen strict — reçu "
@@ -247,7 +268,8 @@ struct ContoursView: View {
                 + "\((st["n"] as? NSNumber)?.intValue ?? 0) "
                 + "élites) : erreur médiane "
                 + "\(n(st, "erreur_mediane_pct")) % · "
-                + "IoU \(n(st, "iou_mediane"))")
+                + "IoU \(n(st, "iou_mediane"))"
+                + serviSuffix(st))
             lignes += details(st)
         }
         let v = verdictTexte(dev: dev, box: box)
