@@ -901,7 +901,8 @@ final class CompositeScanner: NSObject,
             retouches.append("champ(s) manquant(s) : "
                 + champsManquants.joined(separator: ", "))
         }
-        finishInfo += "\nAutonomie : " + (retouches.isEmpty
+        finishInfo = (finishInfo ?? "")
+            + "\nAutonomie : " + (retouches.isEmpty
             ? "SANS RETOUCHE — le scan a coulé tout seul"
             : "retouches machine — "
                 + retouches.joined(separator: " · "))
