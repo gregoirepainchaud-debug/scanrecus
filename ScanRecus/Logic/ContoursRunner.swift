@@ -369,7 +369,7 @@ final class ContoursRunner: ObservableObject {
         return "Fabriquer la banque synthétique"
     }
 
-    /// Fabrique (build 148, moteur v2) :
+    /// Fabrique (build 149, moteur v3) :
     /// construit ou
     /// complète la banque synthétique
     /// permanente (6 fonds × 10 angles par

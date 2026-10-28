@@ -65,7 +65,11 @@ except Exception:
     print("[avertissement] pillow-heif indisponible",
           flush=True)
 
-SIZE = 256
+SIZE = 512  # entrée du traceur (décision
+# de Grégoire, build 149 : 512, pas 256)
+CANEVAS_W, CANEVAS_H = 1600, 1207
+# canevas de la fabrique : résolution native
+# de la webcam (build 149)
 NEUTRAL = (0.18, 0.82)  # boîte neutre du jeu
 
 
@@ -184,7 +188,7 @@ def load_elites(journal_path):
 
 # ---------------- Images / masques ----------------
 
-def load_image_256(path):
+def load_image_modele(path):
     img = Image.open(path).convert("RGB")
     return img.resize((SIZE, SIZE), Image.BILINEAR)
 
@@ -339,55 +343,65 @@ def _appliquer_H(H, pts):
     return out
 
 
-def _fond_procedural(rng, W, blanc=False):
-    """Toile procédurale : teinte douce, bruit
-    léger, gradient à peine perceptible."""
+def _fond_procedural(rng, W, H, blanc=False):
+    """Toile procédurale au format du canevas :
+    teinte douce, bruit léger, gradient à
+    peine perceptible."""
     if blanc:
         base = float(rng.uniform(208, 242))
     else:
         base = float(rng.uniform(120, 215))
-    arr = np.full((W, W, 3), base,
+    arr = np.full((H, W, 3), base,
                   dtype=np.float64)
     teinte = rng.uniform(-8, 8, size=3)
     arr += teinte[None, None, :]
-    arr += rng.normal(0, 5, (W, W, 1))
+    arr += rng.normal(0, 5, (H, W, 1))
     pente = float(rng.uniform(-14, 14))
     arr += np.linspace(0, pente, W)[None, :, None]
     return Image.fromarray(
         np.clip(arr, 0, 255).astype(np.uint8))
 
 
-def _fond_mine(donneur, rng, W, blanc=False):
-    """Fond miné d'une autre scène : un crop à
-    résolution NATIVE qui évite le reçu du
-    donneur (occupation < 1 %), réduit à la
-    toile — jamais étiré (build 148). None si
-    aucun crop propre (ou donneur illisible /
-    trop petit)."""
+def _fond_mine(donneur, rng, W, H, blanc=False):
+    """Fond miné d'une autre scène : un
+    rectangle au format du canevas qui évite
+    le reçu du donneur (occupation < 1 %),
+    ramené au canevas — l'étirement est
+    permis pour les fonds (build 149). None
+    si aucun crop propre (ou donneur
+    illisible)."""
     try:
         img = Image.open(
             donneur["_chemin"]).convert("RGB")
     except Exception:
         return None
     W0, H0 = img.size
-    if min(W0, H0) < W:
-        return None
     msk = _rasterize_rect(donneur["lasso"], W0, H0)
     if blanc and np.asarray(
             img.convert("L"), dtype=np.float64
             ).mean() < 170:
         return None
+    ratio = W / H
     for _ in range(24):
-        s = int(rng.uniform(W, min(W0, H0)))
-        x0 = int(rng.integers(0, W0 - s + 1))
-        y0 = int(rng.integers(0, H0 - s + 1))
+        ch = int(rng.uniform(0.45, 1.0) * H0)
+        cw = int(ch * ratio)
+        if cw > W0:
+            cw = W0
+            ch = int(cw / ratio)
+        if ch > H0:
+            ch = H0
+            cw = int(ch * ratio)
+        if cw < 50 or ch < 50:
+            continue
+        x0 = int(rng.integers(0, W0 - cw + 1))
+        y0 = int(rng.integers(0, H0 - ch + 1))
         occ = np.asarray(
-            msk.crop((x0, y0, x0 + s, y0 + s)),
+            msk.crop((x0, y0, x0 + cw, y0 + ch)),
             dtype=np.float64).mean() / 255.0
         if occ < 0.01:
             return img.crop(
-                (x0, y0, x0 + s, y0 + s)).resize(
-                    (W, W), Image.BILINEAR)
+                (x0, y0, x0 + cw, y0 + ch)).resize(
+                    (W, H), Image.BILINEAR)
     return None
 
 
@@ -521,22 +535,28 @@ def _rogner(alpha, poly, rng):
 
 def _composer_variante(p, cat, rng, fond_img=None,
                        source_fond=None):
-    """Compose UNE variante (fabrique v2,
-    build 148) d'un parent préparé à pleine
-    résolution : fond (fourni, miné d'une
-    autre scène à résolution native ou
-    procédural), rognage NET du pourtour,
-    pose du reçu À SA TAILLE NATURELLE —
-    jamais étiré au-delà de ses pixels réels
-    (le zoom consigné reste ≤ 1) —, monde
-    refait par-dessus (ombre portée, gradient,
-    piège à cheval), bruit léger pour sceller
-    la couture et AUCUN flou. Retourne
-    (image 512, polygone 512 ou None, source
-    du fond, angle en degrés ou None, zoom
-    ou None)."""
+    """Compose UNE variante (fabrique v3,
+    build 149) d'un parent préparé à pleine
+    résolution, sur un canevas à la résolution
+    native de la webcam (1600×1207) : fond
+    (fourni, miné d'une autre scène ou
+    procédural — ramené au canevas,
+    l'étirement des fonds est permis),
+    rognage NET du pourtour, DÉPÔT du reçu à
+    sa taille naturelle (échelle 1,0) —
+    rapetissé seulement si, une fois tourné,
+    il sortirait du cadre —, monde refait
+    par-dessus (ombre portée, gradient, piège
+    à cheval), bruit léger pour sceller la
+    couture et AUCUN flou. L'échantillonnage
+    descendant vers l'entrée du modèle (512)
+    se fait plus tard, au chargement.
+    Retourne (image 1600×1207, polygone ou
+    None, source du fond, angle en degrés ou
+    None, échelle appliquée ≤ 1 ou None)."""
     from PIL import ImageFilter
-    W = 512
+    CW, CH = CANEVAS_W, CANEVAS_H
+    E = CW / 512.0  # échelle des effets
     bw, bh = p["fg"].size
     bx0, by0 = p["boite"][0], p["boite"][1]
     poly_arr = [(x - bx0, y - by0)
@@ -555,14 +575,16 @@ def _composer_variante(p, cat, rng, fond_img=None,
                 q = cands[int(rng.integers(
                     0, len(cands)))]
                 fond = _fond_mine(
-                    q, rng, W,
+                    q, rng, CW, CH,
                     blanc=(cat == "blanc"))
                 if fond is not None:
                     src = f"miné photo {q['sn']}"
         if fond is None:
             fond = _fond_procedural(
-                rng, W, blanc=(cat == "blanc"))
+                rng, CW, CH, blanc=(cat == "blanc"))
             src = "procédural"
+    if fond.size != (CW, CH):
+        fond = fond.resize((CW, CH), Image.BILINEAR)
     arr = np.asarray(fond, dtype=np.float64)
     if cat == "ombre":
         arr = np.clip(arr * float(
@@ -579,62 +601,70 @@ def _composer_variante(p, cat, rng, fond_img=None,
         # --- rognage : systématique, randomisé, net
         alpha_pose, poly_arr = _rogner(
             p["alpha"], poly_arr, rng)
-        # --- pose du reçu ---
+        # --- dépôt du reçu, à taille naturelle ---
         fg = p["fg"]
         if cat == "ombre":
             fg = Image.fromarray(np.clip(
                 np.asarray(fg, dtype=np.float64)
                 * float(rng.uniform(0.7, 0.88)),
                 0, 255).astype(np.uint8))
-        # taille naturelle (±35 %), plafonnée
-        # aux pixels réels du découpage :
-        # jamais d'étirement
-        frac = p["frac_naturelle"] * float(
-            rng.uniform(0.75, 1.35))
-        frac = min(frac, 0.98 * bw / W, 0.92)
-        tw = frac * W
-        ech = tw / bw
-        th = bh * ech
-        if th > 0.92 * W:
-            ech = 0.92 * W / bh
-            tw, th = bw * ech, bh * ech
-        zoom = round(tw / bw, 3)
         ang = math.radians(float(
             rng.uniform(-180, 180)))
         ang_deg = round(math.degrees(ang), 1)
-        cx = float(rng.uniform(0.36, 0.64)) * W
-        cy = float(rng.uniform(0.36, 0.64)) * W
+        cx = float(rng.uniform(0.36, 0.64)) * CW
+        cy = float(rng.uniform(0.36, 0.64)) * CH
         src_q = [(0, 0), (bw, 0), (bw, bh), (0, bh)]
         dst_q = []
-        for dx, dy in [(-tw / 2, -th / 2),
-                       (tw / 2, -th / 2),
-                       (tw / 2, th / 2),
-                       (-tw / 2, th / 2)]:
+        for dx, dy in [(-bw / 2, -bh / 2),
+                       (bw / 2, -bh / 2),
+                       (bw / 2, bh / 2),
+                       (-bw / 2, bh / 2)]:
             rx = (dx * math.cos(ang)
                   - dy * math.sin(ang))
             ry = (dx * math.sin(ang)
                   + dy * math.cos(ang))
             dst_q.append((
                 cx + rx + float(rng.uniform(
-                    -0.05, 0.05)) * tw,
+                    -0.05, 0.05)) * bw,
                 cy + ry + float(rng.uniform(
-                    -0.05, 0.05)) * tw))
+                    -0.05, 0.05)) * bw))
+        # rapetisser SEULEMENT si le reçu tourné
+        # sortirait du cadre (marge de 8 px)
+        m = 8.0
+        ech = 1.0
+        for qx, qy in dst_q:
+            if qx > cx:
+                ech = min(ech, (CW - m - cx)
+                          / (qx - cx))
+            elif qx < cx:
+                ech = min(ech, (m - cx) / (qx - cx))
+            if qy > cy:
+                ech = min(ech, (CH - m - cy)
+                          / (qy - cy))
+            elif qy < cy:
+                ech = min(ech, (m - cy) / (qy - cy))
+        ech = max(ech, 0.05)
+        if ech < 1.0:
+            dst_q = [(cx + (qx - cx) * ech,
+                      cy + (qy - cy) * ech)
+                     for qx, qy in dst_q]
+        zoom = round(ech, 3)
         H, coeffs = _homographie(src_q, dst_q)
         fg_w = fg.transform(
-            (W, W), Image.PERSPECTIVE, coeffs,
+            (CW, CH), Image.PERSPECTIVE, coeffs,
             Image.BILINEAR)
         al_w = alpha_pose.transform(
-            (W, W), Image.PERSPECTIVE, coeffs,
+            (CW, CH), Image.PERSPECTIVE, coeffs,
             Image.BILINEAR)
         poly_final = _appliquer_H(H, poly_arr)
         # --- monde refait : ombre portée ---
-        dx = float(rng.uniform(-16, 16))
-        dy = float(rng.uniform(4, 18))
+        dx = float(rng.uniform(-16, 16)) * E
+        dy = float(rng.uniform(4, 18)) * E
         ombre = al_w.transform(
-            (W, W), Image.AFFINE,
+            (CW, CH), Image.AFFINE,
             (1, 0, -dx, 0, 1, -dy),
             Image.BILINEAR).filter(
-                ImageFilter.GaussianBlur(5))
+                ImageFilter.GaussianBlur(5 * E))
         a_o = np.asarray(
             ombre, dtype=np.float64) / 255.0
         arr = arr * (1 - 0.38 * a_o[:, :, None])
@@ -647,8 +677,8 @@ def _composer_variante(p, cat, rng, fond_img=None,
     # --- monde refait : gradient de lumière ---
     th_g = float(rng.uniform(0, 6.2832))
     amp = float(rng.uniform(-0.22, 0.22))
-    gx = np.linspace(0, 1, W)[None, :]
-    gy = np.linspace(0, 1, W)[:, None]
+    gx = np.linspace(0, 1, CW)[None, :]
+    gy = np.linspace(0, 1, CH)[:, None]
     champ = 1 + amp * (
         (gx * math.cos(th_g)
          + gy * math.sin(th_g)) - 0.5)
@@ -659,15 +689,15 @@ def _composer_variante(p, cat, rng, fond_img=None,
             vx, vy = poly_final[int(rng.integers(
                 0, len(poly_final)))]
         else:
-            vx, vy = W / 2, W / 2
-        vx += float(rng.uniform(-24, 24))
-        vy += float(rng.uniform(-24, 24))
-        rayon = float(rng.uniform(60, 200))
+            vx, vy = CW / 2, CH / 2
+        vx += float(rng.uniform(-24, 24)) * E
+        vy += float(rng.uniform(-24, 24)) * E
+        rayon = float(rng.uniform(60, 200)) * E
         force = (0.55 if cat == "surexposition"
                  else 0.35) + float(
                      rng.uniform(0, 0.35))
-        xx = np.linspace(0, W, W)[None, :]
-        yy = np.linspace(0, W, W)[:, None]
+        xx = np.linspace(0, CW, CW)[None, :]
+        yy = np.linspace(0, CH, CH)[:, None]
         d2 = ((xx - vx) ** 2 + (yy - vy) ** 2)
         infl = np.exp(
             -d2 / (rayon ** 2)) * force
@@ -675,7 +705,7 @@ def _composer_variante(p, cat, rng, fond_img=None,
                + 255.0 * infl[:, :, None])
     # --- finition : bruit léger, aucun flou ---
     arr += rng.normal(
-        0, float(rng.uniform(0.5, 1.2)), (W, W, 1))
+        0, float(rng.uniform(0.5, 1.2)), (CH, CW, 1))
     img = Image.fromarray(np.clip(
         arr, 0, 255).astype(np.uint8))
     return img, poly_final, src, ang_deg, zoom
@@ -683,13 +713,17 @@ def _composer_variante(p, cat, rng, fond_img=None,
 
 def fabriquer_banque(racine, fonds_par_elite=6,
                      angles=10, limite=0):
-    """FABRIQUE v2 (build 148) : banque
+    """FABRIQUE v3 (build 149) : banque
     synthétique PERMANENTE dans
     racine/Synthetique, fabriquée aux règles
-    de Grégoire — découpages à pleine
-    résolution posés à leur taille naturelle
-    (jamais étirés), rognures nettes, bords
-    sans flou, images de 512. Chaque élite
+    de Grégoire — canevas à la résolution
+    native de la webcam (1600×1207), fonds
+    ramenés au canevas (étirement permis
+    pour les fonds), découpages déposés à
+    leur taille naturelle, rapetissés
+    seulement si la rotation les fait
+    sortir du cadre, rognures nettes, bords
+    sans flou. Chaque élite
     d'entraînement — PARENTS SEULEMENT
     (jamais dev, banc ni strict) — est posée
     sur des fonds variés (web déposés dans
@@ -725,7 +759,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
         i += 1
         j -= 1
     parents = ordre
-    rng = np.random.default_rng(148)
+    rng = np.random.default_rng(149)
     dossier = os.path.join(racine, "Synthetique")
     os.makedirs(dossier, exist_ok=True)
     man_path = os.path.join(
@@ -748,7 +782,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     (".jpg", ".jpeg", ".png")):
                 fonds_web.append(os.path.join(
                     dir_fonds, nom))
-    print(f"fabrique v2 : {len(parents)} parents · "
+    print(f"fabrique v3 : {len(parents)} parents · "
           f"{len(fonds_web)} fonds web · "
           f"{fonds_par_elite} fonds × {angles} "
           f"angles par élite"
@@ -780,19 +814,26 @@ def fabriquer_banque(racine, fonds_par_elite=6,
             try:
                 bf = Image.open(
                     chemin_fond).convert("RGB")
-                if min(bf.size) >= 512:
-                    cw = int(rng.uniform(
-                        512, min(bf.size) + 1))
-                    x0 = int(rng.integers(
-                        0, bf.size[0] - cw + 1))
-                    y0 = int(rng.integers(
-                        0, bf.size[1] - cw + 1))
-                    fond_img = bf.crop(
-                        (x0, y0, x0 + cw, y0 + cw)
-                        ).resize((512, 512),
-                                 Image.BILINEAR)
-                    source = ("web " + os.path.basename(
-                        chemin_fond))
+                ratio = CANEVAS_W / CANEVAS_H
+                ch = int(rng.uniform(
+                    0.5, 1.0) * bf.size[1])
+                cw = int(ch * ratio)
+                if cw > bf.size[0]:
+                    cw = bf.size[0]
+                    ch = int(cw / ratio)
+                if ch > bf.size[1]:
+                    ch = bf.size[1]
+                    cw = int(ch * ratio)
+                x0 = int(rng.integers(
+                    0, bf.size[0] - cw + 1))
+                y0 = int(rng.integers(
+                    0, bf.size[1] - ch + 1))
+                fond_img = bf.crop(
+                    (x0, y0, x0 + cw, y0 + ch)
+                    ).resize((CANEVAS_W, CANEVAS_H),
+                             Image.BILINEAR)
+                source = ("web " + os.path.basename(
+                    chemin_fond))
             except Exception:
                 fond_img = None
                 source = None
@@ -835,10 +876,10 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     "categorie": cat,
                     "fond": src,
                     "angle": ang,
-                    "moteur": "v2",
+                    "moteur": "v3",
                     "zoom": zoom,
-                    "poly": ([[round(x / 512, 5),
-                               round(y / 512, 5)]
+                    "poly": ([[round(x / CANEVAS_W, 5),
+                               round(y / CANEVAS_H, 5)]
                               for x, y in poly]
                              if poly else None),
                 }) + "\n")
@@ -860,8 +901,8 @@ def fabriquer_banque(racine, fonds_par_elite=6,
             "n_parents": len(parents),
             "fonds_web": len(fonds_web),
             "par_elite": fonds_par_elite * angles,
-            "moteur": "v2",
-            "taille": 512}
+            "moteur": "v3",
+            "taille": [CANEVAS_W, CANEVAS_H]}
     with open(os.path.join(
             dossier, "banque-synth-info.json"),
             "w") as fh:
@@ -922,7 +963,7 @@ def build_dataset(elites, resolve, rng, rotations=11):
     for i, e in enumerate(elites):
         path = resolve(e["file"])
         try:
-            img = load_image_256(path)
+            img = load_image_modele(path)
         except Exception:
             print(f"image illisible, élite ignorée : "
                   f"{e['file']}", flush=True)
@@ -1035,7 +1076,7 @@ def evaluate_model(model, device, dev_items,
                 img = it["_img"]
             else:
                 try:
-                    img = load_image_256(resolve(it["file"]))
+                    img = load_image_modele(resolve(it["file"]))
                 except Exception:
                     continue
             true_m = np.asarray(rasterize(it["lasso"]),
@@ -1217,7 +1258,7 @@ def train_and_eval(train_xy, dev_items, banc_items,
         return 1 - ((2 * inter + 1) / (tot + 1)).mean()
 
     rng = np.random.default_rng(seed)
-    batch = 16
+    batch = 8
     pertes = []
     for ep in range(epochs):
         model.train()
@@ -1628,7 +1669,7 @@ def devine(image_path, sortie):
     model.load_state_dict(torch.load(
         modele, map_location=device))
     model.eval()
-    img = load_image_256(image_path)
+    img = load_image_modele(image_path)
     x = torch.from_numpy(
         np.asarray(img, dtype=np.float32) / 255.0
     ).permute(2, 0, 1).unsqueeze(0).to(device)
@@ -1875,7 +1916,7 @@ def tournoi_seul(args):
         for it in items:
             try:
                 chemin = sp["resolve"](it["file"])
-                img = load_image_256(chemin)
+                img = load_image_modele(chemin)
                 gray = np.asarray(
                     Image.open(chemin).convert("L"),
                     dtype=np.float64)
@@ -2209,7 +2250,7 @@ def oracle_seul(args):
         for it in items:
             try:
                 chemin = sp["resolve"](it["file"])
-                img = load_image_256(chemin)
+                img = load_image_modele(chemin)
                 gray = np.asarray(
                     Image.open(chemin).convert("L"),
                     dtype=np.float64)
@@ -2398,7 +2439,7 @@ def mega_seul(args):
         for it in items:
             try:
                 chemin = sp["resolve"](it["file"])
-                img = load_image_256(chemin)
+                img = load_image_modele(chemin)
                 gray = np.asarray(
                     Image.open(chemin).convert("L"),
                     dtype=np.float64)
