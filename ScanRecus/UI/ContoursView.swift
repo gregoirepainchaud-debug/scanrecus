@@ -46,6 +46,11 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
+                Button("Lancer le tournoi") {
+                    runner.tournoi()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
@@ -92,6 +97,10 @@ struct ContoursView: View {
                 bulletinCard(b)
             }
 
+            if let t = runner.tournoiRapport {
+                tournoiCard(t)
+            }
+
             ScrollView {
                 Text(runner.logLines.joined(separator: "\n"))
                     .font(.system(size: 10.5,
@@ -122,10 +131,15 @@ struct ContoursView: View {
         let app = (b["appareil"] as? String) ?? "?"
         let ep = (b["epochs"] as? NSNumber)?.intValue
         let epTxt = ep != nil ? ", \(ep!) époques" : ""
-        let modeTxt = (b["mode"] as? String)
+        var modeTxt = (b["mode"] as? String)
             == "evaluation"
             ? " — ÉVALUATION SEULE du modèle existant"
             : ""
+        let raffinage = b["raffinage"] as? [String: Any]
+        if (raffinage?["params_source"] as? String)
+            == "tournoi" {
+            modeTxt += " · constantes du tournoi"
+        }
         let titre = "Bulletin — traceur v0 (\(nE) "
             + "élites / \(nP) photos d'entraînement, "
             + "appareil : \(app)\(epTxt))" + modeTxt
@@ -177,6 +191,50 @@ struct ContoursView: View {
                    : "Copier le rapport") {
                 copierRapport(b)
             }
+        }
+        .font(.system(size: 11.5, design: .monospaced))
+        .padding(8)
+        .background(Color.secondary.opacity(0.08))
+    }
+
+    /// La carte du dernier tournoi (build 143) :
+    /// tenant contre champion, sur la sélection
+    /// (dev+banc) et sur le strict scellé — le
+    /// verdict qui dit si les nouvelles constantes
+    /// généralisent ou si elles ont seulement
+    /// mémorisé la sélection.
+    private func tournoiCard(_ t: [String: Any])
+        -> some View {
+        func num(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.2f", v)
+        }
+        let ten = t["tenant"] as? [String: Any]
+        let ch = t["champion"] as? [String: Any]
+        let nouveau = (ch?["nouveau"] as? Bool) ?? false
+        let genere = (t["genere"] as? String) ?? "?"
+        let nGen = (t["generations"] as? NSNumber)?
+            .intValue ?? 0
+        let nEnf = (t["enfants"] as? NSNumber)?
+            .intValue ?? 0
+        let l1 = "Tournoi des constantes — \(genere)"
+            + " · \(nGen) générations × \(nEnf) enfants"
+        let l2 = "Tenant : sélection "
+            + "\(num(ten, "score_selection")) % · strict "
+            + "\(num(ten, "score_strict")) %"
+        let verdict = nouveau
+            ? " — nouvelles constantes actives partout"
+            : " — le tenant garde son titre"
+        let l3 = "Champion : sélection "
+            + "\(num(ch, "score_selection")) % · strict "
+            + "\(num(ch, "score_strict")) %" + verdict
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(l1)
+            Text(l2)
+            Text(l3)
         }
         .font(.system(size: 11.5, design: .monospaced))
         .padding(8)
@@ -298,6 +356,27 @@ struct ContoursView: View {
                 + "IoU \(n(st, "iou_mediane"))"
                 + serviSuffix(st))
             lignes += details(st)
+        }
+        if let t = runner.tournoiRapport {
+            let ten = t["tenant"] as? [String: Any]
+            let ch = t["champion"] as? [String: Any]
+            let tGen = (t["genere"] as? String) ?? "?"
+            let tEval = (t["evaluations"] as? NSNumber)?
+                .intValue ?? 0
+            let selT = n(ten, "score_selection")
+            let selC = n(ch, "score_selection")
+            let strT = n(ten, "score_strict")
+            let strC = n(ch, "score_strict")
+            var tl = "Tournoi des constantes (\(tGen)"
+                + " · \(tEval) évaluations) : sélection "
+                + "\(selT) → \(selC) % · strict "
+                + "\(strT) → \(strC) %"
+            if (ch?["nouveau"] as? Bool) == true {
+                tl += " — champion actif"
+            } else {
+                tl += " — le tenant garde son titre"
+            }
+            lignes.append(tl)
         }
         let v = verdictTexte(dev: dev, box: box)
         if !v.isEmpty { lignes.append(v) }

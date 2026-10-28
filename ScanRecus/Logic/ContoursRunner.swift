@@ -18,6 +18,7 @@ final class ContoursRunner: ObservableObject {
     @Published var running = false
     @Published var atelierPret = false
     @Published var bulletin: [String: Any]?
+    @Published var tournoiRapport: [String: Any]?
     /// Nombre d'époques demandé : champ de
     /// l'onglet, persisté, validé au lancement
     /// (1 à 500, défaut 60).
@@ -58,7 +59,18 @@ final class ContoursRunner: ObservableObject {
         atelierPret = FileManager.default
             .fileExists(atPath: venvPython.path)
         loadBulletin()
+        loadTournoi()
         if bulletin != nil { mirrorBulletin() }
+    }
+
+    func loadTournoi() {
+        let url = jugeDir.appendingPathComponent(
+            "tournoi-rapport.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization
+                .jsonObject(with: data) as? [String: Any]
+        else { tournoiRapport = nil; return }
+        tournoiRapport = obj
     }
 
     func loadBulletin() {
@@ -181,6 +193,37 @@ final class ContoursRunner: ObservableObject {
         }
     }
 
+    /// Le TOURNOI (build 143) : des variantes des
+    /// constantes d'extraction compétitionnent sur
+    /// dev+banc, verdict sur le strict scellé. Le
+    /// champion, s'il y en a un, est écrit par le
+    /// script dans extraction-champion.json et
+    /// s'applique ensuite partout (jeu, bulletins).
+    func tournoi() {
+        guard !running, atelierPret else { return }
+        writeScript()
+        progress = 0
+        run(executable: venvPython.path,
+            args: [scriptURL.path,
+                   "--racine", racine.path,
+                   "--sortie", jugeDir.path,
+                   "--tournoi"],
+            phase: "Tournoi des constantes…") {
+            [weak self] status in
+            guard let self else { return }
+            if status == 0 {
+                self.progress = 100
+                self.phase = "Terminé — tournoi "
+                    + "bouclé, rapport à jour."
+            } else {
+                self.phase = "Échec (code \(status)) — "
+                    + "voir le journal."
+            }
+            self.loadTournoi()
+            if status == 0 { self.mirrorTournoi() }
+        }
+    }
+
     func arreter() {
         process?.terminate()
     }
@@ -214,6 +257,40 @@ final class ContoursRunner: ObservableObject {
             try fm.copyItem(at: src, to: dst)
             log("Bulletin recopié vers Drive "
                 + "(bulletin-contours.json).")
+        } catch {
+            log("Miroir Drive : échec ("
+                + error.localizedDescription + ")")
+        }
+    }
+
+    /// Miroir Drive du rapport de tournoi (même
+    /// principe que le bulletin) : Muse le lit
+    /// pour annoncer le verdict sans que Grégoire
+    /// ait à l'envoyer.
+    func mirrorTournoi() {
+        let fm = FileManager.default
+        let src = jugeDir.appendingPathComponent(
+            "tournoi-rapport.json")
+        guard fm.fileExists(atPath: src.path) else { return }
+        guard let folder = driveFolder() else {
+            log("Miroir Drive : dossier introuvable — "
+                + "rapport de tournoi en local seulement.")
+            return
+        }
+        let dst = folder.appendingPathComponent(
+            "tournoi-rapport.json")
+        let srcSize = (try? fm.attributesOfItem(
+            atPath: src.path))?[.size] as? NSNumber
+        let dstSize = (try? fm.attributesOfItem(
+            atPath: dst.path))?[.size] as? NSNumber
+        if srcSize != nil, srcSize == dstSize { return }
+        do {
+            if fm.fileExists(atPath: dst.path) {
+                try fm.removeItem(at: dst)
+            }
+            try fm.copyItem(at: src, to: dst)
+            log("Rapport de tournoi recopié vers Drive "
+                + "(tournoi-rapport.json).")
         } catch {
             log("Miroir Drive : échec ("
                 + error.localizedDescription + ")")

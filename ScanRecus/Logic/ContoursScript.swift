@@ -561,8 +561,10 @@ def evaluate_model(model, device, dev_items,
     # bulletin (build 139) : deux bulletins ne
     # sont comparables qu'à recette égale.
     bulletin["raffinage"] = {
-        "fenetre_pct_diag": SNAP_FENETRE_PCT,
-        "seuil_marche": SNAP_SEUIL_MARCHE,
+        "fenetre_pct_diag": PARAMS_COURANTS["fenetre_pct"],
+        "seuil_marche": PARAMS_COURANTS["seuil_marche"],
+        "params": dict(PARAMS_COURANTS),
+        "params_source": PARAMS_SOURCE,
     }
     return bulletin
 
@@ -674,6 +676,49 @@ SNAP_FENETRE_PCT = 2.0  # fenêtre de recherche du
 SNAP_SEUIL_MARCHE = 24.0  # marche de luminance
 # minimale (0-255) pour accepter un déplacement
 
+# Paramètres d'extraction (build 143) : le
+# TENANT est le jeu de constantes des builds
+# 136/139. Un champion de tournoi peut le
+# remplacer via extraction-champion.json dans
+# le dossier de sortie (voir tournoi_seul) —
+# c'est le seul endroit où ces nombres bougent,
+# et le bulletin consigne lesquels ont servi.
+PARAMS_DEFAUT = {
+    "fenetre_pct": 2.0,
+    "seuil_marche": 24.0,
+    "bande_bas": 0.6,
+    "bande_haut": 1.3,
+    "clip": 1.30,
+    "dp_eps": 0.0015,
+}
+PARAMS_COURANTS = dict(PARAMS_DEFAUT)
+PARAMS_SOURCE = "défaut"
+
+
+def charger_params(sortie):
+    """Charge le champion du tournoi s'il
+    existe dans `sortie`, sinon les défauts.
+    Retourne (params, source)."""
+    global PARAMS_COURANTS, PARAMS_SOURCE
+    p = dict(PARAMS_DEFAUT)
+    source = "défaut"
+    try:
+        f = os.path.join(
+            sortie, "extraction-champion.json")
+        if os.path.exists(f):
+            data = json.load(open(f))
+            for k in p:
+                if k in data.get("params", {}):
+                    p[k] = float(data["params"][k])
+            source = "tournoi"
+    except Exception:
+        pass
+    PARAMS_COURANTS = p
+    PARAMS_SOURCE = source
+    return p, source
+
+
+
 
 def _bilinear(gray, xs, ys):
     """Échantillonnage bilinéaire vectorisé de
@@ -694,7 +739,8 @@ def _bilinear(gray, xs, ys):
     return np.where(ok, v, np.nan)
 
 
-def _snap_radii(gray, cx, cy, radii, med, W, H):
+def _snap_radii(gray, cx, cy, radii, med, W, H,
+                params):
     """Glisse chaque rayon vers le bord réel de
     la photo pleine résolution. Pour chaque
     rayon : profil de luminance le long du rayon
@@ -714,7 +760,7 @@ def _snap_radii(gray, cx, cy, radii, med, W, H):
     appliqués en pixels du masque)."""
     gh, gw = gray.shape
     S = (W + H) / 2.0
-    win = SNAP_FENETRE_PCT / 100.0 * math.sqrt(2)
+    win = params["fenetre_pct"] / 100.0 * math.sqrt(2)
     s_vals = np.linspace(-win, win, 81)
     cnx, cny = cx / W, cy / H
     depl = [0.0] * len(radii)
@@ -746,7 +792,7 @@ def _snap_radii(gray, cx, cy, radii, med, W, H):
             marche = abs(
                 float(np.mean(prof[c + 2:c + 6]))
                 - float(np.mean(prof[c - 6:c - 2])))
-            if marche < SNAP_SEUIL_MARCHE:
+            if marche < params["seuil_marche"]:
                 continue
             s = float(s_vals[c])
             if best is None or abs(s) < abs(best):
@@ -764,15 +810,15 @@ def _snap_radii(gray, cx, cy, radii, med, W, H):
     for k in range(n):
         r = radii[k] + lisse[k]
         if med[k] > 0:
-            r = min(max(r, 0.6 * med[k]),
-                    1.3 * med[k])
+            r = min(max(r, params["bande_bas"] * med[k]),
+                    params["bande_haut"] * med[k])
         out.append(max(r, 2.0))
     return out, lisse
 
 
 def mask_to_polygon(mask_bool, rays=144,
                     max_vertices=28, gray=None,
-                    stats=None):
+                    stats=None, params=None):
     """Masque -> polygone ordonné (build 136 :
     extraction renforcée). Un reçu est convexe :
     depuis le centroïde de sa plus grande
@@ -804,6 +850,8 @@ def mask_to_polygon(mask_bool, rays=144,
     « depl_med_pct » (déplacement médian
     appliqué, % de la diagonale) et « snap_frac »
     (part des rayons déplacés d'au moins 1 px)."""
+    if params is None:
+        params = PARAMS_COURANTS
     mask_bool = _largest_component(mask_bool)
     ys, xs = np.nonzero(mask_bool)
     if len(xs) < 50:
@@ -848,7 +896,7 @@ def mask_to_polygon(mask_bool, rays=144,
     base = []
     for k in range(rays):
         r = radii[k]
-        if med[k] > 0 and r > 1.30 * med[k]:
+        if med[k] > 0 and r > params["clip"] * med[k]:
             r = med[k]
         base.append(r)
     if gray is not None:
@@ -856,7 +904,8 @@ def mask_to_polygon(mask_bool, rays=144,
             g = np.asarray(gray, dtype=np.float64)
             if g.ndim == 2 and g.size > 0:
                 base, depl = _snap_radii(
-                    g, cx, cy, base, med, W, H)
+                    g, cx, cy, base, med, W, H,
+                    params)
                 if stats is not None:
                     diag = math.hypot(W, H)
                     stats["depl_med_pct"] = round(
@@ -883,10 +932,12 @@ def mask_to_polygon(mask_bool, rays=144,
             dedup.append(p)
     if len(dedup) < 4:
         return None
-    return _douglas_peucker(dedup, max_vertices)
+    return _douglas_peucker(
+        dedup, max_vertices, eps0=params["dp_eps"])
 
 
-def _douglas_peucker(pts, max_vertices):
+def _douglas_peucker(pts, max_vertices,
+                     eps0=0.0015):
     """Simplification d'un polygone FERMÉ :
     partir du diamètre (paire la plus éloignée),
     puis raffiner par seuils décroissants
@@ -927,7 +978,7 @@ def _douglas_peucker(pts, max_vertices):
             + (pts[i][1] - pts[0][1]) ** 2)
     chain1 = pts[:j + 1]
     chain2 = pts[j:] + [pts[0]]
-    eps = 0.0015
+    eps = eps0
     for _ in range(24):
         out = dp(chain1, eps)[:-1] + dp(chain2, eps)[:-1]
         if len(out) <= max_vertices:
@@ -945,6 +996,7 @@ def devine(image_path, sortie):
     if not os.path.exists(modele):
         print(json.dumps({"erreur": "aucun modèle"}))
         return 3
+    charger_params(sortie)
     if torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
@@ -1043,6 +1095,7 @@ def evaluer_seul(args):
               "le dossier de sortie — entraînez "
               "d'abord le traceur.", flush=True)
         return 3
+    charger_params(args.sortie)
     sp = prepare_splits(args.racine)
     print(f"élites : {len(sp['elites'])} au total · "
           f"{len(sp['dev_items'])} au banc de "
@@ -1100,6 +1153,244 @@ def evaluer_seul(args):
     return 0
 
 
+
+def _servi_erreur(mask_bool, gray, true_m, params):
+    """Erreur du polygone servi pour UN jeu de
+    paramètres, depuis un masque déjà calculé —
+    la mesure du tournoi (même chaîne que le
+    bulletin : mask_to_polygon puis chamfer
+    contre le tracé de référence)."""
+    servi = mask_to_polygon(mask_bool, gray=gray,
+                            params=params)
+    if servi is None:
+        return None
+    servi_m = np.asarray(rasterize(servi),
+                         dtype=np.uint8)
+    return round(chamfer_pct(servi_m, true_m), 2)
+
+
+# Bornes des paramètres du tournoi (build 143).
+TOURNOI_BORNES = {
+    "fenetre_pct": (0.8, 4.5),
+    "seuil_marche": (6.0, 70.0),
+    "bande_bas": (0.35, 0.95),
+    "bande_haut": (1.05, 1.7),
+    "clip": (1.05, 1.8),
+    "dp_eps": (0.0004, 0.005),
+}
+
+
+def _muter(parent, rng):
+    """Un enfant : chaque paramètre est multiplié
+    par un facteur log-normal (petit pas le plus
+    souvent, grand saut parfois), borné."""
+    enfant = {}
+    for k, v in parent.items():
+        lo, hi = TOURNOI_BORNES[k]
+        sigma = 0.45 if rng.random() < 0.12 else 0.16
+        nv = v * math.exp(rng.gauss(0, sigma))
+        enfant[k] = round(min(hi, max(lo, nv)), 4)
+    return enfant
+
+
+def tournoi_seul(args):
+    """LE TOURNOI (build 143) : des variantes des
+    constantes d'extraction compétitionnent sur
+    la base du modèle existant. Les masques sont
+    calculés UNE fois ; chaque variante ne rejoue
+    que l'extraction. Sélection sur dev + banc
+    (l'oracle note contre les élites, les
+    variantes ne voient que leur rang) ;
+    l'examen strict reste SCELLÉ pendant la
+    sélection et ne sert qu'au verdict final,
+    une fois. Le tenant (paramètres actifs) n'est
+    remplacé que battu : le champion est alors
+    écrit dans extraction-champion.json, que
+    charger_params lira partout ensuite."""
+    import torch
+    import datetime
+    import random
+    import time
+    modele = os.path.join(args.sortie,
+                          "contours-v0.pt")
+    if not os.path.exists(modele):
+        print("Tournoi impossible : aucun modèle "
+              "(contours-v0.pt) dans le dossier de "
+              "sortie — entraînez d'abord le "
+              "traceur.", flush=True)
+        return 3
+    sp = prepare_splits(args.racine)
+    sel_items = sp["dev_items"] + sp["banc_items"]
+    strict_items = sp["strict_items"] or []
+    if len(sel_items) < 4:
+        print("Tournoi impossible : pas assez de "
+              "photos de sélection (dev + banc).",
+              flush=True)
+        return 2
+    device = pick_device(torch)
+    print(f"appareil : {device}", flush=True)
+    model = build_model(torch).to(device)
+    model.load_state_dict(torch.load(
+        modele, map_location=device))
+    model.eval()
+
+    def predict_mask(img_pil):
+        x = torch.from_numpy(
+            np.asarray(img_pil, dtype=np.float32)
+            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
+        with torch.no_grad():
+            prob = torch.sigmoid(model(x))[0, 0]
+        return prob.cpu().numpy() > 0.5
+
+    print("PHASE Tournoi — calcul des masques…",
+          flush=True)
+    print("PROGRES 10", flush=True)
+    t0 = time.time()
+
+    def prep(items):
+        out = []
+        for it in items:
+            try:
+                chemin = sp["resolve"](it["file"])
+                img = load_image_256(chemin)
+                gray = np.asarray(
+                    Image.open(chemin).convert("L"),
+                    dtype=np.float64)
+            except Exception:
+                continue
+            out.append({
+                "sn": it["sn"],
+                "mask": predict_mask(img),
+                "gray": gray,
+                "true": np.asarray(
+                    rasterize(it["lasso"]),
+                    dtype=np.uint8),
+            })
+        return out
+
+    sel = prep(sel_items)
+    ver = prep(strict_items)
+    if len(sel) < 4:
+        print("Tournoi impossible : photos de "
+              "sélection illisibles.", flush=True)
+        return 2
+    print(f"sélection : {len(sel)} photos · "
+          f"strict scellé : {len(ver)} photos",
+          flush=True)
+    print("PROGRES 25", flush=True)
+
+    def score(params, items):
+        if not items:
+            return None
+        return _servi_score(params, items)
+
+    tenant, source = charger_params(args.sortie)
+    parent = dict(tenant)
+    parent_score = score(parent, sel)
+    tenant_score = parent_score
+    print(f"tenant ({source}) : sélection "
+          f"{parent_score} %", flush=True)
+    rng = random.Random(args.seed)
+    historique = [{"gen": 0, "score": parent_score,
+                   "params": dict(parent)}]
+    G, L = args.generations, args.enfants
+    for g in range(1, G + 1):
+        print(f"PHASE Tournoi — génération {g}/{G}…",
+              flush=True)
+        enfants = [(_servi_score(e, sel), e)
+                   for e in [_muter(parent, rng)
+                             for _ in range(L)]]
+        enfants.sort(key=lambda t: t[0])
+        meilleur, meilleur_p = enfants[0]
+        if meilleur < parent_score - 0.001:
+            parent, parent_score = meilleur_p, meilleur
+            historique.append({
+                "gen": g, "score": parent_score,
+                "params": dict(parent)})
+        print(f"génération {g}/{G} : meilleur "
+              f"enfant {meilleur} % · tenant "
+              f"{parent_score} %", flush=True)
+        print(f"PROGRES {25 + int(65 * g / G)}",
+              flush=True)
+
+    print("PHASE Tournoi — verdict sur l'examen "
+          "scellé…", flush=True)
+    print("PROGRES 95", flush=True)
+    strict_tenant = score(tenant, ver)
+    strict_champ = score(parent, ver)
+    ameliore = parent_score < tenant_score - 0.001
+    rapport = {
+        "genere": datetime.datetime.now().strftime(
+            "%Y-%m-%dT%H:%M:%S"),
+        "appareil": str(device),
+        "modele_mtime": (
+            datetime.datetime.fromtimestamp(
+                os.path.getmtime(modele))
+            .strftime("%Y-%m-%dT%H:%M:%S")),
+        "seed": args.seed,
+        "generations": G,
+        "enfants": L,
+        "evaluations": G * L + 1,
+        "duree_s": round(time.time() - t0, 1),
+        "n_selection": len(sel),
+        "n_strict": len(ver),
+        "tenant": {
+            "params": tenant, "source": source,
+            "score_selection": tenant_score,
+            "score_strict": strict_tenant,
+        },
+        "champion": {
+            "params": parent,
+            "score_selection": parent_score,
+            "score_strict": strict_champ,
+            "nouveau": ameliore,
+        },
+        "historique": historique,
+    }
+    out_r = os.path.join(args.sortie,
+                         "tournoi-rapport.json")
+    with open(out_r, "w") as f:
+        json.dump(rapport, f, indent=1, sort_keys=True)
+    if ameliore:
+        out_c = os.path.join(
+            args.sortie, "extraction-champion.json")
+        with open(out_c, "w") as f:
+            json.dump({
+                "params": parent,
+                "score_selection": parent_score,
+                "score_strict": strict_champ,
+                "genere": rapport["genere"],
+                "modele_mtime": rapport["modele_mtime"],
+            }, f, indent=1, sort_keys=True)
+        print(f"CHAMPION : sélection "
+              f"{rapport['tenant']['score_selection']}"
+              f" → {parent_score} % · strict "
+              f"{strict_tenant} → {strict_champ} % "
+              f"— constantes écrites dans "
+              f"extraction-champion.json", flush=True)
+    else:
+        print(f"Le tenant garde son titre : "
+              f"sélection {parent_score} % · strict "
+              f"{strict_tenant} % — aucun fichier "
+              f"champion écrit.", flush=True)
+    print(f"rapport écrit : {out_r}", flush=True)
+    print("PROGRES 100", flush=True)
+    return 0
+
+
+def _servi_score(params, items):
+    """Score de sélection d'une variante :
+    médiane des erreurs du servi sur les items
+    en cache (extraction impossible = 10 %)."""
+    vals = []
+    for c in items:
+        e = _servi_erreur(c["mask"], c["gray"],
+                          c["true"], params)
+        vals.append(10.0 if e is None else e)
+    return round(float(np.median(vals)), 3)
+
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -1112,6 +1403,17 @@ def main():
                     help="évaluation seule : charge le "
                          "modèle existant et régénère "
                          "le bulletin sans entraîner")
+    ap.add_argument("--tournoi", action="store_true",
+                    help="tournoi des constantes "
+                         "d'extraction : variantes en "
+                         "compétition sur dev+banc, "
+                         "verdict sur le strict scellé")
+    ap.add_argument("--generations", type=int,
+                    default=25)
+    ap.add_argument("--enfants", type=int,
+                    default=16)
+    ap.add_argument("--seed", type=int,
+                    default=20261027)
     ap.add_argument("--synthetique", action="store_true")
     ap.add_argument("--devine", default=None,
                     help="chemin d'une image : prédit "
@@ -1132,6 +1434,14 @@ def main():
                   "synthétique.", flush=True)
             return 2
         return evaluer_seul(args)
+
+    if args.tournoi:
+        if args.synthetique:
+            print("Le tournoi exige un modèle "
+                  "entraîné : pas de mode "
+                  "synthétique.", flush=True)
+            return 2
+        return tournoi_seul(args)
 
     if args.synthetique:
         print("mode synthétique (test fumée)", flush=True)
@@ -1185,6 +1495,7 @@ def main():
             it["_img"] = None
         print("PHASE Entraînement du traceur…",
               flush=True)
+        charger_params(args.sortie)
         model, bulletin = train_and_eval(
             (X, Y), dev_items, banc_items,
             resolve=resolve, epochs=args.epochs,
