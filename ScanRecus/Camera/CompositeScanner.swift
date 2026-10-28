@@ -689,11 +689,6 @@ final class CompositeScanner: NSObject,
             Thread.sleep(forTimeInterval: 2)
             return self.scanToken == token
         }
-        func atOrigin(_ image: CIImage) -> CIImage {
-            image.transformed(by: CGAffineTransform(
-                translationX: -image.extent.minX,
-                y: -image.extent.minY))
-        }
 
         // Étape 1 — l'image de départ, TELLE QUELLE.
         // (Le flip-miroir essayé au build 65 est retiré :
@@ -706,63 +701,81 @@ final class CompositeScanner: NSObject,
         guard showStep(work, "Étape 1 — image de départ")
         else { return }
 
-        // Étape 2 — la ZONE LA PLUS BLANCHE (méthode de
-        // Grégoire, 2026-10-21) : le papier est la zone la
-        // plus blanche DISPONIBLE dans l'image (seuil
-        // relatif) ; les gribouillis noirs dedans (le texte
-        // imprimé) sont absorbés — dilatation, plus grande
-        // composante, trous remplis. Tout ce qui est À
-        // L'EXTÉRIEUR devient NOIR : il ne reste que le
-        // papier et ses bords, nets, pour la mesure.
-        let zone = findWhiteZone(in: work)
-        if let zone {
-            work = maskedToZone(work, zone: zone)
-            trace.append("Étape 2 — zone la plus blanche : "
-                + "\(Int(zone.coverage * 100)) % du cadre "
-                + "(seuil \(zone.threshold)), extérieur en noir")
-            guard showStep(work, "Étape 2 — la zone la plus "
-                + "blanche, tout le reste en noir")
-            else { return }
-        } else {
-            trace.append("Étape 2 — aucune zone blanche "
-                + "dominante (\(lastZoneSummary))")
-            guard showStep(work, "Étape 2 — aucune zone "
-                + "blanche dominante, on continue sans masque")
-            else { return }
-        }
-
-        // Étape 3 — la DÉVIATION par les BORDS : deux lignes
-        // qui se croisent à 90° ajustées sur les bords de la
-        // zone (axe principal, raffiné par les côtés) ; la
-        // déviation vs la verticale/l'horizontale est
-        // corrigée d'un coup.
-        if let zone {
-            if let dev = measureDeviation(zone: zone) {
-                if abs(dev) > 0.2 * .pi / 180 {
-                    work = rotateKeepingExtent(work, by: -dev)
-                    trace.append(String(
-                        format: "Étape 3 — bords : déviation "
-                            + "de %+.1f°, rotation de %+.1f°",
-                        Double(dev) * 180 / .pi,
-                        Double(-dev) * 180 / .pi))
-                    guard showStep(work, String(
-                        format: "Étape 3 — déviation de %+.1f° "
-                            + "corrigée",
-                        Double(dev) * 180 / .pi))
-                    else { return }
-                } else {
-                    trace.append("Étape 3 — bords déjà alignés "
-                        + "(déviation < 0,2°)")
-                    guard showStep(work, "Étape 3 — les bords "
-                        + "sont déjà alignés")
-                    else { return }
-                }
-            } else {
-                trace.append("Étape 3 — déviation non mesurable")
-                guard showStep(work, "Étape 3 — déviation non "
-                    + "mesurable, on continue")
+        // Étape 2 — LA VOIE DU TRACEUR (build 141) :
+        // le réseau de contours propose le polygone du
+        // reçu sur la frame figée ; réduit à 4 coins et
+        // redressé par perspective, il remplace le
+        // rituel zone blanche + déviation + découpe
+        // (étapes 2, 3 et 5 classiques). En cas
+        // d'absence de modèle, d'échec ou de
+        // redressement refusé, le rituel classique
+        // prend le relais, inchangé.
+        var voieTraceur = false
+        if let frozen {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.scanToken == token
                 else { return }
+                self.statusText = "Étape 2 — le traceur "
+                    + "cherche le contour…"
             }
+            switch Proposeur.propose(image: frozen) {
+            case .lasso(let poly):
+                var redresse = false
+                if let quad = quadFromPolygon(poly) {
+                    let ext = work.extent
+                    let c = centroid(quad)
+                    let corners = quad.map { p -> CGPoint in
+                        let ox = c.x + (p.x - c.x) * 1.03
+                        let oy = c.y + (p.y - c.y) * 1.03
+                        return CGPoint(
+                            x: ext.minX + ox * ext.width,
+                            y: ext.minY
+                                + (1 - oy) * ext.height)
+                    }
+                    if let rect = perspectiveRectify(
+                        work, corners: corners) {
+                        trace.append("Étape 2 — contour du "
+                            + "traceur : \(poly.count) "
+                            + "sommets → quadrilatère, "
+                            + "perspective redressée")
+                        if let drawn = drawQuad(
+                            quad.map {
+                                CGPoint(x: $0.x, y: 1 - $0.y)
+                            }, on: work) {
+                            guard showStep(
+                                CIImage(cgImage: drawn),
+                                "Étape 2 — le contour "
+                                + "du traceur")
+                            else { return }
+                        }
+                        work = atOrigin(rect)
+                        redresse = true
+                        guard showStep(work, "Étape 3 — "
+                            + "reçu redressé par le traceur")
+                        else { return }
+                    }
+                }
+                if redresse {
+                    voieTraceur = true
+                } else {
+                    trace.append("Étape 2 — traceur : "
+                        + "polygone inexploitable ou "
+                        + "redressement refusé, rituel "
+                        + "classique")
+                }
+            case .aucunModele:
+                trace.append("Étape 2 — aucun modèle de "
+                    + "contours, rituel classique")
+            case .echec:
+                trace.append("Étape 2 — le traceur a "
+                    + "échoué, rituel classique")
+            }
+        }
+        if !voieTraceur {
+            guard let w = rituelZoneDeviation(
+                work, trace: &trace, showStep: showStep)
+            else { return }
+            work = w
         }
 
         // Étape 4 — le SENS, jugé sur les MOTS (demande de
@@ -808,42 +821,11 @@ final class CompositeScanner: NSObject,
                 + "meilleur score de mots gardé")
         }
 
-        // Étape 5 — on élimine le noir qui reste À
-        // L'EXTÉRIEUR de la zone blanche : la zone est
-        // recherchée à nouveau sur l'image orientée, et le
-        // reçu est découpé sur elle — il occupe alors le
-        // maximum de l'écran disponible.
-        if let zone2 = findWhiteZone(in: work) {
-            let ext = work.extent
-            var rect = CGRect(
-                x: ext.minX + zone2.bboxNorm.minX * ext.width,
-                y: ext.minY + zone2.bboxNorm.minY * ext.height,
-                width: zone2.bboxNorm.width * ext.width,
-                height: zone2.bboxNorm.height * ext.height)
-            rect = rect.insetBy(dx: -0.01 * rect.width,
-                                dy: -0.01 * rect.height)
-                .intersection(ext)
-            if rect.width > 40, rect.height > 40 {
-                work = atOrigin(work.cropped(to: rect))
-                trace.append("Étape 5 — reçu découpé sur sa "
-                    + "zone blanche (qui couvrait "
-                    + "\(Int(zone2.coverage * 100)) % du cadre)")
-                guard showStep(work, "Étape 5 — reçu découpé, "
-                    + "le noir extérieur est éliminé")
-                else { return }
-            } else {
-                trace.append("Étape 5 — zone trop petite, "
-                    + "pas de découpage")
-                guard showStep(work,
-                    "Étape 5 — pas de découpage (zone minuscule)")
-                else { return }
-            }
-        } else {
-            trace.append("Étape 5 — zone blanche non "
-                + "retrouvée (\(lastZoneSummary))")
-            guard showStep(work, "Étape 5 — pas de découpage "
-                + "(zone non retrouvée)")
+        if !voieTraceur {
+            guard let w = rituelDecoupeZone(
+                work, trace: &trace, showStep: showStep)
             else { return }
+            work = w
         }
 
         // Étape 6 — ENFIN (pas avant) l'analyse : nom de la
@@ -888,6 +870,42 @@ final class CompositeScanner: NSObject,
             + "\(Int(image.extent.height)) px"
             + "\nAmélioration auto : \(enhanced.summary)"
             + "\nOrientation : \(lastArbiterSummary)"
+        // Bilan d'autonomie (build 141) : ce scan
+        // a-t-il coulé tout seul, ou la machine a-t-elle
+        // dû se reprendre ? LE compteur du « faire
+        // jouer seule » — une ligne par scan, au journal.
+        var retouches: [String] = []
+        if !voieTraceur {
+            retouches.append(
+                "contour par le rituel classique")
+        }
+        if !placed {
+            retouches.append("sens non concluant "
+                + "(meilleur score gardé)")
+        } else if attempts > 1 {
+            retouches.append("sens trouvé en "
+                + "\(attempts) tentatives")
+        }
+        if outcome.correction != .up {
+            retouches.append("retournement par "
+                + "l'arbitre de lecture")
+        }
+        let champsManquants = [
+            extraction.merchant.isEmpty ? "commerce" : nil,
+            (extraction.date == nil
+                || extraction.dateIsDefault)
+                ? "date" : nil,
+            extraction.total == nil ? "total" : nil
+        ].compactMap { $0 }
+        if !champsManquants.isEmpty {
+            retouches.append("champ(s) manquant(s) : "
+                + champsManquants.joined(separator: ", "))
+        }
+        finishInfo += "\nAutonomie : " + (retouches.isEmpty
+            ? "SANS RETOUCHE — le scan a coulé tout seul"
+            : "retouches machine — "
+                + retouches.joined(separator: " · "))
+
         let stats = buildStats()
         appendToJournal(stats: stats, extraction: extraction)
         DispatchQueue.main.async { [weak self] in
@@ -902,6 +920,237 @@ final class CompositeScanner: NSObject,
             self.extraction = extraction
             self.statsText = stats
         }
+    }
+
+    /// Ramène l'image à l'origine (0, 0) — promue
+    /// de finish() au build 141, où elle servait déjà
+    /// d'aide locale.
+    private func atOrigin(_ image: CIImage) -> CIImage {
+        image.transformed(by: CGAffineTransform(
+            translationX: -image.extent.minX,
+            y: -image.extent.minY))
+    }
+
+    /// Étapes 2 et 3 du rituel classique : la zone la
+    /// plus blanche, puis la déviation par les bords.
+    /// Rend l'image transformée, ou nil si le scan a
+    /// été remplacé entre-temps. Corps extrait
+    /// VERBATIM de finish() au build 141.
+    private func rituelZoneDeviation(
+        _ workIn: CIImage, trace: inout [String],
+        showStep: (CIImage, String) -> Bool) -> CIImage? {
+        var work = workIn
+        // Étape 2 — la ZONE LA PLUS BLANCHE (méthode de
+        // Grégoire, 2026-10-21) : le papier est la zone la
+        // plus blanche DISPONIBLE dans l'image (seuil
+        // relatif) ; les gribouillis noirs dedans (le texte
+        // imprimé) sont absorbés — dilatation, plus grande
+        // composante, trous remplis. Tout ce qui est À
+        // L'EXTÉRIEUR devient NOIR : il ne reste que le
+        // papier et ses bords, nets, pour la mesure.
+        let zone = findWhiteZone(in: work)
+        if let zone {
+            work = maskedToZone(work, zone: zone)
+            trace.append("Étape 2 — zone la plus blanche : "
+                + "\(Int(zone.coverage * 100)) % du cadre "
+                + "(seuil \(zone.threshold)), extérieur en noir")
+            guard showStep(work, "Étape 2 — la zone la plus "
+                + "blanche, tout le reste en noir")
+            else { return nil }
+        } else {
+            trace.append("Étape 2 — aucune zone blanche "
+                + "dominante (\(lastZoneSummary))")
+            guard showStep(work, "Étape 2 — aucune zone "
+                + "blanche dominante, on continue sans masque")
+            else { return nil }
+        }
+
+        // Étape 3 — la DÉVIATION par les BORDS : deux lignes
+        // qui se croisent à 90° ajustées sur les bords de la
+        // zone (axe principal, raffiné par les côtés) ; la
+        // déviation vs la verticale/l'horizontale est
+        // corrigée d'un coup.
+        if let zone {
+            if let dev = measureDeviation(zone: zone) {
+                if abs(dev) > 0.2 * .pi / 180 {
+                    work = rotateKeepingExtent(work, by: -dev)
+                    trace.append(String(
+                        format: "Étape 3 — bords : déviation "
+                            + "de %+.1f°, rotation de %+.1f°",
+                        Double(dev) * 180 / .pi,
+                        Double(-dev) * 180 / .pi))
+                    guard showStep(work, String(
+                        format: "Étape 3 — déviation de %+.1f° "
+                            + "corrigée",
+                        Double(dev) * 180 / .pi))
+                    else { return nil }
+                } else {
+                    trace.append("Étape 3 — bords déjà alignés "
+                        + "(déviation < 0,2°)")
+                    guard showStep(work, "Étape 3 — les bords "
+                        + "sont déjà alignés")
+                    else { return nil }
+                }
+            } else {
+                trace.append("Étape 3 — déviation non mesurable")
+                guard showStep(work, "Étape 3 — déviation non "
+                    + "mesurable, on continue")
+                else { return nil }
+            }
+        }
+
+        return work
+    }
+
+    /// Étape 5 du rituel classique : découpe sur la
+    /// zone blanche retrouvée dans l'image orientée.
+    /// Corps extrait VERBATIM de finish() au
+    /// build 141.
+    private func rituelDecoupeZone(
+        _ workIn: CIImage, trace: inout [String],
+        showStep: (CIImage, String) -> Bool) -> CIImage? {
+        var work = workIn
+        // Étape 5 — on élimine le noir qui reste À
+        // L'EXTÉRIEUR de la zone blanche : la zone est
+        // recherchée à nouveau sur l'image orientée, et le
+        // reçu est découpé sur elle — il occupe alors le
+        // maximum de l'écran disponible.
+        if let zone2 = findWhiteZone(in: work) {
+            let ext = work.extent
+            var rect = CGRect(
+                x: ext.minX + zone2.bboxNorm.minX * ext.width,
+                y: ext.minY + zone2.bboxNorm.minY * ext.height,
+                width: zone2.bboxNorm.width * ext.width,
+                height: zone2.bboxNorm.height * ext.height)
+            rect = rect.insetBy(dx: -0.01 * rect.width,
+                                dy: -0.01 * rect.height)
+                .intersection(ext)
+            if rect.width > 40, rect.height > 40 {
+                work = atOrigin(work.cropped(to: rect))
+                trace.append("Étape 5 — reçu découpé sur sa "
+                    + "zone blanche (qui couvrait "
+                    + "\(Int(zone2.coverage * 100)) % du cadre)")
+                guard showStep(work, "Étape 5 — reçu découpé, "
+                    + "le noir extérieur est éliminé")
+                else { return nil }
+            } else {
+                trace.append("Étape 5 — zone trop petite, "
+                    + "pas de découpage")
+                guard showStep(work,
+                    "Étape 5 — pas de découpage (zone minuscule)")
+                else { return nil }
+            }
+        } else {
+            trace.append("Étape 5 — zone blanche non "
+                + "retrouvée (\(lastZoneSummary))")
+            guard showStep(work, "Étape 5 — pas de découpage "
+                + "(zone non retrouvée)")
+            else { return nil }
+        }
+
+        return work
+    }
+
+    /// Redressement par perspective : les 4 coins en
+    /// pixels CI, ordre [TL, TR, BR, BL] (y montant).
+    /// nil si le filtre échoue ou si le résultat est
+    /// une bande absurde (garde-fou 4:1, journal du
+    /// 2026-10-20).
+    private func perspectiveRectify(
+        _ image: CIImage, corners: [CGPoint]) -> CIImage? {
+        guard corners.count == 4,
+              let filter = CIFilter(
+                name: "CIPerspectiveCorrection")
+        else { return nil }
+        filter.setValue(image, forKey: kCIInputImageKey)
+        filter.setValue(CIVector(cgPoint: corners[0]),
+                        forKey: "inputTopLeft")
+        filter.setValue(CIVector(cgPoint: corners[1]),
+                        forKey: "inputTopRight")
+        filter.setValue(CIVector(cgPoint: corners[2]),
+                        forKey: "inputBottomRight")
+        filter.setValue(CIVector(cgPoint: corners[3]),
+                        forKey: "inputBottomLeft")
+        guard let corrected = filter.outputImage
+        else { return nil }
+        let e = corrected.extent
+        let longSide = max(e.width, e.height)
+        let shortSide = max(1, min(e.width, e.height))
+        guard longSide / shortSide <= 4 else { return nil }
+        return corrected
+    }
+
+    /// Enveloppe convexe (chaîne monotone) et
+    /// réduction du polygone du traceur à ses 4 coins
+    /// [TL, TR, BR, BL] en coordonnées d'affichage
+    /// normalisées : élagage répété du sommet dont le
+    /// retrait change le moins l'aire. nil si
+    /// dégénéré. Géométrie prouvée par le test fumée
+    /// du build 141 (test141.swift, Swift Linux).
+    private func convexHull(_ points: [CGPoint]) -> [CGPoint] {
+        let pts = points
+            .sorted { $0.x != $1.x ? $0.x < $1.x : $0.y < $1.y }
+            .reduce(into: [CGPoint]()) { acc, p in
+                if acc.last != p { acc.append(p) }
+            }
+        guard pts.count > 2 else { return pts }
+        func cross(_ o: CGPoint, _ a: CGPoint, _ b: CGPoint)
+        -> CGFloat {
+            (a.x - o.x) * (b.y - o.y)
+                - (a.y - o.y) * (b.x - o.x)
+        }
+        var lower: [CGPoint] = []
+        for p in pts {
+            while lower.count >= 2,
+                  cross(lower[lower.count - 2],
+                        lower[lower.count - 1], p) <= 0 {
+                lower.removeLast()
+            }
+            lower.append(p)
+        }
+        var upper: [CGPoint] = []
+        for p in pts.reversed() {
+            while upper.count >= 2,
+                  cross(upper[upper.count - 2],
+                        upper[upper.count - 1], p) <= 0 {
+                upper.removeLast()
+            }
+            upper.append(p)
+        }
+        lower.removeLast()
+        upper.removeLast()
+        return lower + upper
+    }
+
+    private func quadFromPolygon(_ poly: [CGPoint]) -> [CGPoint]? {
+        var pts = convexHull(poly)
+        guard pts.count >= 4 else { return nil }
+        while pts.count > 4 {
+            var worst = 0
+            var worstLoss = CGFloat.greatestFiniteMagnitude
+            for i in pts.indices {
+                let prev = pts[(i + pts.count - 1) % pts.count]
+                let next = pts[(i + 1) % pts.count]
+                let loss = abs(shoelace([prev, pts[i], next]))
+                if loss < worstLoss {
+                    worstLoss = loss
+                    worst = i
+                }
+            }
+            pts.remove(at: worst)
+        }
+        guard let tl = pts.min(by: { $0.x + $0.y < $1.x + $1.y }),
+              let br = pts.max(by: { $0.x + $0.y < $1.x + $1.y }),
+              let tr = pts.max(by: { $0.x - $0.y < $1.x - $1.y }),
+              let bl = pts.min(by: { $0.x - $0.y < $1.x - $1.y })
+        else { return nil }
+        let picks = [tl, tr, br, bl]
+        var distinct = true
+        for i in 0..<4 { for j in (i + 1)..<4 {
+            if picks[i] == picks[j] { distinct = false }
+        } }
+        guard distinct else { return nil }
+        return picks
     }
 
     /// Cherche le reçu dans le composite figé :

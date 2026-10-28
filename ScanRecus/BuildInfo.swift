@@ -7,5 +7,5 @@
 /// annoncé, le Pull ou la recompilation n'a pas pris le dernier
 /// code — c'est ce test qui tranche, pas une impression.
 enum BuildInfo {
-    static let stamp = "build 140 · 2026-10-27"
+    static let stamp = "build 141 · 2026-10-27"
 }
