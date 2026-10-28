@@ -19,6 +19,7 @@ final class ContoursRunner: ObservableObject {
     @Published var atelierPret = false
     @Published var bulletin: [String: Any]?
     @Published var tournoiRapport: [String: Any]?
+    @Published var megaRapport: [String: Any]?
     /// Nombre d'époques demandé : champ de
     /// l'onglet, persisté, validé au lancement
     /// (1 à 500, défaut 60).
@@ -60,6 +61,7 @@ final class ContoursRunner: ObservableObject {
             .fileExists(atPath: venvPython.path)
         loadBulletin()
         loadTournoi()
+        loadMega()
         if bulletin != nil { mirrorBulletin() }
     }
 
@@ -71,6 +73,16 @@ final class ContoursRunner: ObservableObject {
                 .jsonObject(with: data) as? [String: Any]
         else { tournoiRapport = nil; return }
         tournoiRapport = obj
+    }
+
+    func loadMega() {
+        let url = jugeDir.appendingPathComponent(
+            "mega-rapport.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization
+                .jsonObject(with: data) as? [String: Any]
+        else { megaRapport = nil; return }
+        megaRapport = obj
     }
 
     func loadBulletin() {
@@ -224,6 +236,41 @@ final class ContoursRunner: ObservableObject {
         }
     }
 
+    /// Le MÉGA-TOURNOI (build 144) : prospection
+    /// massive sur la photo 67 (des dizaines de
+    /// milliers d'enfants, échantillonnage qui
+    /// apprend des échecs), séries sur la
+    /// sélection, verdict sur le strict scellé.
+    /// Le rapport est réécrit à chaque lot : un
+    /// arrêt en cours de route laisse sa récolte,
+    /// qui est quand même mirée sur Drive.
+    func mega() {
+        guard !running, atelierPret else { return }
+        writeScript()
+        progress = 0
+        run(executable: venvPython.path,
+            args: [scriptURL.path,
+                   "--racine", racine.path,
+                   "--sortie", jugeDir.path,
+                   "--mega", "--photo", "67"],
+            phase: "Méga-tournoi — prospection "
+                + "photo 67…") {
+            [weak self] status in
+            guard let self else { return }
+            if status == 0 {
+                self.progress = 100
+                self.phase = "Terminé — méga-tournoi "
+                    + "bouclé, rapport à jour."
+            } else {
+                self.phase = "Arrêt ou échec "
+                    + "(code \(status)) — récolte "
+                    + "au dernier point de contrôle."
+            }
+            self.loadMega()
+            self.mirrorMega()
+        }
+    }
+
     func arreter() {
         process?.terminate()
     }
@@ -291,6 +338,40 @@ final class ContoursRunner: ObservableObject {
             try fm.copyItem(at: src, to: dst)
             log("Rapport de tournoi recopié vers Drive "
                 + "(tournoi-rapport.json).")
+        } catch {
+            log("Miroir Drive : échec ("
+                + error.localizedDescription + ")")
+        }
+    }
+
+    /// Miroir Drive du rapport de méga-tournoi
+    /// (même principe que le tournoi).
+    func mirrorMega() {
+        let fm = FileManager.default
+        let src = jugeDir.appendingPathComponent(
+            "mega-rapport.json")
+        guard fm.fileExists(atPath: src.path)
+        else { return }
+        guard let folder = driveFolder() else {
+            log("Miroir Drive : dossier introuvable — "
+                + "rapport de méga-tournoi en local "
+                + "seulement.")
+            return
+        }
+        let dst = folder.appendingPathComponent(
+            "mega-rapport.json")
+        let srcSize = (try? fm.attributesOfItem(
+            atPath: src.path))?[.size] as? NSNumber
+        let dstSize = (try? fm.attributesOfItem(
+            atPath: dst.path))?[.size] as? NSNumber
+        if srcSize != nil, srcSize == dstSize { return }
+        do {
+            if fm.fileExists(atPath: dst.path) {
+                try fm.removeItem(at: dst)
+            }
+            try fm.copyItem(at: src, to: dst)
+            log("Rapport de méga-tournoi recopié "
+                + "vers Drive (mega-rapport.json).")
         } catch {
             log("Miroir Drive : échec ("
                 + error.localizedDescription + ")")

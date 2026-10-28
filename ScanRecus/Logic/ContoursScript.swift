@@ -1391,6 +1391,445 @@ def _servi_score(params, items):
 
 
 
+def _servi_erreur_precise(mask_bool, gray, true_m,
+                          params):
+    """Comme _servi_erreur, mais SANS arrondi :
+    le score d'arène du méga-tournoi — sur une
+    seule photo, l'arrondi au centième
+    recréerait un plateau d'ex æquo."""
+    servi = mask_to_polygon(mask_bool, gray=gray,
+                            params=params)
+    if servi is None:
+        return None
+    servi_m = np.asarray(rasterize(servi),
+                         dtype=np.uint8)
+    return float(chamfer_pct(servi_m, true_m))
+
+
+def _cle_params(params):
+    """Clé déterministe d'un jeu de paramètres
+    (bris d'égalité stable entre exécutions)."""
+    return tuple(params[k] for k in sorted(params))
+
+
+# Contexte des travailleurs du méga-tournoi :
+# rempli par l'initialiseur de chaque processus
+# (masque, photo et référence de l'arène,
+# calculés une seule fois par le parent).
+_MEGA_CTX = {}
+
+
+def _mega_init(ctx):
+    _MEGA_CTX.update(ctx)
+
+
+def _mega_eval(params):
+    """Un enfant du méga-tournoi : extraction
+    sur l'arène, score pleine précision (échec
+    d'extraction = 10 %)."""
+    e = _servi_erreur_precise(
+        _MEGA_CTX["mask"], _MEGA_CTX["gray"],
+        _MEGA_CTX["true"], params)
+    return (10.0 if e is None else e), params
+
+
+def _mega_echantillon(rng, boite=None):
+    """Un candidat tiré uniformément (en log)
+    dans une boîte {param: (lo, hi)} — par
+    défaut les bornes du tournoi."""
+    src = boite or TOURNOI_BORNES
+    out = {}
+    for k, (lo, hi) in src.items():
+        out[k] = round(math.exp(rng.uniform(
+            math.log(lo), math.log(hi))), 4)
+    return out
+
+
+def _mega_boite_confiance(evalues, fraction=0.10):
+    """La boîte de confiance (build 144) :
+    pour chaque paramètre, l'intervalle (en
+    log) couvert par le meilleur `fraction`
+    des enfants déjà évalués, élargi de 15 %,
+    sans jamais descendre sous 30 % de
+    l'intervalle d'origine. Les directions qui
+    empirent le score sont échantillonnées de
+    moins en moins — jamais interdites : une
+    valeur mauvaise seule peut être bonne en
+    combinaison."""
+    if len(evalues) < 200:
+        return None
+    tries = sorted(
+        evalues,
+        key=lambda t: (t[0], _cle_params(t[1])))
+    n = max(20, int(len(tries) * fraction))
+    top = [p for _, p in tries[:n]]
+    boite = {}
+    for k, (lo, hi) in TOURNOI_BORNES.items():
+        llo, lhi = math.log(lo), math.log(hi)
+        vals = sorted(math.log(p[k]) for p in top)
+        a, b = vals[0], vals[-1]
+        marge = 0.15 * (b - a)
+        a, b = a - marge, b + marge
+        largeur_min = 0.30 * (lhi - llo)
+        if b - a < largeur_min:
+            m = (a + b) / 2
+            a, b = (m - largeur_min / 2,
+                    m + largeur_min / 2)
+        boite[k] = (math.exp(max(llo, a)),
+                    math.exp(min(lhi, b)))
+    return boite
+
+
+def _mega_recolte(evalues, cap=40, dist_min=0.12):
+    """La récolte : les meilleurs enfants, en
+    gardant une distance minimale dans
+    l'espace des paramètres normalisé
+    (coordonnées log ramenées à [0, 1]) — pas
+    40 clones du même point."""
+    def z(p):
+        return [(math.log(p[k])
+                 - math.log(TOURNOI_BORNES[k][0]))
+                / (math.log(TOURNOI_BORNES[k][1])
+                   - math.log(TOURNOI_BORNES[k][0]))
+                for k in sorted(TOURNOI_BORNES)]
+    tries = sorted(
+        evalues,
+        key=lambda t: (t[0], _cle_params(t[1])))
+    garde, zs = [], []
+    for s, p in tries:
+        zp = z(p)
+        if all(math.dist(zp, zq) >= dist_min
+               for zq in zs):
+            garde.append((s, p))
+            zs.append(zp)
+            if len(garde) >= cap:
+                break
+    return garde
+
+
+def mega_seul(args):
+    """LE MÉGA-TOURNOI (build 144) : prospection
+    massive sur UNE photo-arène (défaut : la
+    67, dont l'extraction dégrade un bon
+    masque). Des dizaines de milliers d'enfants
+    y sont notés en pleine précision contre le
+    tracé de référence, en parallèle.
+    L'échantillonnage APPREND : chaque enfant
+    est archivé (mega-enfants.jsonl), une boîte
+    de confiance se resserre sur les régions
+    du meilleur décile, des éclaireurs gardent
+    l'espace complet ouvert. La récolte (les
+    meilleurs enfants DIVERS) affronte ensuite
+    toute la sélection (séries), puis l'examen
+    strict scellé rend le verdict — comme au
+    tournoi. Le rapport est réécrit à chaque
+    lot : un arrêt en cours de route laisse sa
+    récolte derrière lui."""
+    import torch
+    import datetime
+    import random
+    import time
+    import multiprocessing as mp
+    modele = os.path.join(args.sortie,
+                          "contours-v0.pt")
+    if not os.path.exists(modele):
+        print("Méga-tournoi impossible : aucun "
+              "modèle (contours-v0.pt) dans le "
+              "dossier de sortie — entraînez "
+              "d'abord le traceur.", flush=True)
+        return 3
+    tenant, source = charger_params(args.sortie)
+    sp = prepare_splits(args.racine)
+    examens = (sp["dev_items"] + sp["banc_items"]
+               + (sp["strict_items"] or []))
+    cible = next((e for e in examens
+                  if e["sn"] == args.photo), None)
+    if cible is None:
+        print(f"Méga-tournoi impossible : la "
+              f"photo {args.photo} n'est pas "
+              f"dans les examens (dev, banc ou "
+              f"strict) — l'arène exige un tracé "
+              f"de référence hors entraînement.",
+              flush=True)
+        return 2
+    sel_items = sp["dev_items"] + sp["banc_items"]
+    strict_items = sp["strict_items"] or []
+    if len(sel_items) < 4:
+        print("Méga-tournoi impossible : pas "
+              "assez de photos de sélection.",
+              flush=True)
+        return 2
+    device = pick_device(torch)
+    print(f"appareil : {device}", flush=True)
+    model = build_model(torch).to(device)
+    model.load_state_dict(torch.load(
+        modele, map_location=device))
+    model.eval()
+
+    def predict_mask(img_pil):
+        x = torch.from_numpy(
+            np.asarray(img_pil, dtype=np.float32)
+            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
+        with torch.no_grad():
+            prob = torch.sigmoid(model(x))[0, 0]
+        return prob.cpu().numpy() > 0.5
+
+    def prep(items):
+        out = []
+        for it in items:
+            try:
+                chemin = sp["resolve"](it["file"])
+                img = load_image_256(chemin)
+                gray = np.asarray(
+                    Image.open(chemin).convert("L"),
+                    dtype=np.float64)
+            except Exception:
+                continue
+            out.append({
+                "sn": it["sn"],
+                "mask": predict_mask(img),
+                "gray": gray,
+                "true": np.asarray(
+                    rasterize(it["lasso"]),
+                    dtype=np.uint8),
+            })
+        return out
+
+    print("PHASE Méga-tournoi — calcul des "
+          "masques…", flush=True)
+    print("PROGRES 3", flush=True)
+    t0 = time.time()
+    arene_l = prep([cible])
+    if not arene_l:
+        print("Méga-tournoi impossible : photo "
+              "arène illisible.", flush=True)
+        return 2
+    arene = arene_l[0]
+    sel = prep(sel_items)
+    ver = prep(strict_items)
+
+    def score_arene(params):
+        e = _servi_erreur_precise(
+            arene["mask"], arene["gray"],
+            arene["true"], params)
+        return 10.0 if e is None else e
+
+    sc_defauts = score_arene(PARAMS_DEFAUT)
+    sc_tenant = score_arene(tenant)
+    print(f"arène : photo {args.photo} · "
+          f"défauts {sc_defauts:.3f} % · tenant "
+          f"({source}) {sc_tenant:.3f} %",
+          flush=True)
+
+    ctx = {"mask": arene["mask"],
+           "gray": arene["gray"],
+           "true": arene["true"]}
+    W = args.travailleurs
+    if W <= 0:
+        W = min(10, os.cpu_count() or 2)
+    pool = None
+    if W > 1:
+        try:
+            pool = mp.get_context("spawn").Pool(
+                processes=W,
+                initializer=_mega_init,
+                initargs=(ctx,))
+        except Exception as ex:
+            print(f"parallèle impossible "
+                  f"({ex}) — mode séquentiel.",
+                  flush=True)
+            pool = None
+    print(f"travailleurs : "
+          f"{W if pool is not None else 1}",
+          flush=True)
+
+    rng = random.Random(args.seed)
+    budget = max(50, args.budget)
+    LOT = 600
+    evalues = []
+    arch_path = os.path.join(
+        args.sortie, "mega-enfants.jsonl")
+    archive = open(arch_path, "a")
+    rap_path = os.path.join(
+        args.sortie, "mega-rapport.json")
+    mtime = datetime.datetime.fromtimestamp(
+        os.path.getmtime(modele)).strftime(
+        "%Y-%m-%dT%H:%M:%S")
+
+    def ecrire_rapport(termine, series=None,
+                       gagnant=None, nouveau=False,
+                       strict_t=None, strict_g=None):
+        recolte = _mega_recolte(evalues)
+        meilleur = (min(
+            evalues,
+            key=lambda t: (t[0],
+                           _cle_params(t[1])))
+            if evalues else None)
+        rap = {
+            "genere": datetime.datetime.now()
+                .strftime("%Y-%m-%dT%H:%M:%S"),
+            "termine": termine,
+            "photo": args.photo,
+            "appareil": str(device),
+            "modele_mtime": mtime,
+            "seed": args.seed,
+            "budget": budget,
+            "evalues": len(evalues),
+            "travailleurs":
+                W if pool is not None else 1,
+            "duree_s": round(time.time() - t0, 1),
+            "arene": {
+                "defauts": round(sc_defauts, 4),
+                "tenant": round(sc_tenant, 4),
+                "meilleur":
+                    round(meilleur[0], 4)
+                    if meilleur else None,
+                "params_meilleur":
+                    meilleur[1]
+                    if meilleur else None,
+            },
+            "recolte": [
+                {"params": p,
+                 "score_arene": round(s, 4)}
+                for s, p in recolte],
+            "series": series,
+            "tenant_selection": None,
+            "strict": {
+                "tenant": strict_t,
+                "gagnant": strict_g},
+            "nouveau_champion": nouveau,
+        }
+        if series is not None:
+            rap["tenant_selection"] = tenant_sel
+            rap["gagnant"] = gagnant
+        tmp = rap_path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(rap, f, indent=1,
+                      sort_keys=True)
+        os.replace(tmp, rap_path)
+
+    faits = 0
+    while faits < budget:
+        n = min(LOT, budget - faits)
+        boite = (_mega_boite_confiance(evalues)
+                 if faits >= 2 * LOT else None)
+        recolte_c = (_mega_recolte(evalues)
+                     if evalues else [])
+        moitie = recolte_c[:max(
+            1, len(recolte_c) // 2)]
+        cands = []
+        if faits == 0:
+            cands = [dict(PARAMS_DEFAUT),
+                     dict(tenant)]
+        while len(cands) < n:
+            r = rng.random()
+            if moitie and r < 0.45:
+                parent = dict(
+                    rng.choice(moitie)[1])
+                cands.append(_muter(parent, rng))
+            elif boite is not None and r < 0.80:
+                cands.append(
+                    _mega_echantillon(rng, boite))
+            else:
+                cands.append(
+                    _mega_echantillon(rng))
+        if pool is not None:
+            res = list(pool.imap(
+                _mega_eval, cands, chunksize=24))
+        else:
+            _mega_init(ctx)
+            res = [_mega_eval(c) for c in cands]
+        for s, p in res:
+            evalues.append((float(s), p))
+            archive.write(json.dumps(
+                {"params": p,
+                 "score": round(float(s), 5)},
+                sort_keys=True) + "\n")
+        archive.flush()
+        faits += len(res)
+        meilleur = min(
+            evalues,
+            key=lambda t: (t[0],
+                           _cle_params(t[1])))
+        print(f"prospection : {faits}/{budget} "
+              f"· meilleur arène "
+              f"{meilleur[0]:.3f} %", flush=True)
+        print(f"PROGRES "
+              f"{5 + int(70 * faits / budget)}",
+              flush=True)
+        ecrire_rapport(False)
+    archive.close()
+    if pool is not None:
+        pool.close()
+        pool.join()
+
+    print("PHASE Méga-tournoi — séries sur la "
+          "sélection…", flush=True)
+    print("PROGRES 85", flush=True)
+    tenant_sel = _servi_score(tenant, sel)
+    series = []
+    for s_arene, p in _mega_recolte(evalues):
+        series.append({
+            "params": p,
+            "score_arene": round(s_arene, 4),
+            "score_selection": _servi_score(
+                p, sel),
+        })
+    series.sort(key=lambda d: (
+        d["score_selection"],
+        _cle_params(d["params"])))
+    gagnant = series[0] if series else None
+    nouveau = bool(
+        gagnant
+        and gagnant["score_selection"]
+        < tenant_sel - 0.001)
+    strict_tenant = (_servi_score(tenant, ver)
+                     if ver else None)
+    strict_gagnant = (
+        _servi_score(gagnant["params"], ver)
+        if (nouveau and ver) else strict_tenant)
+    if nouveau:
+        out_c = os.path.join(
+            args.sortie, "extraction-champion.json")
+        with open(out_c, "w") as f:
+            json.dump({
+                "params": gagnant["params"],
+                "score_selection":
+                    gagnant["score_selection"],
+                "score_strict": strict_gagnant,
+                "genere":
+                    datetime.datetime.now()
+                    .strftime("%Y-%m-%dT%H:%M:%S"),
+                "modele_mtime": mtime,
+                "origine":
+                    f"mega-photo-{args.photo}",
+            }, f, indent=1, sort_keys=True)
+    ecrire_rapport(True, series=series,
+                   gagnant=gagnant,
+                   nouveau=nouveau,
+                   strict_t=strict_tenant,
+                   strict_g=strict_gagnant)
+    if nouveau:
+        print(f"NOUVEAU CHAMPION (méga) : "
+              f"sélection {tenant_sel} → "
+              f"{gagnant['score_selection']} % · "
+              f"strict {strict_tenant} → "
+              f"{strict_gagnant} % — constantes "
+              f"écrites dans "
+              f"extraction-champion.json",
+              flush=True)
+    else:
+        print(f"Le tenant garde son titre : "
+              f"sélection {tenant_sel} % · "
+              f"strict {strict_tenant} % — la "
+              f"prospection n'a rien trouvé qui "
+              f"se transfère.", flush=True)
+    print(f"rapport écrit : {rap_path}",
+          flush=True)
+    print("PROGRES 100", flush=True)
+    return 0
+
+
 # ---------------- Main ----------------
 
 def main():
@@ -1414,6 +1853,25 @@ def main():
                     default=16)
     ap.add_argument("--seed", type=int,
                     default=20261027)
+    ap.add_argument("--mega", action="store_true",
+                    help="méga-tournoi : prospection "
+                         "massive sur une "
+                         "photo-arène, séries sur "
+                         "la sélection, verdict "
+                         "sur le strict scellé")
+    ap.add_argument("--photo", type=int,
+                    default=67,
+                    help="photo-arène du "
+                         "méga-tournoi")
+    ap.add_argument("--budget", type=int,
+                    default=100000,
+                    help="nombre d'enfants du "
+                         "méga-tournoi")
+    ap.add_argument("--travailleurs", type=int,
+                    default=0,
+                    help="processus parallèles "
+                         "du méga-tournoi "
+                         "(0 = auto)")
     ap.add_argument("--synthetique", action="store_true")
     ap.add_argument("--devine", default=None,
                     help="chemin d'une image : prédit "
@@ -1442,6 +1900,14 @@ def main():
                   "synthétique.", flush=True)
             return 2
         return tournoi_seul(args)
+
+    if args.mega:
+        if args.synthetique:
+            print("Le méga-tournoi exige un "
+                  "modèle entraîné : pas de "
+                  "mode syntétique.", flush=True)
+            return 2
+        return mega_seul(args)
 
     if args.synthetique:
         print("mode synthétique (test fumée)", flush=True)

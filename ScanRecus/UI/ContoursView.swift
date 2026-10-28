@@ -51,6 +51,11 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
+                Button("Méga-tournoi (photo 67)") {
+                    runner.mega()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
@@ -99,6 +104,10 @@ struct ContoursView: View {
 
             if let t = runner.tournoiRapport {
                 tournoiCard(t)
+            }
+
+            if let m = runner.megaRapport {
+                megaCard(m)
             }
 
             ScrollView {
@@ -241,6 +250,77 @@ struct ContoursView: View {
         .background(Color.secondary.opacity(0.08))
     }
 
+    /// Carte du méga-tournoi (build 144) :
+    /// l'arène (photo 67, pleine précision), les
+    /// séries sur la sélection et le verdict du
+    /// strict. Chaînes pré-calculées avant la
+    /// vue (leçon des builds 143-144).
+    private func megaCard(_ m: [String: Any])
+        -> some View {
+        func n3(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.3f", v)
+        }
+        func n2(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.2f", v)
+        }
+        let photo = (m["photo"] as? NSNumber)?
+            .intValue ?? 0
+        let faits = (m["evalues"] as? NSNumber)?
+            .intValue ?? 0
+        let budget = (m["budget"] as? NSNumber)?
+            .intValue ?? 0
+        let termine = (m["termine"] as? Bool)
+            ?? false
+        let arene = m["arene"] as? [String: Any]
+        let strc = m["strict"] as? [String: Any]
+        let gag = m["gagnant"] as? [String: Any]
+        let nouveau = (m["nouveau_champion"]
+            as? Bool) ?? false
+        let selT = (m["tenant_selection"]
+            as? NSNumber).map {
+            String(format: "%.2f", $0.doubleValue)
+        } ?? "—"
+        let l1 = "Méga-tournoi — photo \(photo)"
+            + " · \(faits)/\(budget) enfants"
+            + (termine ? ""
+               : " · en cours (point de contrôle)")
+        let l2 = "Arène : défauts "
+            + "\(n3(arene, "defauts")) % · tenant "
+            + "\(n3(arene, "tenant")) % · meilleur "
+            + "\(n3(arene, "meilleur")) %"
+        var l3 = ""
+        if termine {
+            if nouveau, let g = gag {
+                l3 = "Séries : sélection "
+                    + "\(selT) → "
+                    + "\(n2(g, "score_selection")) %"
+                    + " · strict "
+                    + "\(n2(strc, "tenant")) → "
+                    + "\(n2(strc, "gagnant")) %"
+                    + " — nouveau champion"
+            } else {
+                l3 = "Séries : le tenant garde son "
+                    + "titre (sélection \(selT) %)"
+            }
+        }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(l1)
+            Text(l2)
+            if !l3.isEmpty { Text(l3) }
+        }
+        .font(.system(size: 11.5, design: .monospaced))
+        .padding(8)
+        .background(Color.secondary.opacity(0.08))
+    }
+
     private func verdictTexte(dev: [String: Any]?,
                               box: [String: Any]?)
         -> String {
@@ -377,6 +457,44 @@ struct ContoursView: View {
                 tl += " — le tenant garde son titre"
             }
             lignes.append(tl)
+        }
+        if let mg = runner.megaRapport {
+            let mPhoto = (mg["photo"] as? NSNumber)?
+                .intValue ?? 0
+            let mEval = (mg["evalues"]
+                as? NSNumber)?.intValue ?? 0
+            let mArene = mg["arene"]
+                as? [String: Any]
+            let mStrc = mg["strict"]
+                as? [String: Any]
+            let mGag = mg["gagnant"]
+                as? [String: Any]
+            let aDef = n(mArene, "defauts")
+            let aBest = n(mArene, "meilleur")
+            var ml = "Méga-tournoi (photo "
+                + "\(mPhoto) · \(mEval) enfants) : "
+                + "arène \(aDef) → \(aBest) %"
+            if let g = mGag {
+                let selT2 = (mg["tenant_selection"]
+                    as? NSNumber).map {
+                    String(format: "%.2f",
+                           $0.doubleValue)
+                } ?? "—"
+                let selG = n(g, "score_selection")
+                let stT = n(mStrc, "tenant")
+                let stG = n(mStrc, "gagnant")
+                ml += " · sélection \(selT2) → "
+                    + "\(selG) % · strict "
+                    + "\(stT) → \(stG) %"
+                if (mg["nouveau_champion"]
+                    as? Bool) == true {
+                    ml += " — nouveau champion (méga)"
+                } else {
+                    ml += " — le tenant garde "
+                        + "son titre"
+                }
+            }
+            lignes.append(ml)
         }
         let v = verdictTexte(dev: dev, box: box)
         if !v.isEmpty { lignes.append(v) }
