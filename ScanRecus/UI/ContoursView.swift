@@ -471,6 +471,28 @@ struct ContoursView: View {
                 + "élites / \(nP) photos · appareil "
                 + "\(app) · " + epTxt)
         }
+        if let g = b["greenscreen"]
+            as? [String: Any] {
+            let gN = (g["n_paires"] as? NSNumber)?
+                .intValue ?? 0
+            let gPar = (g["par_elite"]
+                as? NSNumber)?.intValue ?? 0
+            let gCats = g["categories"]
+                as? [String: Any]
+            var morceaux: [String] = []
+            for nom in ["libre", "surexposition",
+                        "blanc", "ombre", "négatif"] {
+                if let v = (gCats?[nom]
+                    as? NSNumber)?.intValue, v > 0 {
+                    morceaux.append("\(nom) \(v)")
+                }
+            }
+            let gTxt = morceaux.joined(
+                separator: " · ")
+            lignes.append("Synthèse greenscreen : "
+                + "\(gN) variantes fabriquées "
+                + "(\(gPar) par élite) — " + gTxt)
+        }
         lignes.append("Banc de fortune ("
             + "\((dev?["n"] as? NSNumber)?.intValue ?? 0) "
             + "photos jamais entraînées) : erreur "

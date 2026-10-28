@@ -293,6 +293,350 @@ def build_model(torch):
 
 # ---------------- Données ----------------
 
+def _homographie(src, dst):
+    """Matrice H (3x3) telle que dst ≈ H·src
+    pour 4 correspondances, et coefficients
+    PIL de la transformation inverse (PIL
+    veut la correspondance sortie → entrée)."""
+    A = []
+    for (x, y), (u, v) in zip(src, dst):
+        A.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        A.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+    h = np.linalg.solve(
+        np.array(A, dtype=np.float64),
+        np.array([c for p in dst for c in p],
+                 dtype=np.float64))
+    H = np.array([[h[0], h[1], h[2]],
+                  [h[3], h[4], h[5]],
+                  [h[6], h[7], 1.0]])
+    Hi = np.linalg.inv(H)
+    Hi = Hi / Hi[2, 2]
+    return H, tuple(Hi.flatten()[:8])
+
+
+def _appliquer_H(H, pts):
+    out = []
+    for x, y in pts:
+        w = H[2, 0] * x + H[2, 1] * y + H[2, 2]
+        out.append((
+            (H[0, 0] * x + H[0, 1] * y
+             + H[0, 2]) / w,
+            (H[1, 0] * x + H[1, 1] * y
+             + H[1, 2]) / w))
+    return out
+
+
+def _fond_procedural(rng, W, blanc=False):
+    """Toile procédurale : teinte douce, bruit
+    léger, gradient à peine perceptible."""
+    if blanc:
+        base = float(rng.uniform(208, 242))
+    else:
+        base = float(rng.uniform(120, 215))
+    arr = np.full((W, W, 3), base,
+                  dtype=np.float64)
+    teinte = rng.uniform(-8, 8, size=3)
+    arr += teinte[None, None, :]
+    arr += rng.normal(0, 5, (W, W, 1))
+    pente = float(rng.uniform(-14, 14))
+    arr += np.linspace(0, pente, W)[None, :, None]
+    return Image.fromarray(
+        np.clip(arr, 0, 255).astype(np.uint8))
+
+
+def _fond_mine(donneur, rng, W, blanc=False):
+    """Fond miné d'une autre scène : un crop
+    qui évite le reçu du donneur (occupation
+    < 1 %), redimensionné à la toile. None si
+    aucun crop propre (ou donneur illisible)."""
+    try:
+        img = Image.open(
+            donneur["_chemin"]).convert("RGB")
+        img = img.resize((W, W), Image.BILINEAR)
+    except Exception:
+        return None
+    msk = rasterize(donneur["lasso"], W)
+    if blanc and np.asarray(
+            img.convert("L"), dtype=np.float64
+            ).mean() < 170:
+        return None
+    for _ in range(24):
+        s = int(rng.uniform(0.45, 0.8) * W)
+        x0 = int(rng.integers(0, W - s))
+        y0 = int(rng.integers(0, W - s))
+        occ = np.asarray(
+            msk.crop((x0, y0, x0 + s, y0 + s)),
+            dtype=np.float64).mean() / 255.0
+        if occ < 0.01:
+            return img.crop(
+                (x0, y0, x0 + s, y0 + s)).resize(
+                    (W, W), Image.BILINEAR)
+    return None
+
+
+def generer_variantes(train_elites, resolve, rng,
+                      par_elite=3, sortie="."):
+    """GREENSCREEN (build 146) : voir l'en-tête
+    du build. Retourne (X, Y, manifeste) aux
+    formats de build_dataset ; écrit les
+    composites dans sortie/synthese/ et le
+    manifeste dans synthese-manifeste.json."""
+    from PIL import ImageFilter
+    W = 512
+    # Préparer les parents (découpage par élite)
+    parents = []
+    for idx, e in enumerate(train_elites):
+        try:
+            chemin = resolve(e["file"])
+            img = Image.open(chemin).convert("RGB")
+            img = img.resize((W, W),
+                             Image.BILINEAR)
+        except Exception:
+            continue
+        msk = rasterize(e["lasso"], W)
+        boite = msk.getbbox()
+        if boite is None:
+            continue
+        fg = img.crop(boite)
+        al = msk.crop(boite)
+        al = al.filter(ImageFilter.MinFilter(5))
+        al = al.filter(
+            ImageFilter.GaussianBlur(1.1))
+        # Aplatir l'éclairage d'origine (parade
+        # partielle à la lumière « cuite ») :
+        # division par sa version très floue,
+        # mélangée à 50 % avec l'original.
+        lum = np.asarray(
+            fg.convert("L"), dtype=np.float64)
+        flou = np.asarray(
+            fg.convert("L").filter(
+                ImageFilter.GaussianBlur(30)),
+            dtype=np.float64)
+        corr = (flou.mean()
+                / np.maximum(flou, 1.0))
+        arr = np.asarray(
+            fg, dtype=np.float64)
+        plat = np.clip(
+            arr * (0.5 + 0.5 * corr[:, :, None]),
+            0, 255).astype(np.uint8)
+        parents.append({
+            "idx": idx, "sn": e["sn"],
+            "fichier": e["file"],
+            "lasso": e["lasso"],
+            "_chemin": chemin,
+            "fg": Image.fromarray(plat),
+            "alpha": al, "boite": boite,
+            "poly": [(x * W, y * W)
+                     for x, y in e["lasso"]],
+        })
+    if not parents:
+        return None, None, []
+    dossier = os.path.join(sortie, "synthese")
+    os.makedirs(dossier, exist_ok=True)
+    for nom in os.listdir(dossier):
+        if nom.startswith("synth-"):
+            os.remove(os.path.join(dossier, nom))
+    pieges = ["surexposition", "blanc", "ombre"]
+    xs, ys, manifeste = [], [], []
+    total = len(parents) * par_elite
+    fait = 0
+    for p in parents:
+        bw, bh = p["fg"].size
+        bx0, by0 = p["boite"][0], p["boite"][1]
+        poly_arr = [(x - bx0, y - by0)
+                    for x, y in p["poly"]]
+        for j in range(par_elite):
+            if j == 0:
+                cat = "libre"
+            elif j == 1:
+                cat = pieges[p["idx"] % 3]
+            elif j == 2 and p["idx"] % 8 == 7:
+                cat = "négatif"
+            elif j == 2:
+                cat = "libre"
+            else:
+                cat = pieges[(p["idx"] + j) % 3]
+            # --- fond ---
+            fond = None
+            source_fond = "procédural"
+            if cat != "blanc" or rng.random() < 0.5:
+                cands = [q for q in parents
+                         if q["sn"] != p["sn"]]
+                if cands:
+                    q = cands[int(rng.integers(
+                        0, len(cands)))]
+                    fond = _fond_mine(
+                        q, rng, W,
+                        blanc=(cat == "blanc"))
+                    if fond is not None:
+                        source_fond = (
+                            f"miné photo {q['sn']}")
+            if fond is None:
+                fond = _fond_procedural(
+                    rng, W, blanc=(cat == "blanc"))
+                source_fond = "procédural"
+            arr = np.asarray(
+                fond, dtype=np.float64)
+            if cat == "ombre":
+                arr = np.clip(arr * float(
+                    rng.uniform(1.06, 1.18)),
+                    0, 255)
+            poly_final = None
+            if cat != "négatif":
+                # --- pose du reçu ---
+                fg = p["fg"]
+                if cat == "ombre":
+                    fg = Image.fromarray(np.clip(
+                        np.asarray(
+                            fg, dtype=np.float64)
+                        * float(rng.uniform(
+                            0.7, 0.88)),
+                        0, 255).astype(np.uint8))
+                toile_fg = Image.new(
+                    "RGB", (W, W), (0, 0, 0))
+                toile_fg.paste(fg, (0, 0))
+                toile_al = Image.new(
+                    "L", (W, W), 0)
+                toile_al.paste(p["alpha"], (0, 0))
+                tw = float(rng.uniform(
+                    0.42, 0.8)) * W
+                ech = tw / bw
+                th = bh * ech
+                if th > 0.92 * W:
+                    ech = 0.92 * W / bh
+                    tw, th = bw * ech, bh * ech
+                ang = math.radians(float(
+                    rng.uniform(-180, 180)))
+                cx = float(rng.uniform(
+                    0.36, 0.64)) * W
+                cy = float(rng.uniform(
+                    0.36, 0.64)) * W
+                src_q = [(0, 0), (bw, 0),
+                         (bw, bh), (0, bh)]
+                dst_q = []
+                for dx, dy in [(-tw / 2, -th / 2),
+                               (tw / 2, -th / 2),
+                               (tw / 2, th / 2),
+                               (-tw / 2, th / 2)]:
+                    rx = (dx * math.cos(ang)
+                          - dy * math.sin(ang))
+                    ry = (dx * math.sin(ang)
+                          + dy * math.cos(ang))
+                    dst_q.append((
+                        cx + rx + float(rng.uniform(
+                            -0.05, 0.05)) * tw,
+                        cy + ry + float(rng.uniform(
+                            -0.05, 0.05)) * tw))
+                H, coeffs = _homographie(
+                    src_q, dst_q)
+                fg_w = toile_fg.transform(
+                    (W, W), Image.PERSPECTIVE,
+                    coeffs, Image.BILINEAR)
+                al_w = toile_al.transform(
+                    (W, W), Image.PERSPECTIVE,
+                    coeffs, Image.BILINEAR)
+                poly_final = _appliquer_H(
+                    H, poly_arr)
+                # --- monde refait : ombre ---
+                dx = float(rng.uniform(-16, 16))
+                dy = float(rng.uniform(4, 18))
+                ombre = al_w.transform(
+                    (W, W), Image.AFFINE,
+                    (1, 0, -dx, 0, 1, -dy),
+                    Image.BILINEAR).filter(
+                        ImageFilter.GaussianBlur(5))
+                a_o = np.asarray(
+                    ombre, dtype=np.float64
+                    ) / 255.0
+                arr = arr * (1 - 0.38
+                             * a_o[:, :, None])
+                # --- collage du reçu ---
+                a = np.asarray(
+                    al_w, dtype=np.float64
+                    ) / 255.0
+                arr = (arr * (1 - a[:, :, None])
+                       + np.asarray(
+                           fg_w, dtype=np.float64)
+                       * a[:, :, None])
+            # --- monde refait : gradient ---
+            th_g = float(rng.uniform(0, 6.2832))
+            amp = float(rng.uniform(-0.22, 0.22))
+            gx = np.linspace(0, 1, W)[None, :]
+            gy = np.linspace(0, 1, W)[:, None]
+            champ = 1 + amp * (
+                (gx * math.cos(th_g)
+                 + gy * math.sin(th_g)) - 0.5)
+            arr = arr * champ[:, :, None]
+            # --- piège : surexposition à cheval
+            if cat in ("surexposition", "blanc"):
+                if poly_final:
+                    vx, vy = poly_final[int(
+                        rng.integers(
+                            0, len(poly_final)))]
+                else:
+                    vx, vy = W / 2, W / 2
+                vx += float(rng.uniform(-24, 24))
+                vy += float(rng.uniform(-24, 24))
+                rayon = float(rng.uniform(
+                    60, 200))
+                force = (0.55 if cat
+                         == "surexposition"
+                         else 0.35) + float(
+                             rng.uniform(0, 0.35))
+                xx = np.linspace(0, W, W)[None, :]
+                yy = np.linspace(0, W, W)[:, None]
+                d2 = ((xx - vx) ** 2
+                      + (yy - vy) ** 2)
+                infl = np.exp(
+                    -d2 / (rayon ** 2)) * force
+                arr = (arr * (1 - infl[:, :, None])
+                       + 255.0 * infl[:, :, None])
+            # --- dégradation globale ---
+            arr += rng.normal(
+                0, float(rng.uniform(1.5, 4.5)),
+                (W, W, 1))
+            img = Image.fromarray(np.clip(
+                arr, 0, 255).astype(np.uint8))
+            if rng.random() < 0.5:
+                img = img.filter(
+                    ImageFilter.GaussianBlur(0.5))
+            img256 = img.resize(
+                (SIZE, SIZE), Image.BILINEAR)
+            xs.append(np.asarray(
+                img256, dtype=np.uint8))
+            if poly_final:
+                ys.append(np.asarray(rasterize(
+                    [(x / W, y / W)
+                     for x, y in poly_final]),
+                    dtype=np.uint8))
+            else:
+                ys.append(np.zeros(
+                    (SIZE, SIZE), dtype=np.uint8))
+            nom = (f"synth-{p['idx']:03d}-{j}.png")
+            img256.save(os.path.join(dossier, nom))
+            manifeste.append({
+                "fichier": nom,
+                "parent_sn": p["sn"],
+                "parent_fichier": p["fichier"],
+                "categorie": cat,
+                "fond": source_fond,
+            })
+            fait += 1
+            if fait % 20 == 0:
+                print(f"variantes greenscreen : "
+                      f"{fait}/{total}", flush=True)
+    if not xs:
+        return None, None, []
+    man = {"par_elite": par_elite,
+           "n": len(manifeste),
+           "variantes": manifeste}
+    with open(os.path.join(
+            sortie, "synthese-manifeste.json"),
+            "w") as f:
+        json.dump(man, f, indent=1, sort_keys=True)
+    return (np.stack(xs), np.stack(ys), manifeste)
+
+
 def build_dataset(elites, resolve, rng, rotations=11):
     """(X uint8 [N,256,256,3], Y uint8 [N,256,256])
     : chaque élite en native + `rotations`
@@ -2034,6 +2378,11 @@ def main():
         "~/Library/Application Support/ScanRecus/Atelier"))
     ap.add_argument("--sortie", default=".")
     ap.add_argument("--epochs", type=int, default=60)
+    ap.add_argument("--variantes", type=int,
+                    default=3,
+                    help="variantes greenscreen "
+                         "par élite d'entraînement "
+                         "(0 = aucune)")
     ap.add_argument("--evalue", action="store_true",
                     help="évaluation seule : charge le "
                          "modèle existant et régénère "
@@ -2165,6 +2514,34 @@ def main():
         if X is None:
             print("Aucune image lisible.", flush=True)
             return 2
+        greenscreen = None
+        if args.variantes > 0:
+            print("PHASE Variantes greenscreen…",
+                  flush=True)
+            Xs, Ys, manifeste = generer_variantes(
+                train_elites, resolve, rng,
+                par_elite=args.variantes,
+                sortie=args.sortie)
+            if Xs is not None:
+                X = np.concatenate([X, Xs])
+                Y = np.concatenate([Y, Ys])
+                cats = {}
+                for m_ in manifeste:
+                    cats[m_["categorie"]] = (
+                        cats.get(m_["categorie"], 0)
+                        + 1)
+                greenscreen = {
+                    "par_elite": args.variantes,
+                    "n_paires": len(manifeste),
+                    "categories": cats,
+                    "manifeste":
+                        "synthese-manifeste.json",
+                    "dossier": "synthese",
+                }
+                print(f"variantes greenscreen : "
+                      f"{len(manifeste)} paires "
+                      f"ajoutées à l'entraînement",
+                      flush=True)
         for it in (dev_items + banc_items
                    + strict_items):
             it["_img"] = None
@@ -2176,6 +2553,7 @@ def main():
             resolve=resolve, epochs=args.epochs,
             strict_items=strict_items)
         bulletin["synthetique"] = False
+        bulletin["greenscreen"] = greenscreen
         bulletin["n_train_elites"] = len(train_elites)
         bulletin["n_train_photos"] = (
             len(photos_pool) - len(dev_photos))
