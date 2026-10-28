@@ -1,0 +1,1 @@
+730:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift:904:9: error: value of optional type 'String?' must be unwrapped to a value of type 'String'
