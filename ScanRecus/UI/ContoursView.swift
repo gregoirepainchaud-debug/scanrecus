@@ -61,6 +61,11 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
+                Button(runner.synthBoutonTitre) {
+                    runner.fabriquer()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
@@ -68,6 +73,12 @@ struct ContoursView: View {
                     .font(.system(size: 11.5))
                 TextField("", text: $runner.epochsText)
                     .frame(width: 52)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(runner.running)
+                Text("Rotations :")
+                    .font(.system(size: 11.5))
+                TextField("", text: $runner.rotationsText)
+                    .frame(width: 44)
                     .textFieldStyle(.roundedBorder)
                     .disabled(runner.running)
                 Text("(défaut 60 — l'atelier est le "
@@ -428,6 +439,9 @@ struct ContoursView: View {
         let app = (b["appareil"] as? String) ?? "?"
         let ep = (b["epochs"] as? NSNumber)?.intValue
         let epTxt = ep != nil ? "\(ep!) époques" : ""
+        let rotB = (b["rotations"] as? NSNumber)?.intValue
+        let rotTxt = rotB != nil
+            ? " · \(rotB!) rotations" : ""
         func details(_ d: [String: Any]?) -> [String] {
             guard let arr = d?["par_photo"]
                 as? [[String: Any]] else { return [] }
@@ -469,7 +483,14 @@ struct ContoursView: View {
         } else {
             lignes.append("Entraînement : \(nE) "
                 + "élites / \(nP) photos · appareil "
-                + "\(app) · " + epTxt)
+                + "\(app) · " + epTxt + rotTxt)
+        }
+        if let sy = b["synthetique"]
+            as? [String: Any] {
+            let syN = (sy["n"] as? NSNumber)?.intValue ?? 0
+            lignes.append("Banque synthétique : "
+                + "\(syN) images permanentes "
+                + "au régime de cet entraînement")
         }
         if let g = b["greenscreen"]
             as? [String: Any] {

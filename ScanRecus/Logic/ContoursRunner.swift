@@ -25,6 +25,8 @@ final class ContoursRunner: ObservableObject {
     /// l'onglet, persisté, validé au lancement
     /// (1 à 500, défaut 60).
     @Published var epochsText: String = "60"
+    @Published var rotationsText: String = "0"
+    @Published var synthInfo: [String: Any]?
 
     let jugeDir: URL
     let racine: URL
@@ -47,7 +49,12 @@ final class ContoursRunner: ObservableObject {
             forKey: "contoursEpochs"), !saved.isEmpty {
             epochsText = saved
         }
+        if let savedR = UserDefaults.standard.string(
+            forKey: "contoursRotations"), !savedR.isEmpty {
+            rotationsText = savedR
+        }
         refreshState()
+        loadSynthInfo()
     }
 
     var venvPython: URL {
@@ -161,6 +168,16 @@ final class ContoursRunner: ObservableObject {
         return min(500, max(1, v))
     }
 
+    /// Valeur validée du champ rotations :
+    /// un entier entre 0 et 50, sinon le
+    /// défaut (0 — rotations en veille).
+    var rotationsValides: Int {
+        let t = rotationsText.trimmingCharacters(
+            in: .whitespaces)
+        guard let v = Int(t) else { return 0 }
+        return min(50, max(0, v))
+    }
+
     func entrainer() {
         guard !running, atelierPret else { return }
         writeScript()
@@ -168,12 +185,17 @@ final class ContoursRunner: ObservableObject {
         epochsText = String(ep)
         UserDefaults.standard.set(epochsText,
                                   forKey: "contoursEpochs")
+        let rot = rotationsValides
+        rotationsText = String(rot)
+        UserDefaults.standard.set(rotationsText,
+                                  forKey: "contoursRotations")
         progress = 0
         run(executable: venvPython.path,
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--epochs", String(ep)],
+                   "--epochs", String(ep),
+                   "--rotations", String(rot)],
             phase: "Démarrage…") { [weak self] status in
             guard let self else { return }
             if status == 0 {
@@ -312,6 +334,63 @@ final class ContoursRunner: ObservableObject {
             }
             self.loadOracle()
             if status == 0 { self.mirrorOracle() }
+        }
+    }
+
+    /// État de la banque synthétique
+    /// permanente (Atelier/Synthetique),
+    /// lu depuis son info écrite par la
+    /// fabrique.
+    func loadSynthInfo() {
+        let url = racine.appendingPathComponent(
+            "Synthetique/banque-synth-info.json")
+        if let data = try? Data(contentsOf: url),
+           let obj = try? JSONSerialization
+            .jsonObject(with: data)
+            as? [String: Any] {
+            synthInfo = obj
+        } else {
+            synthInfo = nil
+        }
+    }
+
+    /// Titre du bouton fabrique : le contenu
+    /// actuel de la banque, quand elle existe.
+    var synthBoutonTitre: String {
+        if let n = (synthInfo?["n"] as? NSNumber)?.intValue {
+            return "Banque synthétique : \(n) "
+                + "images — compléter"
+        }
+        return "Fabriquer la banque synthétique"
+    }
+
+    /// Fabrique (build 147) : construit ou
+    /// complète la banque synthétique
+    /// permanente (6 fonds × 10 angles par
+    /// élite d'entraînement).
+    func fabriquer() {
+        guard !running, atelierPret else { return }
+        writeScript()
+        progress = 0
+        run(executable: venvPython.path,
+            args: [scriptURL.path,
+                   "--racine", racine.path,
+                   "--sortie", jugeDir.path,
+                   "--fabrique"],
+            phase: "Fabrique de la banque "
+                + "synthétique…") {
+            [weak self] status in
+            guard let self else { return }
+            if status == 0 {
+                self.progress = 100
+                self.phase = "Terminé — banque "
+                    + "synthétique à jour."
+            } else {
+                self.phase = "Échec (code "
+                    + String(status)
+                    + ") — voir le journal."
+            }
+            self.loadSynthInfo()
         }
     }
 
