@@ -1507,6 +1507,202 @@ def _mega_recolte(evalues, cap=40, dist_min=0.12):
     return garde
 
 
+def _oracle_portefeuille(sortie):
+    """Les tenants que l'oracle peut choisir :
+    défauts, champion actif (fichier), roi de
+    l'arène et gagnant des séries du méga (lus
+    dans mega-rapport.json s'il existe)."""
+    port = [("défauts", dict(PARAMS_DEFAUT))]
+    ch = os.path.join(sortie,
+                      "extraction-champion.json")
+    if os.path.exists(ch):
+        try:
+            cj = json.load(open(ch))
+            p = {k: float(cj["params"][k])
+                 for k in PARAMS_DEFAUT}
+            port.append(("champion", p))
+        except Exception:
+            pass
+    mg = os.path.join(sortie, "mega-rapport.json")
+    if os.path.exists(mg):
+        try:
+            mj = json.load(open(mg))
+            pa = mj["arene"]["params_meilleur"]
+            port.append(("arène-méga",
+                         {k: float(pa[k])
+                          for k in PARAMS_DEFAUT}))
+            pg = mj["gagnant"]["params"]
+            port.append(("séries-méga",
+                         {k: float(pg[k])
+                          for k in PARAMS_DEFAUT}))
+        except Exception:
+            pass
+    return port
+
+
+def oracle_seul(args):
+    """L'ÉCART ORACLE (build 145) : pour chaque
+    photo des examens, le meilleur tenant du
+    portefeuille, en pleine précision. Mesure
+    le plafond d'un sélecteur par photo : si
+    l'oracle ne bat le tenant que d'un souffle,
+    apprendre à choisir ne vaut pas la peine.
+    Ne sélectionne rien, n'écrit aucun
+    champion : une mesure, pas un verdict."""
+    import torch
+    import datetime
+    import time
+    modele = os.path.join(args.sortie,
+                          "contours-v0.pt")
+    if not os.path.exists(modele):
+        print("Oracle impossible : aucun modèle "
+              "(contours-v0.pt) dans le dossier "
+              "de sortie — entraînez d'abord le "
+              "traceur.", flush=True)
+        return 3
+    sp = prepare_splits(args.racine)
+    device = pick_device(torch)
+    print(f"appareil : {device}", flush=True)
+    model = build_model(torch).to(device)
+    model.load_state_dict(torch.load(
+        modele, map_location=device))
+    model.eval()
+
+    def predict_mask(img_pil):
+        x = torch.from_numpy(
+            np.asarray(img_pil, dtype=np.float32)
+            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
+        with torch.no_grad():
+            prob = torch.sigmoid(model(x))[0, 0]
+        return prob.cpu().numpy() > 0.5
+
+    print("PHASE Oracle — calcul des masques…",
+          flush=True)
+    print("PROGRES 10", flush=True)
+    t0 = time.time()
+
+    def prep(items):
+        out = []
+        for it in items:
+            try:
+                chemin = sp["resolve"](it["file"])
+                img = load_image_256(chemin)
+                gray = np.asarray(
+                    Image.open(chemin).convert("L"),
+                    dtype=np.float64)
+            except Exception:
+                continue
+            out.append({
+                "sn": it["sn"],
+                "mask": predict_mask(img),
+                "gray": gray,
+                "true": np.asarray(
+                    rasterize(it["lasso"]),
+                    dtype=np.uint8),
+            })
+        return out
+
+    def med(vals):
+        return round(float(np.median(vals)), 4)
+
+    port = _oracle_portefeuille(args.sortie)
+    noms = [n for n, _ in port]
+    print("portefeuille : " + ", ".join(noms),
+          flush=True)
+    ensembles = {}
+    for nom_ens, items in (
+            ("dev", sp["dev_items"]),
+            ("banc", sp["banc_items"]),
+            ("strict", sp["strict_items"] or [])):
+        par_photo = []
+        for c in prep(items):
+            erreurs = {}
+            for nom_t, params in port:
+                e = _servi_erreur_precise(
+                    c["mask"], c["gray"], c["true"],
+                    params)
+                erreurs[nom_t] = (
+                    10.0 if e is None
+                    else round(e, 4))
+            gagnant = min(
+                erreurs,
+                key=lambda k: (erreurs[k], k))
+            par_photo.append({
+                "photo": c["sn"],
+                "erreurs": erreurs,
+                "gagnant": gagnant,
+                "oracle": erreurs[gagnant],
+            })
+        if not par_photo:
+            ensembles[nom_ens] = None
+            continue
+        victoires = {n: 0 for n in noms}
+        for p in par_photo:
+            victoires[p["gagnant"]] += 1
+        ensembles[nom_ens] = {
+            "photos": len(par_photo),
+            "tenants": {n: med([p["erreurs"][n]
+                                 for p in par_photo])
+                        for n in noms},
+            "oracle": med([p["oracle"]
+                           for p in par_photo]),
+            "oracle_2": (
+                med([min(p["erreurs"]["défauts"],
+                         p["erreurs"]["champion"])
+                     for p in par_photo])
+                if "champion" in noms else None),
+            "victoires": victoires,
+            "par_photo": par_photo,
+        }
+        e = ensembles[nom_ens]
+        print(f"{nom_ens} : oracle {e['oracle']} %"
+              " · tenants " + " · ".join(
+                  f"{n} {e['tenants'][n]}"
+                  for n in noms), flush=True)
+    tous = []
+    for s_ in ("dev", "banc"):
+        if ensembles.get(s_):
+            tous.extend(ensembles[s_]["par_photo"])
+    if tous:
+        selection = {
+            "tenants": {n: med([p["erreurs"][n]
+                                 for p in tous])
+                        for n in noms},
+            "oracle": med([p["oracle"]
+                           for p in tous]),
+            "oracle_2": (
+                med([min(p["erreurs"]["défauts"],
+                         p["erreurs"]["champion"])
+                     for p in tous])
+                if "champion" in noms else None),
+        }
+    else:
+        selection = None
+    rap = {
+        "genere": datetime.datetime.now().strftime(
+            "%Y-%m-%dT%H:%M:%S"),
+        "appareil": str(device),
+        "modele_mtime": (
+            datetime.datetime.fromtimestamp(
+                os.path.getmtime(modele))
+            .strftime("%Y-%m-%dT%H:%M:%S")),
+        "portefeuille": noms,
+        "ensembles": ensembles,
+        "selection": selection,
+        "duree_s": round(time.time() - t0, 1),
+    }
+    out = os.path.join(args.sortie,
+                       "oracle-rapport.json")
+    tmp = out + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(rap, f, indent=1, sort_keys=True)
+    os.replace(tmp, out)
+    print(f"rapport oracle écrit : {out}",
+          flush=True)
+    print("PROGRES 100", flush=True)
+    return 0
+
+
 def mega_seul(args):
     """LE MÉGA-TOURNOI (build 144) : prospection
     massive sur UNE photo-arène (défaut : la
@@ -1872,6 +2068,11 @@ def main():
                     help="processus parallèles "
                          "du méga-tournoi "
                          "(0 = auto)")
+    ap.add_argument("--oracle", action="store_true",
+                    help="écart oracle : meilleur "
+                         "tenant par photo, pleine "
+                         "précision (mesure, aucun "
+                         "champion écrit)")
     ap.add_argument("--synthetique", action="store_true")
     ap.add_argument("--devine", default=None,
                     help="chemin d'une image : prédit "
@@ -1908,6 +2109,14 @@ def main():
                   "mode syntétique.", flush=True)
             return 2
         return mega_seul(args)
+
+    if args.oracle:
+        if args.synthetique:
+            print("L'écart oracle exige un "
+                  "modèle entraîné : pas de "
+                  "mode synthétique.", flush=True)
+            return 2
+        return oracle_seul(args)
 
     if args.synthetique:
         print("mode synthétique (test fumée)", flush=True)

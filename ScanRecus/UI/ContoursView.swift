@@ -56,6 +56,11 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
+                Button("Écart oracle") {
+                    runner.oracle()
+                }
+                .disabled(runner.running
+                          || !runner.atelierPret)
                 if runner.running {
                     Button("Arrêter") { runner.arreter() }
                 }
@@ -108,6 +113,10 @@ struct ContoursView: View {
 
             if let m = runner.megaRapport {
                 megaCard(m)
+            }
+
+            if let o = runner.oracleRapport {
+                oracleCard(o)
             }
 
             ScrollView {
@@ -321,6 +330,58 @@ struct ContoursView: View {
         .background(Color.secondary.opacity(0.08))
     }
 
+    /// Carte de l'écart oracle (build 145) :
+    /// le meilleur tenant unique contre le
+    /// meilleur choix par photo, sur la
+    /// sélection et au strict (plafond
+    /// théorique, pas un score atteignable).
+    private func oracleCard(_ o: [String: Any])
+        -> some View {
+        func n2(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.2f", v)
+        }
+        func n4(_ d: [String: Any]?, _ k: String)
+            -> String {
+            guard let v = (d?[k] as? NSNumber)?
+                .doubleValue
+            else { return "—" }
+            return String(format: "%.4f", v)
+        }
+        let port = (o["portefeuille"] as? [String])?
+            .count ?? 0
+        let sel = o["selection"] as? [String: Any]
+        let selTen = sel?["tenants"]
+            as? [String: Any]
+        let ens = o["ensembles"] as? [String: Any]
+        let strc = ens?["strict"] as? [String: Any]
+        let strTen = strc?["tenants"]
+            as? [String: Any]
+        let l1 = "Écart oracle — portefeuille "
+            + "de \(port) tenants"
+        let l2 = "Sélection : champion "
+            + "\(n4(selTen, "champion")) → oracle "
+            + "\(n4(sel, "oracle")) %"
+            + " (défauts+champion : "
+            + "\(n4(sel, "oracle_2")) %)"
+        let l3 = "Strict : champion "
+            + "\(n4(strTen, "champion")) → oracle "
+            + "\(n4(strc, "oracle")) %"
+            + " — plafond théorique"
+        return VStack(alignment: .leading,
+                      spacing: 2) {
+            Text(l1)
+            Text(l2)
+            Text(l3)
+        }
+        .font(.system(size: 11.5, design: .monospaced))
+        .padding(8)
+        .background(Color.secondary.opacity(0.08))
+    }
+
     private func verdictTexte(dev: [String: Any]?,
                               box: [String: Any]?)
         -> String {
@@ -495,6 +556,29 @@ struct ContoursView: View {
                 }
             }
             lignes.append(ml)
+        }
+        if let oc = runner.oracleRapport {
+            let oPort = (oc["portefeuille"]
+                as? [String])?.count ?? 0
+            let oSel = oc["selection"]
+                as? [String: Any]
+            let oSelTen = oSel?["tenants"]
+                as? [String: Any]
+            let oEns = oc["ensembles"]
+                as? [String: Any]
+            let oStr = oEns?["strict"]
+                as? [String: Any]
+            let oStrTen = oStr?["tenants"]
+                as? [String: Any]
+            let ol = "Écart oracle (\(oPort) "
+                + "tenants) : sélection champion "
+                + "\(n(oSelTen, "champion")) → "
+                + "oracle \(n(oSel, "oracle")) %"
+                + " · strict "
+                + "\(n(oStrTen, "champion")) → "
+                + "\(n(oStr, "oracle")) %"
+                + " — plafond théorique"
+            lignes.append(ol)
         }
         let v = verdictTexte(dev: dev, box: box)
         if !v.isEmpty { lignes.append(v) }
