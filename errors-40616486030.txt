@@ -1,0 +1,4 @@
+223:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift:138:48: error: expected ',' separator
+227:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift:138:48: error: expected ',' separator
+231:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift:138:48: error: Expected ',' separator
+239:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift:138:48: error: Expected ',' separator
