@@ -26,6 +26,7 @@ final class ContoursRunner: ObservableObject {
     /// (1 à 500, défaut 60).
     @Published var epochsText: String = "60"
     @Published var rotationsText: String = "0"
+    @Published var limiteText: String = ""
     @Published var synthInfo: [String: Any]?
 
     let jugeDir: URL
@@ -52,6 +53,10 @@ final class ContoursRunner: ObservableObject {
         if let savedR = UserDefaults.standard.string(
             forKey: "contoursRotations"), !savedR.isEmpty {
             rotationsText = savedR
+        }
+        if let savedL = UserDefaults.standard.string(
+            forKey: "contoursLimite"), !savedL.isEmpty {
+            limiteText = savedL
         }
         refreshState()
         loadSynthInfo()
@@ -364,7 +369,8 @@ final class ContoursRunner: ObservableObject {
         return "Fabriquer la banque synthétique"
     }
 
-    /// Fabrique (build 147) : construit ou
+    /// Fabrique (build 148, moteur v2) :
+    /// construit ou
     /// complète la banque synthétique
     /// permanente (6 fonds × 10 angles par
     /// élite d'entraînement).
@@ -372,11 +378,19 @@ final class ContoursRunner: ObservableObject {
         guard !running, atelierPret else { return }
         writeScript()
         progress = 0
-        run(executable: venvPython.path,
-            args: [scriptURL.path,
+        var fabArgs: [String] = [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--fabrique"],
+                   "--fabrique"]
+        let lim = Int(limiteText.trimmingCharacters(
+            in: .whitespaces)) ?? 0
+        UserDefaults.standard.set(limiteText,
+            forKey: "contoursLimite")
+        if lim > 0 {
+            fabArgs += ["--limite", String(lim)]
+        }
+        run(executable: venvPython.path,
+            args: fabArgs,
             phase: "Fabrique de la banque "
                 + "synthétique…") {
             [weak self] status in

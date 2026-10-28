@@ -197,6 +197,19 @@ def rasterize(lasso, size=SIZE):
     return m
 
 
+def _rasterize_rect(lasso, w, h):
+    """Masque du lasso sur un canevas
+    rectangulaire (fractions → pixels x·w,
+    y·h) : le repère des photos natives,
+    jamais écrasées en carré avant la
+    découpe (build 148)."""
+    m = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(m)
+    d.polygon([(x * w, y * h) for x, y in lasso],
+              fill=255)
+    return m
+
+
 def neutral_mask(size=SIZE):
     m = Image.new("L", (size, size), 0)
     d = ImageDraw.Draw(m)
@@ -345,25 +358,29 @@ def _fond_procedural(rng, W, blanc=False):
 
 
 def _fond_mine(donneur, rng, W, blanc=False):
-    """Fond miné d'une autre scène : un crop
-    qui évite le reçu du donneur (occupation
-    < 1 %), redimensionné à la toile. None si
-    aucun crop propre (ou donneur illisible)."""
+    """Fond miné d'une autre scène : un crop à
+    résolution NATIVE qui évite le reçu du
+    donneur (occupation < 1 %), réduit à la
+    toile — jamais étiré (build 148). None si
+    aucun crop propre (ou donneur illisible /
+    trop petit)."""
     try:
         img = Image.open(
             donneur["_chemin"]).convert("RGB")
-        img = img.resize((W, W), Image.BILINEAR)
     except Exception:
         return None
-    msk = rasterize(donneur["lasso"], W)
+    W0, H0 = img.size
+    if min(W0, H0) < W:
+        return None
+    msk = _rasterize_rect(donneur["lasso"], W0, H0)
     if blanc and np.asarray(
             img.convert("L"), dtype=np.float64
             ).mean() < 170:
         return None
     for _ in range(24):
-        s = int(rng.uniform(0.45, 0.8) * W)
-        x0 = int(rng.integers(0, W - s))
-        y0 = int(rng.integers(0, W - s))
+        s = int(rng.uniform(W, min(W0, H0)))
+        x0 = int(rng.integers(0, W0 - s + 1))
+        y0 = int(rng.integers(0, H0 - s + 1))
         occ = np.asarray(
             msk.crop((x0, y0, x0 + s, y0 + s)),
             dtype=np.float64).mean() / 255.0
@@ -375,48 +392,45 @@ def _fond_mine(donneur, rng, W, blanc=False):
 
 
 def _preparer_parents(train_elites, resolve):
-    """Découpe chaque élite parente : premier
-    plan à éclairage aplati, alpha propre,
-    boîte et polygone en pixels 512. Partagé
-    par generer_variantes (146) et la fabrique
-    de banque permanente (147)."""
+    """Découpe chaque élite parente À PLEINE
+    RÉSOLUTION (build 148, fabrique v2) : les
+    pixels d'origine, sans réduction préalable
+    de la scène ; alpha au bord net
+    (adoucissement de 0,5 px à l'échelle
+    native — sous le pixel une fois le reçu
+    posé). L'éclairage d'origine est aplati
+    par division floue, comme en v1 (parade
+    partielle à la lumière « cuite »)."""
     from PIL import ImageFilter
-    W = 512
     parents = []
     for idx, e in enumerate(train_elites):
         try:
             chemin = resolve(e["file"])
             img = Image.open(chemin).convert("RGB")
-            img = img.resize((W, W),
-                             Image.BILINEAR)
         except Exception:
             continue
-        msk = rasterize(e["lasso"], W)
+        W0, H0 = img.size
+        msk = _rasterize_rect(e["lasso"], W0, H0)
         boite = msk.getbbox()
         if boite is None:
             continue
         fg = img.crop(boite)
-        al = msk.crop(boite)
-        al = al.filter(ImageFilter.MinFilter(5))
-        al = al.filter(
-            ImageFilter.GaussianBlur(1.1))
-        # Aplatir l'éclairage d'origine (parade
-        # partielle à la lumière « cuite ») :
-        # division par sa version très floue,
-        # mélangée à 50 % avec l'original.
+        al = msk.crop(boite).filter(
+            ImageFilter.GaussianBlur(0.5))
+        rayon = max(10.0, 0.06 * min(fg.size))
         lum = np.asarray(
             fg.convert("L"), dtype=np.float64)
         flou = np.asarray(
             fg.convert("L").filter(
-                ImageFilter.GaussianBlur(30)),
+                ImageFilter.GaussianBlur(rayon)),
             dtype=np.float64)
         corr = (flou.mean()
                 / np.maximum(flou, 1.0))
-        arr = np.asarray(
-            fg, dtype=np.float64)
+        arr = np.asarray(fg, dtype=np.float64)
         plat = np.clip(
             arr * (0.5 + 0.5 * corr[:, :, None]),
             0, 255).astype(np.uint8)
+        bw, bh = fg.size
         parents.append({
             "idx": idx, "sn": e["sn"],
             "fichier": e["file"],
@@ -424,34 +438,41 @@ def _preparer_parents(train_elites, resolve):
             "_chemin": chemin,
             "fg": Image.fromarray(plat),
             "alpha": al, "boite": boite,
-            "poly": [(x * W, y * W)
+            "poly": [(x * W0, y * H0)
                      for x, y in e["lasso"]],
+            "largeur_photo": W0,
+            "frac_naturelle": bw / W0,
+            "frac_boite": (bw / W0) * (bh / H0),
         })
     for p in parents:
         p["_pool"] = parents
     return parents
+
+
 def _rogner(alpha, poly, rng):
     """Rogne le pourtour du reçu découpé :
-    quelques arcs du contour rentrés de
-    quelques pixels, en douceur — et le tracé
-    vérité SUIT la coupe (décision de
-    Grégoire, build 147 : rognage SYSTÉMATIQUE
-    et randomisé pour chaque variante). Deux
-    variantes d'une même élite n'ont jamais la
-    même silhouette : le réseau ne peut pas
-    reconnaître un reçu à son pattern de
-    contour. La forme générale est préservée
-    (coupes de 2 à 8 px, garde-fou de surface).
-    Retourne (alpha, polygone) dans le repère
-    local du parent."""
+    quelques arcs du contour rentrés vers le
+    centre, et le tracé vérité SUIT la coupe
+    (rognage SYSTÉMATIQUE et randomisé pour
+    chaque variante — deux variantes d'une
+    même élite n'ont jamais la même
+    silhouette). Build 148 : coupes NETTES —
+    le nouvel alpha est rasterisé franc
+    depuis le polygone rogné (adoucissement
+    de 0,5 px à l'échelle native seulement),
+    la forme générale est préservée
+    (garde-fou de surface à 60 %). Retourne
+    (alpha, polygone) dans le repère local
+    du parent, à résolution native."""
     from PIL import ImageFilter
+    bw = alpha.size[0]
     pts = []
     n = len(poly)
     for i in range(n):
         x0, y0 = poly[i]
         x1, y1 = poly[(i + 1) % n]
         d = math.hypot(x1 - x0, y1 - y0)
-        pas = max(1, int(d // 2))
+        pas = max(1, int(d // 3))
         for k in range(pas):
             t = k / pas
             pts.append((x0 + (x1 - x0) * t,
@@ -465,7 +486,7 @@ def _rogner(alpha, poly, rng):
     for _ in range(int(rng.integers(2, 6))):
         c = int(rng.integers(0, N))
         L = int(rng.integers(N // 20, N // 4))
-        dep = float(rng.uniform(2.0, 8.0))
+        dep = float(rng.uniform(0.004, 0.016)) * bw
         for k in range(-L, L + 1):
             w = 0.5 * (1 + math.cos(
                 math.pi * k / L))
@@ -482,33 +503,38 @@ def _rogner(alpha, poly, rng):
             x += vx / nv * d
             y += vy / nv * d
         nou.append((x, y))
-    simp = _douglas_peucker(nou, 30, eps0=1.5)
+    simp = _douglas_peucker(nou, 30,
+                            eps0=0.003 * bw)
     if not simp or len(simp) < 4:
         return alpha, poly
     msk = Image.new("L", alpha.size, 0)
     ImageDraw.Draw(msk).polygon(simp, fill=255)
     aire0 = np.asarray(
         alpha, dtype=np.float64).sum()
-    a2 = msk.filter(ImageFilter.MinFilter(3))
-    if (np.asarray(a2, dtype=np.float64).sum()
+    if (np.asarray(msk, dtype=np.float64).sum()
             < 0.6 * aire0):
         return alpha, poly
-    a2 = a2.filter(ImageFilter.GaussianBlur(1.1))
-    return a2, simp
+    msk = msk.filter(
+        ImageFilter.GaussianBlur(0.5))
+    return msk, simp
 
 
 def _composer_variante(p, cat, rng, fond_img=None,
                        source_fond=None):
-    """Compose UNE variante greenscreen d'un
-    parent préparé : fond (fourni, miné d'une
-    autre scène ou procédural), rognage du
-    pourtour, pose du reçu — pixels et
-    polygone transformés ENSEMBLE —, monde
+    """Compose UNE variante (fabrique v2,
+    build 148) d'un parent préparé à pleine
+    résolution : fond (fourni, miné d'une
+    autre scène à résolution native ou
+    procédural), rognage NET du pourtour,
+    pose du reçu À SA TAILLE NATURELLE —
+    jamais étiré au-delà de ses pixels réels
+    (le zoom consigné reste ≤ 1) —, monde
     refait par-dessus (ombre portée, gradient,
-    piège à cheval), dégradation globale pour
-    sceller la couture. Retourne (image 512,
-    polygone 512 ou None, source du fond,
-    angle en degrés ou None)."""
+    piège à cheval), bruit léger pour sceller
+    la couture et AUCUN flou. Retourne
+    (image 512, polygone 512 ou None, source
+    du fond, angle en degrés ou None, zoom
+    ou None)."""
     from PIL import ImageFilter
     W = 512
     bw, bh = p["fg"].size
@@ -548,8 +574,9 @@ def _composer_variante(p, cat, rng, fond_img=None,
         arr = np.clip(arr * 1.2 + 15, 0, 255)
     poly_final = None
     ang_deg = None
+    zoom = None
     if cat != "négatif":
-        # --- rognage : systématique, randomisé
+        # --- rognage : systématique, randomisé, net
         alpha_pose, poly_arr = _rogner(
             p["alpha"], poly_arr, rng)
         # --- pose du reçu ---
@@ -559,16 +586,19 @@ def _composer_variante(p, cat, rng, fond_img=None,
                 np.asarray(fg, dtype=np.float64)
                 * float(rng.uniform(0.7, 0.88)),
                 0, 255).astype(np.uint8))
-        toile_fg = Image.new("RGB", (W, W), (0, 0, 0))
-        toile_fg.paste(fg, (0, 0))
-        toile_al = Image.new("L", (W, W), 0)
-        toile_al.paste(alpha_pose, (0, 0))
-        tw = float(rng.uniform(0.42, 0.8)) * W
+        # taille naturelle (±35 %), plafonnée
+        # aux pixels réels du découpage :
+        # jamais d'étirement
+        frac = p["frac_naturelle"] * float(
+            rng.uniform(0.75, 1.35))
+        frac = min(frac, 0.98 * bw / W, 0.92)
+        tw = frac * W
         ech = tw / bw
         th = bh * ech
         if th > 0.92 * W:
             ech = 0.92 * W / bh
             tw, th = bw * ech, bh * ech
+        zoom = round(tw / bw, 3)
         ang = math.radians(float(
             rng.uniform(-180, 180)))
         ang_deg = round(math.degrees(ang), 1)
@@ -590,10 +620,10 @@ def _composer_variante(p, cat, rng, fond_img=None,
                 cy + ry + float(rng.uniform(
                     -0.05, 0.05)) * tw))
         H, coeffs = _homographie(src_q, dst_q)
-        fg_w = toile_fg.transform(
+        fg_w = fg.transform(
             (W, W), Image.PERSPECTIVE, coeffs,
             Image.BILINEAR)
-        al_w = toile_al.transform(
+        al_w = alpha_pose.transform(
             (W, W), Image.PERSPECTIVE, coeffs,
             Image.BILINEAR)
         poly_final = _appliquer_H(H, poly_arr)
@@ -643,114 +673,40 @@ def _composer_variante(p, cat, rng, fond_img=None,
             -d2 / (rayon ** 2)) * force
         arr = (arr * (1 - infl[:, :, None])
                + 255.0 * infl[:, :, None])
-    # --- dégradation globale ---
+    # --- finition : bruit léger, aucun flou ---
     arr += rng.normal(
-        0, float(rng.uniform(1.5, 4.5)), (W, W, 1))
+        0, float(rng.uniform(0.5, 1.2)), (W, W, 1))
     img = Image.fromarray(np.clip(
         arr, 0, 255).astype(np.uint8))
-    if rng.random() < 0.5:
-        img = img.filter(
-            ImageFilter.GaussianBlur(0.5))
-    return img, poly_final, src, ang_deg
-
-
-def generer_variantes(train_elites, resolve, rng,
-                      par_elite=3, sortie="."):
-    """GREENSCREEN (build 146) : génération
-    transitoire d'origine — conservée comme
-    bibliothèque ; l'entraînement passe
-    désormais par la banque permanente de
-    la fabrique (build 147). Retourne
-    (X, Y, manifeste) aux formats de
-    build_dataset ; écrit les composites
-    dans sortie/synthese/."""
-    from PIL import ImageFilter
-    W = 512
-    parents = _preparer_parents(
-        train_elites, resolve)
-    if not parents:
-        return None, None, []
-    dossier = os.path.join(sortie, "synthese")
-    os.makedirs(dossier, exist_ok=True)
-    for nom in os.listdir(dossier):
-        if nom.startswith("synth-"):
-            os.remove(os.path.join(dossier, nom))
-    pieges = ["surexposition", "blanc", "ombre"]
-    xs, ys, manifeste = [], [], []
-    total = len(parents) * par_elite
-    fait = 0
-    for p in parents:
-        for j in range(par_elite):
-            if j == 0:
-                cat = "libre"
-            elif j == 1:
-                cat = pieges[p["idx"] % 3]
-            elif j == 2 and p["idx"] % 8 == 7:
-                cat = "négatif"
-            elif j == 2:
-                cat = "libre"
-            else:
-                cat = pieges[(p["idx"] + j) % 3]
-            img, poly_final, source_fond, _ang = \
-                _composer_variante(
-                    p, cat, rng)
-
-            img256 = img.resize(
-                (SIZE, SIZE), Image.BILINEAR)
-            xs.append(np.asarray(
-                img256, dtype=np.uint8))
-            if poly_final:
-                ys.append(np.asarray(rasterize(
-                    [(x / W, y / W)
-                     for x, y in poly_final]),
-                    dtype=np.uint8))
-            else:
-                ys.append(np.zeros(
-                    (SIZE, SIZE), dtype=np.uint8))
-            nom = (f"synth-{p['idx']:03d}-{j}.png")
-            img256.save(os.path.join(dossier, nom))
-            manifeste.append({
-                "fichier": nom,
-                "parent_sn": p["sn"],
-                "parent_fichier": p["fichier"],
-                "categorie": cat,
-                "fond": source_fond,
-            })
-            fait += 1
-            if fait % 20 == 0:
-                print(f"variantes greenscreen : "
-                      f"{fait}/{total}", flush=True)
-    if not xs:
-        return None, None, []
-    man = {"par_elite": par_elite,
-           "n": len(manifeste),
-           "variantes": manifeste}
-    with open(os.path.join(
-            sortie, "synthese-manifeste.json"),
-            "w") as f:
-        json.dump(man, f, indent=1, sort_keys=True)
-    return (np.stack(xs), np.stack(ys), manifeste)
+    return img, poly_final, src, ang_deg, zoom
 
 
 def fabriquer_banque(racine, fonds_par_elite=6,
-                     angles=10):
-    """FABRIQUE (build 147) : banque synthétique
-    PERMANENTE dans racine/Synthetique. Chaque
-    élite d'entraînement — PARENTS SEULEMENT
+                     angles=10, limite=0):
+    """FABRIQUE v2 (build 148) : banque
+    synthétique PERMANENTE dans
+    racine/Synthetique, fabriquée aux règles
+    de Grégoire — découpages à pleine
+    résolution posés à leur taille naturelle
+    (jamais étirés), rognures nettes, bords
+    sans flou, images de 512. Chaque élite
+    d'entraînement — PARENTS SEULEMENT
     (jamais dev, banc ni strict) — est posée
-    sur des fonds variés : fonds web déposés
-    dans racine/Fonds, fonds minés des scènes
-    d'entraînement, fonds procéduraux ; à
-    `angles` angles aléatoires par fond, pièges
-    d'ombre et de lumière saupoudrés, pourtour
-    rogné au hasard à chaque variante. La
-    vérité de chaque image est le tracé de son
+    sur des fonds variés (web déposés dans
+    racine/Fonds, minés des scènes
+    d'entraînement, procéduraux). La vérité
+    de chaque image est le tracé de son
     élite, transformé avec elle, consigné au
-    manifeste banque-synth.jsonl. Idempotente :
-    un fichier déjà au manifeste n'est pas
-    refabriqué — la banque GRANDIT avec les
-    élites et les fonds au lieu d'être
-    régénérée."""
+    manifeste banque-synth.jsonl (avec le
+    zoom appliqué, ≤ 1 par construction).
+    Idempotente : un fichier déjà au
+    manifeste n'est pas refabriqué — la
+    banque GRANDIT. `limite` > 0 : aperçu —
+    s'arrêter après ce nombre d'images
+    NOUVELLES ; les parents sont alors
+    traités des extrêmes vers le centre
+    (plus grand et plus petit reçu d'abord),
+    pour que l'aperçu montre le contraste."""
     sp = prepare_splits(racine)
     parents = _preparer_parents(
         sp["train_elites"], sp["resolve"])
@@ -758,7 +714,18 @@ def fabriquer_banque(racine, fonds_par_elite=6,
         print("Aucune élite d'entraînement : "
               "fabrique impossible.", flush=True)
         return 2
-    rng = np.random.default_rng(147)
+    # ordre des extrêmes vers le centre
+    parents.sort(key=lambda p: -p["frac_boite"])
+    ordre = []
+    i, j = 0, len(parents) - 1
+    while i <= j:
+        ordre.append(parents[i])
+        if j != i:
+            ordre.append(parents[j])
+        i += 1
+        j -= 1
+    parents = ordre
+    rng = np.random.default_rng(148)
     dossier = os.path.join(racine, "Synthetique")
     os.makedirs(dossier, exist_ok=True)
     man_path = os.path.join(
@@ -781,28 +748,41 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     (".jpg", ".jpeg", ".png")):
                 fonds_web.append(os.path.join(
                     dir_fonds, nom))
-    print(f"fabrique : {len(parents)} parents · "
+    print(f"fabrique v2 : {len(parents)} parents · "
           f"{len(fonds_web)} fonds web · "
           f"{fonds_par_elite} fonds × {angles} "
-          f"angles par élite", flush=True)
+          f"angles par élite"
+          + (f" · limite {limite}" if limite
+             else ""), flush=True)
     pieges = ["surexposition", "blanc", "ombre"]
     total = (len(parents) * fonds_par_elite
              * angles)
     fait = 0
     nouveaux = 0
+    stop = False
     man = open(man_path, "a")
-    for p in parents:
-        for f in range(fonds_par_elite):
-            fond_img = None
-            source = None
-            if fonds_web and (p["idx"] + f) % 5 in (0, 1, 3):
-                chemin_fond = fonds_web[int(
-                    rng.integers(0, len(fonds_web)))]
-                try:
-                    bf = Image.open(
-                        chemin_fond).convert("RGB")
-                    cw = int(min(bf.size) * float(
-                        rng.uniform(0.55, 1.0)))
+    fonds_cache = {}
+
+    def fond_pour(p, f):
+        """Fond web du couple (parent, f), tiré
+        une seule fois et mis en cache : les
+        boucles tournent par angle d'abord,
+        pour qu'une petite limite échantillonne
+        tous les parents (extrêmes d'abord)."""
+        cle = (p["idx"], f)
+        if cle in fonds_cache:
+            return fonds_cache[cle]
+        fond_img = None
+        source = None
+        if fonds_web and (p["idx"] + f) % 5 in (0, 1, 3):
+            chemin_fond = fonds_web[int(
+                rng.integers(0, len(fonds_web)))]
+            try:
+                bf = Image.open(
+                    chemin_fond).convert("RGB")
+                if min(bf.size) >= 512:
+                    cw = int(rng.uniform(
+                        512, min(bf.size) + 1))
                     x0 = int(rng.integers(
                         0, bf.size[0] - cw + 1))
                     y0 = int(rng.integers(
@@ -813,10 +793,21 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                                  Image.BILINEAR)
                     source = ("web " + os.path.basename(
                         chemin_fond))
-                except Exception:
-                    fond_img = None
-                    source = None
-            for a in range(angles):
+            except Exception:
+                fond_img = None
+                source = None
+        fonds_cache[cle] = (fond_img, source)
+        return fond_img, source
+
+    for a in range(angles):
+        if stop:
+            break
+        for f in range(fonds_par_elite):
+            if stop:
+                break
+            for p in parents:
+                if stop:
+                    break
                 nom = (f"synth-{p['idx']:03d}"
                        f"-f{f}-a{a}.png")
                 fait += 1
@@ -830,15 +821,13 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     cat = "négatif"
                 else:
                     cat = "libre"
-                img, poly, src, ang = \
+                fond_img, source = fond_pour(p, f)
+                img, poly, src, ang, zoom = \
                     _composer_variante(
                         p, cat, rng,
                         fond_img=fond_img,
                         source_fond=source)
-                img.resize(
-                    (SIZE, SIZE),
-                    Image.BILINEAR).save(
-                        os.path.join(dossier, nom))
+                img.save(os.path.join(dossier, nom))
                 man.write(json.dumps({
                     "fichier": nom,
                     "parent_sn": p["sn"],
@@ -846,6 +835,8 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     "categorie": cat,
                     "fond": src,
                     "angle": ang,
+                    "moteur": "v2",
+                    "zoom": zoom,
                     "poly": ([[round(x / 512, 5),
                                round(y / 512, 5)]
                               for x, y in poly]
@@ -853,6 +844,11 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                 }) + "\n")
                 man.flush()
                 nouveaux += 1
+                if limite and nouveaux >= limite:
+                    print(f"limite d'aperçu atteinte : "
+                          f"{nouveaux} image(s) "
+                          f"nouvelle(s)", flush=True)
+                    stop = True
                 if fait % 100 == 0:
                     print(f"PROGRES "
                           f"{int(100 * fait / total)}",
@@ -863,7 +859,9 @@ def fabriquer_banque(racine, fonds_par_elite=6,
     info = {"n": len(faits) + nouveaux,
             "n_parents": len(parents),
             "fonds_web": len(fonds_web),
-            "par_elite": fonds_par_elite * angles}
+            "par_elite": fonds_par_elite * angles,
+            "moteur": "v2",
+            "taille": 512}
     with open(os.path.join(
             dossier, "banque-synth-info.json"),
             "w") as fh:
@@ -897,6 +895,9 @@ def charger_banque_synth(racine):
             img = Image.open(os.path.join(
                 dossier, e["fichier"])).convert(
                     "RGB")
+            if img.size != (SIZE, SIZE):
+                img = img.resize(
+                    (SIZE, SIZE), Image.BILINEAR)
         except Exception:
             continue
         xs.append(np.asarray(img, dtype=np.uint8))
@@ -1217,6 +1218,7 @@ def train_and_eval(train_xy, dev_items, banc_items,
 
     rng = np.random.default_rng(seed)
     batch = 16
+    pertes = []
     for ep in range(epochs):
         model.train()
         order = rng.permutation(n)
@@ -1240,11 +1242,13 @@ def train_and_eval(train_xy, dev_items, banc_items,
         print(f"PROGRES {pct}", flush=True)
         print(f"époque {ep + 1}/{epochs} — perte "
               f"{tot_loss / n:.4f}", flush=True)
+        pertes.append(round(tot_loss / n, 4))
 
     bulletin = evaluate_model(
         model, device, dev_items, banc_items,
         resolve, strict_items=strict_items)
     bulletin["epochs"] = epochs
+    bulletin["pertes"] = pertes
     return model, bulletin
 
 
@@ -2668,6 +2672,13 @@ def main():
                     help="angles par couple "
                          "reçu × fond à la "
                          "fabrique (défaut 10)")
+    ap.add_argument("--limite", type=int,
+                    default=0,
+                    help="fabrique : nombre max "
+                         "d'images NOUVELLES ce "
+                         "run (0 = aucune limite ; "
+                         "petit nombre = aperçu, "
+                         "parents extrêmes d'abord)")
     ap.add_argument("--rotations", type=int,
                     default=0,
                     help="rotations du cadre entier "
@@ -2761,7 +2772,8 @@ def main():
         return fabriquer_banque(
             args.racine,
             fonds_par_elite=args.fonds,
-            angles=args.angles)
+            angles=args.angles,
+            limite=args.limite)
 
     if args.synthetique:
         print("mode synthétique (test fumée)", flush=True)

@@ -81,6 +81,12 @@ struct ContoursView: View {
                     .frame(width: 44)
                     .textFieldStyle(.roundedBorder)
                     .disabled(runner.running)
+                Text("Limite fabrique :")
+                    .font(.system(size: 11.5))
+                TextField("", text: $runner.limiteText)
+                    .frame(width: 44)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(runner.running)
                 Text("(défaut 60 — l'atelier est le "
                      + "même que celui du juge)")
                     .font(.system(size: 11.5))
@@ -491,6 +497,19 @@ struct ContoursView: View {
             lignes.append("Banque synthétique : "
                 + "\(syN) images permanentes "
                 + "au régime de cet entraînement")
+        }
+        if let pertes = b["pertes"] as? [Any],
+           pertes.count > 1,
+           let p0 = (pertes.first as? NSNumber)?
+               .doubleValue,
+           let pN = (pertes.last as? NSNumber)?
+               .doubleValue {
+            lignes.append("Pertes d'entraînement : "
+                + String(format: "%.4f", p0)
+                + " → "
+                + String(format: "%.4f", pN)
+                + " (\(pertes.count) époques — "
+                + "courbe complète au bulletin JSON)")
         }
         if let g = b["greenscreen"]
             as? [String: Any] {
