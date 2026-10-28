@@ -713,7 +713,7 @@ def _composer_variante(p, cat, rng, fond_img=None,
 
 def fabriquer_banque(racine, fonds_par_elite=6,
                      angles=10, limite=0):
-    """FABRIQUE v3 (build 149) : banque
+    """FABRIQUE v4 (build 150) : banque
     synthétique PERMANENTE dans
     racine/Synthetique, fabriquée aux règles
     de Grégoire — canevas à la résolution
@@ -723,7 +723,9 @@ def fabriquer_banque(racine, fonds_par_elite=6,
     leur taille naturelle, rapetissés
     seulement si la rotation les fait
     sortir du cadre, rognures nettes, bords
-    sans flou. Chaque élite
+    sans flou. Images stockées en HEIC
+    qualité 90 — le format de ses scans.
+    Chaque élite
     d'entraînement — PARENTS SEULEMENT
     (jamais dev, banc ni strict) — est posée
     sur des fonds variés (web déposés dans
@@ -759,7 +761,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
         i += 1
         j -= 1
     parents = ordre
-    rng = np.random.default_rng(149)
+    rng = np.random.default_rng(150)
     dossier = os.path.join(racine, "Synthetique")
     os.makedirs(dossier, exist_ok=True)
     man_path = os.path.join(
@@ -782,7 +784,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     (".jpg", ".jpeg", ".png")):
                 fonds_web.append(os.path.join(
                     dir_fonds, nom))
-    print(f"fabrique v3 : {len(parents)} parents · "
+    print(f"fabrique v4 : {len(parents)} parents · "
           f"{len(fonds_web)} fonds web · "
           f"{fonds_par_elite} fonds × {angles} "
           f"angles par élite"
@@ -850,7 +852,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                 if stop:
                     break
                 nom = (f"synth-{p['idx']:03d}"
-                       f"-f{f}-a{a}.png")
+                       f"-f{f}-a{a}.heic")
                 fait += 1
                 if nom in faits:
                     continue
@@ -868,7 +870,8 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                         p, cat, rng,
                         fond_img=fond_img,
                         source_fond=source)
-                img.save(os.path.join(dossier, nom))
+                img.save(os.path.join(dossier, nom),
+                         quality=90)
                 man.write(json.dumps({
                     "fichier": nom,
                     "parent_sn": p["sn"],
@@ -876,7 +879,7 @@ def fabriquer_banque(racine, fonds_par_elite=6,
                     "categorie": cat,
                     "fond": src,
                     "angle": ang,
-                    "moteur": "v3",
+                    "moteur": "v4",
                     "zoom": zoom,
                     "poly": ([[round(x / CANEVAS_W, 5),
                                round(y / CANEVAS_H, 5)]
@@ -901,8 +904,9 @@ def fabriquer_banque(racine, fonds_par_elite=6,
             "n_parents": len(parents),
             "fonds_web": len(fonds_web),
             "par_elite": fonds_par_elite * angles,
-            "moteur": "v3",
-            "taille": [CANEVAS_W, CANEVAS_H]}
+            "moteur": "v4",
+            "taille": [CANEVAS_W, CANEVAS_H],
+            "format": "heic", "qualite": 90}
     with open(os.path.join(
             dossier, "banque-synth-info.json"),
             "w") as fh:
