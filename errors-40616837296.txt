@@ -1,0 +1,1 @@
+590:/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift:230:50: error: the compiler is unable to type-check this expression in reasonable time; try breaking up the expression into distinct sub-expressions
