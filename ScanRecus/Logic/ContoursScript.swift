@@ -1258,7 +1258,7 @@ def _maj_selection(meilleur_score, sans_progress,
 def train_and_eval(train_xy, dev_items, banc_items,
                    resolve, epochs, seed=13,
                    strict_items=None,
-                   dossier_instantanes=None,
+                   dossier_archives=None,
                    patience=4):
     import torch
     import torch.nn.functional as Fn
@@ -1287,19 +1287,28 @@ def train_and_eval(train_xy, dev_items, banc_items,
     rng = np.random.default_rng(seed)
     batch = 8
     pertes = []
-    # Sélection par époque (build 151, idée de
-    # Grégoire) : après chaque époque, le
-    # modèle est évalué sur le DEV et
-    # instantané sur disque ; quatre époques
-    # de suite sans progrès arrêtent la course
-    # (surapprentissage) et le meilleur
-    # instantané est rechargé. Le strict
-    # n'entre JAMAIS dans la sélection — il
-    # reste un examen pur, lu une seule fois
-    # à la fin, sur le modèle choisi.
+    # Sélection par époque (build 151, barème
+    # renversé au build 152 — décisions de
+    # Grégoire) : après chaque époque, l'IA
+    # de l'époque est ARCHIVÉE sous un nom
+    # unique (une époque = une IA unique,
+    # aucune n'est jamais effacée), puis une
+    # COPIE jetable de cette IA passe
+    # l'examen dev+strict ; c'est le STRICT
+    # servi qui choisit (reçus entiers jamais
+    # vus, comme en vie réelle — le dev ne
+    # mesure que des photos nouvelles de
+    # reçus connus). Quatre époques de suite
+    # sans progrès arrêtent la course ; la
+    # meilleure IA archivée devient le
+    # modèle servi, les autres restent dans
+    # les archives, choisissables dans
+    # l'app (sélecteur du premier onglet).
     import contextlib
+    import gc
     import io
     hist_evals = []
+    metrique_sel = 'dev'
     meilleur_score = None
     meilleure_ep = None
     meilleur_chemin = None
@@ -1329,26 +1338,56 @@ def train_and_eval(train_xy, dev_items, banc_items,
         print(f"époque {ep + 1}/{epochs} — perte "
               f"{tot_loss / n:.4f}", flush=True)
         pertes.append(round(tot_loss / n, 4))
-        if dossier_instantanes:
-            os.makedirs(dossier_instantanes,
+        if dossier_archives:
+            os.makedirs(dossier_archives,
                         exist_ok=True)
             chemin_ep = os.path.join(
-                dossier_instantanes,
+                dossier_archives,
                 f"epoque-{ep + 1:02d}.pt")
             torch.save(model.state_dict(),
                        chemin_ep)
+            # L'examen est passé par une COPIE
+            # de l'IA archivée, jamais par le
+            # modèle en entraînement ; la
+            # copie est jetée après l'examen,
+            # l'archive reste.
+            copie = build_model(torch).to(device)
+            copie.load_state_dict(torch.load(
+                chemin_ep, map_location=device))
+            copie.eval()
             with contextlib.redirect_stdout(
                     io.StringIO()):
                 b_ep = evaluate_model(
-                    model, device, dev_items, [],
-                    resolve, strict_items=None)
-            score = b_ep["dev"][
-                "servi_erreur_mediane_pct"]
+                    copie, device, dev_items, [],
+                    resolve,
+                    strict_items=strict_items)
+            del copie
+            gc.collect()
+            dev_b = b_ep["dev"]
+            strict_b = b_ep.get("strict")
+            if strict_b:
+                metrique_sel = "strict"
+                score = strict_b[
+                    "servi_erreur_mediane_pct"]
+            else:
+                score = dev_b[
+                    "servi_erreur_mediane_pct"]
             hist_evals.append({
                 "epoque": ep + 1,
-                "dev_servi_pct": score,
-                "dev_masque_pct": b_ep["dev"][
-                    "erreur_mediane_pct"]})
+                "dev_servi_pct": dev_b[
+                    "servi_erreur_mediane_pct"],
+                "dev_masque_pct": dev_b[
+                    "erreur_mediane_pct"],
+                "strict_servi_pct":
+                    strict_b[
+                        "servi_erreur_mediane_pct"]
+                    if strict_b else None,
+                "strict_masque_pct":
+                    strict_b[
+                        "erreur_mediane_pct"]
+                    if strict_b else None,
+                "archive": os.path.basename(
+                    chemin_ep)})
             # Les scores en temps réel, photo par
             # photo (demande de Grégoire) : c'est
             # ce défilement qu'il regardera
@@ -1359,6 +1398,18 @@ def train_and_eval(train_xy, dev_items, banc_items,
                       f"{r['servi_erreur_pct']} % · "
                       f"masque {r['erreur_pct']} %",
                       flush=True)
+            if strict_b:
+                for r in strict_b["par_photo"]:
+                    print(f"   strict photo "
+                          f"{r['photo']} : servi "
+                          f"{r['servi_erreur_pct']}"
+                          f" % · masque "
+                          f"{r['erreur_pct']} %",
+                          flush=True)
+            print(f"   examen passé par la copie "
+                  f"de {hist_evals[-1]['archive']}"
+                  f" (archive conservée)",
+                  flush=True)
             (meilleur_score, sans_progress,
              ameliore) = _maj_selection(
                 meilleur_score, sans_progress,
@@ -1366,14 +1417,16 @@ def train_and_eval(train_xy, dev_items, banc_items,
             if ameliore:
                 meilleure_ep = ep + 1
                 meilleur_chemin = chemin_ep
-            print(f"époque {ep + 1} — dev servi "
+            print(f"époque {ep + 1} — "
+                  f"{metrique_sel} servi "
                   f"{score} % · meilleur : "
                   f"époque {meilleure_ep}",
                   flush=True)
             if sans_progress >= patience:
                 print(f"arrêt anticipé : "
                       f"{patience} époques sans "
-                      f"progrès sur le dev",
+                      f"progrès sur le "
+                      f"{metrique_sel}",
                       flush=True)
                 arrete = True
                 break
@@ -1382,14 +1435,12 @@ def train_and_eval(train_xy, dev_items, banc_items,
         model.load_state_dict(torch.load(
             meilleur_chemin, map_location=device))
         model.to(device)
-        for f in os.listdir(dossier_instantanes):
-            os.remove(os.path.join(
-                dossier_instantanes, f))
-        os.rmdir(dossier_instantanes)
         print(f"sélection : meilleure époque "
-              f"{meilleure_ep} (dev servi "
-              f"{meilleur_score} %) — instantanés "
-              f"effacés, meilleur rechargé",
+              f"{meilleure_ep} ({metrique_sel} "
+              f"servi {meilleur_score} %) — "
+              f"{len(hist_evals)} IA archivées "
+              f"dans {dossier_archives}, aucune "
+              f"effacée",
               flush=True)
     bulletin = evaluate_model(
         model, device, dev_items, banc_items,
@@ -1400,12 +1451,17 @@ def train_and_eval(train_xy, dev_items, banc_items,
     if hist_evals:
         bulletin["selection"] = {
             "metrique":
-                "dev servi_erreur_mediane_pct",
+                f"{metrique_sel} "
+                "servi_erreur_mediane_pct",
             "meilleure_epoque": meilleure_ep,
             "meilleur_score_pct": meilleur_score,
             "patience": patience,
             "arrete_tot": arrete,
-            "evaluations": hist_evals}
+            "evaluations": hist_evals,
+            "archives": {
+                "dossier": dossier_archives,
+                "fichiers": [e["archive"]
+                             for e in hist_evals]}}
     return model, bulletin
 
 
@@ -1767,12 +1823,16 @@ def _douglas_peucker(pts, max_vertices,
     return out if len(out) >= 4 else None
 
 
-def devine(image_path, sortie):
-    """Charge contours-v0.pt, prédit le masque
-    de l'image, imprime le polygone en JSON sur
-    stdout (coordonnées normalisées)."""
+def devine(image_path, sortie,
+           modele_choisi=None):
+    """Charge le modèle (contours-v0.pt par
+    défaut, ou celui du sélecteur d'IA via
+    --modele), prédit le masque de l'image,
+    imprime le polygone en JSON sur stdout
+    (coordonnées normalisées)."""
     import torch
-    modele = os.path.join(sortie, "contours-v0.pt")
+    modele = modele_choisi or os.path.join(
+        sortie, "contours-v0.pt")
     if not os.path.exists(modele):
         print(json.dumps({"erreur": "aucun modèle"}))
         return 3
@@ -2886,6 +2946,11 @@ def main():
                          "précision (mesure, aucun "
                          "champion écrit)")
     ap.add_argument("--synthetique", action="store_true")
+    ap.add_argument("--modele", default=None,
+                    help="modèle à charger pour "
+                         "--devine (défaut : "
+                         "contours-v0.pt de "
+                         "--sortie)")
     ap.add_argument("--devine", default=None,
                     help="chemin d'une image : prédit "
                          "son contour et imprime le "
@@ -2893,7 +2958,8 @@ def main():
     args = ap.parse_args()
 
     if args.devine:
-        return devine(args.devine, args.sortie)
+        return devine(args.devine, args.sortie,
+                      args.modele)
 
     print("PHASE Chargement des élites…", flush=True)
     rng = np.random.default_rng(13)
@@ -3009,12 +3075,15 @@ def main():
         print("PHASE Entraînement du traceur…",
               flush=True)
         charger_params(args.sortie)
+        import datetime
         model, bulletin = train_and_eval(
             (X, Y), dev_items, banc_items,
             resolve=resolve, epochs=args.epochs,
             strict_items=strict_items,
-            dossier_instantanes=os.path.join(
-                args.sortie, "instantanes"))
+            dossier_archives=os.path.join(
+                args.sortie, "archives",
+                datetime.datetime.now().strftime(
+                    "course-%Y%m%d-%H%M%S")))
         bulletin["synthetique"] = False
         bulletin["synthetique"] = synth_info
         bulletin["rotations"] = args.rotations

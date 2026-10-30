@@ -223,6 +223,28 @@ struct ContoursView: View {
                            + "jamais vu (\(nSt) élites)",
                            st))
             }
+            if let sel = b["selection"]
+                as? [String: Any] {
+                let base = ((sel["metrique"]
+                    as? String) ?? "")
+                    .hasPrefix("strict")
+                    ? "strict" : "dev"
+                let epS = (sel["meilleure_epoque"]
+                    as? NSNumber)?.intValue ?? 0
+                let scS = num(sel,
+                              "meilleur_score_pct")
+                    ?? -1
+                let arch = sel["archives"]
+                    as? [String: Any]
+                let nA = (arch?["fichiers"]
+                    as? [Any])?.count ?? 0
+                Text(String(
+                    format: "Sélection par époque "
+                        + "(%@) : meilleure "
+                        + "époque %d · %.1f %% · "
+                        + "%d IA archivées",
+                    base, epS, scS, nA))
+            }
             if !verdict.isEmpty {
                 Text(verdict).fontWeight(.semibold)
             }

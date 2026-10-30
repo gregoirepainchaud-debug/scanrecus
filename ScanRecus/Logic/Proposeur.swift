@@ -35,8 +35,8 @@ enum Proposeur {
             "Juge", isDirectory: true)
         let python = atelier.appendingPathComponent(
             "venv/bin/python3")
-        let modele = atelier.appendingPathComponent(
-            "contours-v0.pt")
+        let modele = Self.cheminModeleChoisi(
+            atelier: atelier)
         guard fm.fileExists(atPath: python.path),
               fm.fileExists(atPath: modele.path)
         else { return .aucunModele }
@@ -66,7 +66,8 @@ enum Proposeur {
         proc.executableURL = python
         proc.arguments = [script.path,
                           "--devine", tmp.path,
-                          "--sortie", atelier.path]
+                          "--sortie", atelier.path,
+                          "--modele", modele.path]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice
@@ -111,5 +112,104 @@ enum Proposeur {
             if poly.count >= 4 { return .lasso(poly) }
         }
         return .echec
+    }
+
+    // ---- Sélecteur d'IA (build 152) ----
+    // Chaque époque d'entraînement produit
+    // une IA unique, archivée sous
+    // archives/<course>/epoque-NN.pt ; le
+    // sélecteur du premier onglet choisit
+    // laquelle propose les lassos. Le choix
+    // est un chemin complet, mémorisé dans
+    // les préférences.
+
+    struct ModeleIA: Identifiable {
+        let nom: String
+        let chemin: URL
+        var id: String { chemin.path }
+    }
+
+    static let cleIAChoisie = "proposeurIAChoisie"
+
+    static var dossierAtelier: URL? {
+        FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask).first?
+            .appendingPathComponent(
+                "ScanRecus", isDirectory: true)
+            .appendingPathComponent(
+                "Juge", isDirectory: true)
+    }
+
+    static func cheminModeleChoisi(
+        atelier: URL
+    ) -> URL {
+        let defaut = atelier.appendingPathComponent(
+            "contours-v0.pt")
+        if let p = UserDefaults.standard.string(
+               forKey: cleIAChoisie),
+           FileManager.default.fileExists(
+               atPath: p) {
+            return URL(fileURLWithPath: p)
+        }
+        return defaut
+    }
+
+    static func cheminChoisi() -> URL? {
+        guard let atelier = dossierAtelier
+        else { return nil }
+        return cheminModeleChoisi(atelier: atelier)
+    }
+
+    static func modelesDisponibles()
+        -> [ModeleIA] {
+        guard let atelier = dossierAtelier
+        else { return [] }
+        let fm = FileManager.default
+        var out: [ModeleIA] = []
+        let racine = (try? fm.contentsOfDirectory(
+            atPath: atelier.path)) ?? []
+        let pts = racine.filter {
+            $0.hasSuffix(".pt")
+        }.sorted { a, b in
+            if a == "contours-v0.pt" { return true }
+            if b == "contours-v0.pt" { return false }
+            return a < b
+        }
+        for nom in pts {
+            let affiche = nom == "contours-v0.pt"
+                ? "Servie — contours-v0"
+                : (nom as NSString)
+                    .deletingPathExtension
+            out.append(ModeleIA(
+                nom: affiche,
+                chemin: atelier
+                    .appendingPathComponent(nom)))
+        }
+        let archives = atelier.appendingPathComponent(
+            "archives", isDirectory: true)
+        let courses = ((try? fm
+            .contentsOfDirectory(
+                atPath: archives.path)) ?? [])
+            .sorted(by: >)
+        for course in courses {
+            let dir = archives
+                .appendingPathComponent(
+                    course, isDirectory: true)
+            let fichiers = ((try? fm
+                .contentsOfDirectory(
+                    atPath: dir.path)) ?? [])
+                .filter { $0.hasSuffix(".pt") }
+                .sorted()
+            for f in fichiers {
+                let ep = (f as NSString)
+                    .deletingPathExtension
+                out.append(ModeleIA(
+                    nom: "\(course) · \(ep)",
+                    chemin: dir
+                        .appendingPathComponent(f)))
+            }
+        }
+        return out
     }
 }

@@ -62,6 +62,13 @@ struct CompositeScanView: View {
              contours
     }
     @State private var appSection: AppSection = .scanner
+    /// Sélecteur d'IA (build 152) : les IA de
+    /// l'atelier (la servie + les archives —
+    /// une par époque d'entraînement) et
+    /// celle choisie, par son chemin complet.
+    @State private var modelesIA:
+        [Proposeur.ModeleIA] = []
+    @State private var iaChoisie: String = ""
     @State private var bank = TrainingBank()
     // @StateObject, PAS @State : LassoSession est un
     // ObservableObject (Combine) et SwiftUI ne
@@ -239,6 +246,41 @@ struct CompositeScanView: View {
                         .controlSize(.large)
                         }
 
+                        if appSection == .scanner,
+                           !modelesIA.isEmpty {
+                            HStack(spacing: 8) {
+                                Text("IA des contours :")
+                                    .font(.system(
+                                        size: 13))
+                                    .foregroundColor(
+                                        .secondary)
+                                Picker("",
+                                       selection:
+                                        $iaChoisie) {
+                                    ForEach(modelesIA) {
+                                        m in
+                                        Text(m.nom)
+                                            .tag(m
+                                                .chemin
+                                                .path)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: 460)
+                                .onChange(
+                                    of: iaChoisie
+                                ) { _, nouveau in
+                                    UserDefaults
+                                        .standard
+                                        .set(
+                                            nouveau,
+                                            forKey:
+                                                Proposeur
+                                                .cleIAChoisie)
+                                }
+                            }
+                        }
+
                         Text(scanner.statusText)
                             .font(.system(size: 16, weight: .medium))
 
@@ -297,6 +339,7 @@ struct CompositeScanView: View {
         }
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
+            rafraichirModelesIA()
             camera.start(delegate: scanner)
             // Plein écran dès l'ouverture, toujours (demandé par
             // Grégoire le 2026-10-19) — indépendant du panneau
@@ -305,6 +348,9 @@ struct CompositeScanView: View {
         }
         .onDisappear { camera.stop() }
         .onChange(of: appSection) { oldSection, section in
+            if section == .scanner {
+                rafraichirModelesIA()
+            }
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement
                 || section == .juge {
@@ -840,6 +886,15 @@ struct CompositeScanView: View {
 
     /// Abandonne le test en cours (quel que soit l'état) et repart
     /// en recherche pour le scénario suivant.
+    /// Recharge la liste des IA de
+    /// l'atelier et le choix courant
+    /// (build 152).
+    private func rafraichirModelesIA() {
+        modelesIA = Proposeur.modelesDisponibles()
+        iaChoisie = Proposeur.cheminChoisi()?.path
+            ?? ""
+    }
+
     private func nextScan() {
         // En « Générer matériel » : quitter un scan lance la
         // génération de ses 30 copies tournées (arrière-plan,
