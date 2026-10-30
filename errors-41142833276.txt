@@ -1,0 +1,4 @@
+614:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift:85:35: error: property 'midX' is not available due to missing import of defining module 'CoreGraphics'
+620:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift:85:46: error: property 'midX' is not available due to missing import of defining module 'CoreGraphics'
+626:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift:86:35: error: property 'midY' is not available due to missing import of defining module 'CoreGraphics'
+632:/Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift:86:46: error: property 'midY' is not available due to missing import of defining module 'CoreGraphics'
