@@ -31,6 +31,14 @@ import AppKit  // NSApplication, pour le bouton Exit
 struct CompositeScanView: View {
     @State private var camera = CameraManager()
     @State private var scanner = CompositeScanner()
+    /// NOUVEAU SCANNER (build 158) : la session du premier
+    /// onglet (capture simple → bouton rotatif → crop →
+    /// « Next ») et le routeur qui aiguille les frames de
+    /// la caméra — vers le capteur d'image fixe dans la
+    /// section Scanner, vers le scanner composite partout
+    /// ailleurs (sections héritées inchangées).
+    @State private var receiptSession = ReceiptScanSession()
+    @State private var frameRouter = FrameRouter()
     /// Aperçu commutable (choix mémorisé, partagé avec l'ancien écran) :
     /// vrai = miroir (déplacements intuitifs, texte inversé),
     /// faux = normal (texte lisible, déplacements inversés).
@@ -119,7 +127,7 @@ struct CompositeScanView: View {
                     CameraPreviewView(session: camera.session)
                         .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
                                      anchor: .center)
-                    if !isDone {
+                    if !isDone, appSection != .scanner {
                         ScanOverlayView(quad: scanner.quad,
                                         totalBox: nil,
                                         hoverRect: nil,
@@ -160,7 +168,8 @@ struct CompositeScanView: View {
                         lassoCanvas(
                             containerSize: geo.size)
                     }
-                    if isDone, appSection != .entrainement {
+                    if isDone, appSection != .entrainement,
+                       appSection != .scanner {
                         // Le scan figé, par-dessus l'aperçu
                         // (caméra déjà coupée) : d'abord la
                         // meilleure image retenue pendant que
@@ -198,6 +207,11 @@ struct CompositeScanView: View {
                         // maximisée, au centre.
                         .frame(width: geo.size.width,
                                height: geo.size.height)
+                    }
+                    if appSection == .scanner {
+                        ReceiptScannerStage(
+                            session: receiptSession,
+                            containerSize: geo.size)
                     }
                 }
             }
@@ -247,47 +261,24 @@ struct CompositeScanView: View {
                         .controlSize(.large)
                         }
 
-                        if appSection == .scanner,
-                           !modelesIA.isEmpty {
-                            HStack(spacing: 8) {
-                                Text("IA des contours :")
-                                    .font(.system(
-                                        size: 13))
-                                    .foregroundColor(
-                                        .secondary)
-                                Picker("",
-                                       selection:
-                                        $iaChoisie) {
-                                    ForEach(modelesIA) {
-                                        m in
-                                        Text(m.nom)
-                                            .tag(m
-                                                .chemin
-                                                .path)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .frame(maxWidth: 460)
-                                .onChange(
-                                    of: iaChoisie
-                                ) { _, nouveau in
-                                    UserDefaults
-                                        .standard
-                                        .set(
-                                            nouveau,
-                                            forKey:
-                                                Proposeur
-                                                .cleIAChoisie)
-                                }
-                            }
+                        // (Le sélecteur « IA des contours » a quitté
+                        // l'onglet 1 avec le build 158 : l'onglet 1 est
+                        // le nouveau Scanner. Le choix persisté
+                        // (Proposeur.cleIAChoisie) reste en vigueur
+                        // pour le jeu du lasso.)
+
+                        if appSection != .scanner {
+                            Text(scanner.statusText)
+                                .font(.system(size: 16, weight: .medium))
                         }
 
-                        Text(scanner.statusText)
-                            .font(.system(size: 16, weight: .medium))
+                        if appSection != .scanner {
+                            journalRow
+                        }
 
-                        journalRow
-
-                        if appSection == .materiel {
+                        if appSection == .scanner {
+                            ReceiptScannerPanel(session: receiptSession)
+                        } else if appSection == .materiel {
                             materielPanel
                         } else if appSection == .entrainement {
                             lassoPanel
@@ -300,6 +291,7 @@ struct CompositeScanView: View {
                             extractionPanel(ex)
                         }
 
+                        if appSection != .scanner {
                         HStack(spacing: 12) {
                             Button("Next scan") { nextScan() }
                                 .controlSize(.large)
@@ -326,6 +318,7 @@ struct CompositeScanView: View {
                                 .focusable(false)
                             }
                         }
+                        }
                     }
 
                 }
@@ -341,7 +334,10 @@ struct CompositeScanView: View {
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
             rafraichirModelesIA()
-            camera.start(delegate: scanner)
+            frameRouter.legacy = scanner
+            frameRouter.grabber = receiptSession.grabber
+            frameRouter.receiptMode = (appSection == .scanner)
+            camera.start(delegate: frameRouter)
             // Plein écran dès l'ouverture, toujours (demandé par
             // Grégoire le 2026-10-19) — indépendant du panneau
             // d'éclairage, qui ne contrôle que le champ blanc.
@@ -352,6 +348,7 @@ struct CompositeScanView: View {
             if section == .scanner {
                 rafraichirModelesIA()
             }
+            frameRouter.receiptMode = (section == .scanner)
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement
                 || section == .juge {
@@ -367,7 +364,7 @@ struct CompositeScanView: View {
                 }
             } else if oldSection == .entrainement
                         || oldSection == .juge {
-                camera.start(delegate: scanner)
+                camera.start(delegate: frameRouter)
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in
@@ -394,7 +391,7 @@ struct CompositeScanView: View {
             if newState == .done {
                 camera.stop()
             } else if newState == .searching {
-                camera.start(delegate: scanner)
+                camera.start(delegate: frameRouter)
             }
         }
         }
