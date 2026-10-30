@@ -86,6 +86,7 @@ struct CompositeScanView: View {
     /// — les coordonnées du lasso restent relatives
     /// à l'image, le zoom ne change que l'affichage.
     @State private var lassoZoom: Double = 1
+    @State private var confirmeRecommencer = false
     @State private var vertexDragActive = false
     /// La grille quadrillée de 5 mm sur le canevas du jeu
     /// (affichée par défaut, commutable au panneau).
@@ -729,6 +730,39 @@ struct CompositeScanView: View {
                 }
             }
             .disabled(lasso.current.isEmpty)
+            HStack(spacing: 12) {
+                Button("Recommencer le jeu") {
+                    confirmeRecommencer = true
+                }
+                .confirmationDialog(
+                    "Effacer les élites et "
+                        + "recommencer le jeu ?",
+                    isPresented: $confirmeRecommencer,
+                    titleVisibility: .visible
+                ) {
+                    Button("Effacer et recommencer",
+                           role: .destructive) {
+                        lasso.recommencerJeu()
+                    }
+                    Button("Annuler", role: .cancel) {}
+                } message: {
+                    Text("Tes tracés (élites et "
+                        + "notes du jeu du lasso) "
+                        + "seront archivés dans "
+                        + "l'atelier, puis le jeu "
+                        + "repartira de la première "
+                        + "photo. Tes scans ne sont "
+                        + "pas touchés, et "
+                        + "l'entraînement repartira "
+                        + "de zéro élite.")
+                }
+            }
+            if !lasso.noteReinitialisation.isEmpty {
+                Text(lasso.noteReinitialisation)
+                    .font(.system(size: 13,
+                                  weight: .semibold))
+                    .foregroundColor(.green)
+            }
             Text(lasso.statsText)
                 .font(.system(size: 13))
                 .foregroundColor(.secondary)

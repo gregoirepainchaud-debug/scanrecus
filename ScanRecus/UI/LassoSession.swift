@@ -70,9 +70,15 @@ import Combine
 ///   enregistrent la version corrigée, qui
 ///   remplace l'ancienne à l'entraînement
 ///   (contours.py ne garde que la dernière).
-///   Convention de Grégoire (2026-10-26) : le
-///   contour du reçu complet — la ligne passe
-///   derrière les doigts, sans détour.
+///   Convention de Grégoire (RENVERSÉE le
+///   2026-10-30, build 155) : le tracé suit le
+///   papier visible — il CONTOURNE les doigts,
+///   systématiquement ; les découpages gardent
+///   des encoches aux doigts, assumé. Le même
+///   build ajoute « Recommencer le jeu »
+///   (TrainingBank.resetJeu) : les anciens
+///   tracés sont archivés, le jeu repart à
+///   zéro, les scans intacts.
 @MainActor
 final class LassoSession: ObservableObject {
 
@@ -91,6 +97,11 @@ final class LassoSession: ObservableObject {
     /// La dernière note donnée : le retour visible
     /// immédiat qu'elle est bien rentrée.
     @Published private(set) var lastRating: Int?
+    /// La confirmation visible d'un recommencement
+    /// du jeu (build 155), affichée au panneau
+    /// jusqu'à la prochaine note — le statut, lui,
+    /// est réécrit par le chargement de l'image.
+    @Published private(set) var noteReinitialisation = ""
     /// Mode Révision des élites (build 136) :
     /// le paquet ne sert que les photos qui ont
     /// une élite, et l'ouverture la montre.
@@ -209,6 +220,22 @@ final class LassoSession: ObservableObject {
         } else {
             prepare(bank: bank)
         }
+    }
+
+    /// RECOMMENCER LE JEU (build 155) : archive les
+    /// tracés via la banque (les scans ne bougent
+    /// pas) et reconstruit la session à zéro — le
+    /// paquet repart de la première photo, les
+    /// compteurs retombent, plus aucune élite ne
+    /// subsiste pour l'entraînement.
+    func recommencerJeu() {
+        guard let bank else { return }
+        let archive = bank.resetJeu()
+        prepare(bank: bank)
+        noteReinitialisation = "Jeu recommencé — "
+            + "anciens tracés archivés dans "
+            + "\(archive). Tes scans n'ont pas été "
+            + "touchés."
     }
 
     /// Construit le paquet selon le mode : jeu
@@ -463,10 +490,11 @@ final class LassoSession: ObservableObject {
                     case "revision":
                         self.statusText = "Révision — "
                             + "ton élite actuelle. "
-                            + "Corrige-la : le contour "
-                            + "du reçu complet, la ligne "
-                            + "passe derrière les doigts, "
-                            + "sans détour. +2 (ou Next) "
+                            + "Corrige-la : le tracé "
+                            + "suit le papier visible "
+                            + "— il contourne les "
+                            + "doigts, sans passer "
+                            + "derrière. +2 (ou Next) "
                             + "enregistre la version "
                             + "corrigée."
                     case "traceur":
@@ -501,6 +529,7 @@ final class LassoSession: ObservableObject {
     func rate(_ rating: Int) {
         guard let entry, let bank, !current.isEmpty
         else { return }
+        noteReinitialisation = ""
         if modeRevision {
             if rating == 2 {
                 finishImage(elite: current,
@@ -656,6 +685,7 @@ final class LassoSession: ObservableObject {
     /// Termine l'image sans +2 (bouton Next) : l'élite
     /// est le meilleur lasso connu de l'image.
     func next() {
+        noteReinitialisation = ""
         if modeRevision {
             // En révision, l'état courant (corrigé
             // ou non) devient l'élite — pas la base

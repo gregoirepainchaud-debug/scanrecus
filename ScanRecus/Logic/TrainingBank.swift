@@ -534,6 +534,57 @@ final class TrainingBank {
         appendGameLine(data)
     }
 
+    /// RECOMMENCER LE JEU (build 155, décision de
+    /// Grégoire du 2026-10-30) : les tracés du jeu du
+    /// lasso (élites, tentatives, ouvertures) sortent
+    /// du journal actif — jeu.jsonl est ARCHIVÉ dans
+    /// l'atelier (jeu-archive-<horodatage>.jsonl,
+    /// jamais effacé pour de vrai) et un journal
+    /// neuf, vide, prend sa place ; le miroir Drive
+    /// est archivé au même horodatage, sinon les
+    /// anciennes élites « reviendraient » par lui.
+    /// Les SCANS ne sont pas touchés : ni
+    /// banque.jsonl, ni les images. L'entraînement
+    /// repartira de zéro élite. Retourne le nom du
+    /// fichier d'archive local.
+    @discardableResult
+    func resetJeu() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = fmt.string(from: Date())
+        let archiveName = "jeu-archive-\(stamp).jsonl"
+        let fm = FileManager.default
+        let jeu = root.appendingPathComponent("jeu.jsonl")
+        let archive = root.appendingPathComponent(
+            archiveName)
+        ioLock.lock()
+        if fm.fileExists(atPath: jeu.path) {
+            try? fm.moveItem(at: jeu, to: archive)
+        }
+        try? Data().write(to: jeu)
+        progressCache = nil
+        memoryCache = nil
+        ioLock.unlock()
+        mirrorQueue.async { [weak self] in
+            guard let self,
+                  let mirror = self.mirrorURL(
+                    named: "jeu-entrainement.jsonl")
+            else { return }
+            let mArchive = mirror
+                .deletingLastPathComponent()
+                .appendingPathComponent(
+                    "jeu-entrainement-archive-\(stamp)"
+                        + ".jsonl")
+            self.ioLock.lock()
+            defer { self.ioLock.unlock() }
+            if fm.fileExists(atPath: mirror.path) {
+                try? fm.moveItem(at: mirror, to: mArchive)
+            }
+            try? Data().write(to: mirror)
+        }
+        return archiveName
+    }
+
     private var progressCache: (size: Int,
                                 value: LassoProgress)?
     private var memoryCache: (size: Int,
