@@ -12,6 +12,13 @@ import Vision
 /// de côté ; le scanner composite continue de servir les
 /// autres sections, inchangées.
 ///
+/// BUILD 160 (2026-10-30) : le cadrage (les « ciseaux ») n'est
+/// plus un MODE à activer — Grégoire ne trouvait pas la paire
+/// de ciseaux. Dès que la photo est prise, le cadre jaune et
+/// ses 8 poignées sont là, actifs, avec l'indication à
+/// l'écran ; le bouton bascule devient « ✂ Cadre plein »
+/// (remettre le cadre à toute la photo).
+///
 /// BUILD 159 (2026-10-30) : la DÉTECTION AUTOMATIQUE revient.
 /// Grégoire tient le reçu à deux mains — impossible de peser
 /// sur le déclencheur. Le capteur d'image fixe juge donc
@@ -320,9 +327,8 @@ final class ReceiptScanSession {
     /// Angle du bouton rotatif, degrés interface, continu.
     var angleDegrees: Double = 0
     /// Crop normalisé dans le repère de la photo redressée.
+    /// Le cadrage est TOUJOURS actif (build 160) : pas de mode.
     var cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
-    /// Mode ciseaux : les poignées du crop sont actives.
-    var cropMode = false
     var statusMessage =
         "Présentez un reçu devant la caméra, puis déclenchez."
     private(set) var outboxCount = 0
@@ -403,10 +409,17 @@ final class ReceiptScanSession {
         photo = frame
         angleDegrees = 0
         cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
-        cropMode = false
         phase = .adjust
-        statusMessage = "Redressez au bouton rotatif, cadrez "
-            + "aux ciseaux si besoin, puis « Next »."
+        statusMessage = "Photo prise ✓ — redressez au bouton "
+            + "rotatif, tirez les poignées jaunes ✂ pour "
+            + "cadrer, puis « Next »."
+    }
+
+    /// « ✂ Cadre plein » : le cadre de cadrage revient à
+    /// toute la photo (annule un cadrage raté sans reprendre
+    /// la photo).
+    func resetCrop() {
+        cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
 
     /// « Reprendre la photo » : jette l'image courante et
@@ -597,6 +610,24 @@ struct ReceiptScannerStage: View {
                 .rotationEffect(.degrees(session.angleDegrees))
             gridOverlay(fit: fit)
             cropOverlay(fit: fit)
+            // L'indication du cadrage, en haut à gauche —
+            // les ciseaux se voient et se nomment (build 160).
+            VStack {
+                HStack {
+                    Text("✂ Cadrage : tirez les poignées "
+                        + "jaunes du cadre")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.black.opacity(0.55))
+                        .cornerRadius(8)
+                    Spacer()
+                }
+                Spacer()
+            }
+            .padding(12)
+            .allowsHitTesting(false)
             // Le bouton rotatif, en bas à droite de la photo.
             RotaryKnobView(angle: $session.angleDegrees)
                 .position(x: containerSize.width - 96,
@@ -609,16 +640,10 @@ struct ReceiptScannerStage: View {
                         session.retake()
                     }
                     .controlSize(.large)
-                    Button(session.cropMode
-                           ? "✂ Ciseaux : actifs"
-                           : "✂ Ciseaux") {
-                        session.cropMode.toggle()
+                    Button("✂ Cadre plein") {
+                        session.resetCrop()
                     }
                     .controlSize(.large)
-                    .background(session.cropMode
-                                ? Color.yellow.opacity(0.35)
-                                : Color.clear)
-                    .cornerRadius(6)
                     Spacer()
                     Button("Next ✓") {
                         Task { await session.next(token: uploadToken) }
@@ -669,8 +694,9 @@ struct ReceiptScannerStage: View {
         .allowsHitTesting(false)
     }
 
-    // Le crop : assombrissement extérieur, bordure, et en mode
-    // ciseaux la surface de déplacement + les 8 poignées.
+    // Le crop : assombrissement extérieur, bordure, surface
+    // de déplacement et les 8 poignées — TOUJOURS actifs
+    // (build 160 : plus de mode ciseaux à ouvrir).
     private func cropOverlay(fit: CGRect) -> some View {
         let crop = ReceiptGeometry.clampCrop(session.cropNormalized)
         let rect = CGRect(
@@ -689,24 +715,21 @@ struct ReceiptScannerStage: View {
             .allowsHitTesting(false)
             Rectangle()
                 .path(in: rect)
-                .stroke(Color.yellow,
-                        lineWidth: session.cropMode ? 2 : 1)
+                .stroke(Color.yellow, lineWidth: 2)
                 .allowsHitTesting(false)
-            if session.cropMode {
-                Color.white.opacity(0.001)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .gesture(handleDrag(.interior, fit: fit))
-                ForEach(CropHandle.allCases, id: \.self) { handle in
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color.yellow)
-                        .frame(width: 17, height: 17)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 3)
-                                .stroke(Color.black, lineWidth: 1))
-                        .position(handlePoint(handle, in: rect))
-                        .gesture(handleDrag(handle, fit: fit))
-                }
+            Color.white.opacity(0.001)
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
+                .gesture(handleDrag(.interior, fit: fit))
+            ForEach(CropHandle.allCases, id: \.self) { handle in
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Color.yellow)
+                    .frame(width: 20, height: 20)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 3)
+                            .stroke(Color.black, lineWidth: 1))
+                    .position(handlePoint(handle, in: rect))
+                    .gesture(handleDrag(handle, fit: fit))
             }
         }
     }
