@@ -1281,7 +1281,7 @@ def train_and_eval(train_xy, dev_items, banc_items,
                    resolve, epochs, seed=13,
                    strict_items=None,
                    dossier_archives=None,
-                   patience=4):
+                   patience=8):
     import torch
     import torch.nn.functional as Fn
 
@@ -1317,11 +1317,16 @@ def train_and_eval(train_xy, dev_items, banc_items,
     # aucune n'est jamais effacée), puis une
     # COPIE jetable de cette IA passe
     # l'examen dev+strict ; c'est le STRICT
-    # servi qui choisit (reçus entiers jamais
+    # qui choisit (reçus entiers jamais
     # vus, comme en vie réelle — le dev ne
     # mesure que des photos nouvelles de
-    # reçus connus). Quatre époques de suite
-    # sans progrès arrêtent la course ; la
+    # reçus connus), au score MOYENNE +
+    # PIRE CAS des servis (build 154 : le
+    # barème de la lecture humaine — la
+    # médiane seule couronnait la majorité
+    # facile en ignorant la catastrophe).
+    # Huit époques de suite sans progrès
+    # arrêtent la course ; la
     # meilleure IA archivée devient le
     # modèle servi, les autres restent dans
     # les archives, choisissables dans
@@ -1389,11 +1394,19 @@ def train_and_eval(train_xy, dev_items, banc_items,
             strict_b = b_ep.get("strict")
             if strict_b:
                 metrique_sel = "strict"
-                score = strict_b[
-                    "servi_erreur_mediane_pct"]
-            else:
-                score = dev_b[
-                    "servi_erreur_mediane_pct"]
+            base_b = strict_b or dev_b
+            servis = [r["servi_erreur_pct"]
+                      for r in
+                      base_b["par_photo"]]
+            moy = (round(sum(servis)
+                         / len(servis), 4)
+                   if servis else None)
+            pire = (max(servis)
+                    if servis else None)
+            score = (round(moy + pire, 4)
+                     if moy is not None
+                     else base_b[
+                         "servi_erreur_mediane_pct"])
             hist_evals.append({
                 "epoque": ep + 1,
                 "dev_servi_pct": dev_b[
@@ -1408,6 +1421,11 @@ def train_and_eval(train_xy, dev_items, banc_items,
                     strict_b[
                         "erreur_mediane_pct"]
                     if strict_b else None,
+                "strict_servi_moyenne_pct":
+                    moy if strict_b else None,
+                "strict_servi_pire_pct":
+                    pire if strict_b else None,
+                "score_selection_pct": score,
                 "archive": os.path.basename(
                     chemin_ep)})
             # Les scores en temps réel, photo par
@@ -1440,8 +1458,10 @@ def train_and_eval(train_xy, dev_items, banc_items,
                 meilleure_ep = ep + 1
                 meilleur_chemin = chemin_ep
             print(f"époque {ep + 1} — "
-                  f"{metrique_sel} servi "
-                  f"{score} % · meilleur : "
+                  f"{metrique_sel} : moyenne "
+                  f"{moy} % · pire {pire} % · "
+                  f"score {score} % · "
+                  f"meilleur : "
                   f"époque {meilleure_ep}",
                   flush=True)
             if sans_progress >= patience:
@@ -1473,8 +1493,8 @@ def train_and_eval(train_xy, dev_items, banc_items,
     if hist_evals:
         bulletin["selection"] = {
             "metrique":
-                f"{metrique_sel} "
-                "servi_erreur_mediane_pct",
+                f"{metrique_sel} servi "
+                "(moyenne + pire cas)",
             "meilleure_epoque": meilleure_ep,
             "meilleur_score_pct": meilleur_score,
             "patience": patience,

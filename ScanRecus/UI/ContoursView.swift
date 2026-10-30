@@ -240,7 +240,8 @@ struct ContoursView: View {
                     as? [Any])?.count ?? 0
                 Text(String(
                     format: "Sélection par époque "
-                        + "(%@) : meilleure "
+                        + "(%@ · moy+pire) : "
+                        + "meilleure "
                         + "époque %d · %.1f %% · "
                         + "%d IA archivées",
                     base, epS, scS, nA))
