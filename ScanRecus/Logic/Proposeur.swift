@@ -61,13 +61,24 @@ enum Proposeur {
         CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest)
         else { return .echec }
+        // L'œil courant (build 156) : le devine
+        // regarde la photo à la même résolution
+        // que celle du champ « Œil » de l'onglet
+        // Contours (défaut 256, mêmes bornes et
+        // même arrondi que le pilote).
+        let oeilBrut = UserDefaults.standard.string(
+            forKey: "contoursOeil") ?? "256"
+        var oeil = Int(oeilBrut) ?? 256
+        oeil = min(1024, max(20, oeil))
+        oeil = ((oeil + 2) / 4) * 4
         // L'appel, avec garde-fou de durée.
         let proc = Process()
         proc.executableURL = python
         proc.arguments = [script.path,
                           "--devine", tmp.path,
                           "--sortie", atelier.path,
-                          "--modele", modele.path]
+                          "--modele", modele.path,
+                          "--taille", String(oeil)]
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = FileHandle.nullDevice

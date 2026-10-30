@@ -27,6 +27,22 @@ final class ContoursRunner: ObservableObject {
     @Published var epochsText: String = "60"
     @Published var rotationsText: String = "0"
     @Published var limiteText: String = ""
+    /// Champ « Tolérance » (build 156) : la
+    /// patience de l'arrêt anticipé — époques de
+    /// suite sans progrès du score avant l'arrêt.
+    /// Persisté, validé au lancement (1 à 100,
+    /// défaut 8), transmis au script (--patience)
+    /// et consigné au bulletin.
+    @Published var toleranceText: String = "8"
+    /// Champ « Œil » (build 156) : la résolution
+    /// d'entrée du traceur (256 = il voit la
+    /// silhouette ; 512 = il voit aussi les
+    /// détails — doigts, imprimé, plis).
+    /// Persisté, validé (20 à 1024, multiple
+    /// de 4, défaut 256), transmis au script
+    /// (--taille) à tous les modes et consigné
+    /// au bulletin.
+    @Published var oeilText: String = "256"
     /// Case « Ignorer les synthétiques »
     /// (build 151) : persistée, transmise au
     /// script à l'entraînement.
@@ -61,6 +77,15 @@ final class ContoursRunner: ObservableObject {
         if let savedL = UserDefaults.standard.string(
             forKey: "contoursLimite"), !savedL.isEmpty {
             limiteText = savedL
+        }
+        if let savedT = UserDefaults.standard.string(
+            forKey: "contoursTolerance"),
+           !savedT.isEmpty {
+            toleranceText = savedT
+        }
+        if let savedO = UserDefaults.standard.string(
+            forKey: "contoursOeil"), !savedO.isEmpty {
+            oeilText = savedO
         }
         ignorerSynths = UserDefaults.standard.bool(
             forKey: "contoursIgnorerSynths")
@@ -189,6 +214,29 @@ final class ContoursRunner: ObservableObject {
         return min(50, max(0, v))
     }
 
+    /// Valeur validée du champ tolérance :
+    /// un entier entre 1 et 100, sinon le
+    /// défaut (8).
+    var toleranceValide: Int {
+        let t = toleranceText.trimmingCharacters(
+            in: .whitespaces)
+        guard let v = Int(t) else { return 8 }
+        return min(100, max(1, v))
+    }
+
+    /// Valeur validée du champ œil : un entier
+    /// entre 20 et 1024, arrondi au multiple
+    /// de 4 (le réseau descend deux fois),
+    /// sinon le défaut (256). Même formule
+    /// que dans le script.
+    var oeilValide: Int {
+        let t = oeilText.trimmingCharacters(
+            in: .whitespaces)
+        guard let v = Int(t) else { return 256 }
+        let borne = min(1024, max(20, v))
+        return ((borne + 2) / 4) * 4
+    }
+
     func entrainer() {
         guard !running, atelierPret else { return }
         writeScript()
@@ -200,6 +248,14 @@ final class ContoursRunner: ObservableObject {
         rotationsText = String(rot)
         UserDefaults.standard.set(rotationsText,
                                   forKey: "contoursRotations")
+        let tol = toleranceValide
+        toleranceText = String(tol)
+        UserDefaults.standard.set(toleranceText,
+                                  forKey: "contoursTolerance")
+        let oeil = oeilValide
+        oeilText = String(oeil)
+        UserDefaults.standard.set(oeilText,
+                                  forKey: "contoursOeil")
         UserDefaults.standard.set(
             ignorerSynths,
             forKey: "contoursIgnorerSynths")
@@ -207,7 +263,9 @@ final class ContoursRunner: ObservableObject {
                     "--racine", racine.path,
                     "--sortie", jugeDir.path,
                     "--epochs", String(ep),
-                    "--rotations", String(rot)]
+                    "--rotations", String(rot),
+                    "--patience", String(tol),
+                    "--taille", String(oeil)]
         if ignorerSynths {
             args.append("--ignorer-synthetiques")
         }
@@ -240,7 +298,8 @@ final class ContoursRunner: ObservableObject {
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--evalue"],
+                   "--evalue",
+                   "--taille", String(oeilValide)],
             phase: "Évaluation seule…") {
             [weak self] status in
             guard let self else { return }
@@ -271,7 +330,8 @@ final class ContoursRunner: ObservableObject {
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--tournoi"],
+                   "--tournoi",
+                   "--taille", String(oeilValide)],
             phase: "Tournoi des constantes…") {
             [weak self] status in
             guard let self else { return }
@@ -304,7 +364,8 @@ final class ContoursRunner: ObservableObject {
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--mega", "--photo", "67"],
+                   "--mega", "--photo", "67",
+                   "--taille", String(oeilValide)],
             phase: "Méga-tournoi — prospection "
                 + "photo 67…") {
             [weak self] status in
@@ -337,7 +398,8 @@ final class ContoursRunner: ObservableObject {
             args: [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--oracle"],
+                   "--oracle",
+                   "--taille", String(oeilValide)],
             phase: "Écart oracle — meilleur "
                 + "tenant par photo…") {
             [weak self] status in
@@ -394,7 +456,8 @@ final class ContoursRunner: ObservableObject {
         var fabArgs: [String] = [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--fabrique"]
+                   "--fabrique",
+                   "--taille", String(oeilValide)]
         let lim = Int(limiteText.trimmingCharacters(
             in: .whitespaces)) ?? 0
         UserDefaults.standard.set(limiteText,

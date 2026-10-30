@@ -65,8 +65,12 @@ except Exception:
     print("[avertissement] pillow-heif indisponible",
           flush=True)
 
-SIZE = 512  # entrée du traceur (décision
-# de Grégoire, build 149 : 512, pas 256)
+SIZE = 256  # œil du traceur : résolution
+# d'entrée du réseau. Valeur initiale seulement :
+# main() la règle d'après --taille (champ « Œil »
+# de l'onglet Contours, défaut 256 — décision de
+# Grégoire, build 156 ; le 512 du build 149 reste
+# atteignable par le même champ).
 CANEVAS_W, CANEVAS_H = 1600, 1207
 # canevas de la fabrique : résolution native
 # de la webcam (build 149)
@@ -215,7 +219,9 @@ def load_image_modele(path):
     return img.resize((SIZE, SIZE), Image.BILINEAR)
 
 
-def rasterize(lasso, size=SIZE):
+def rasterize(lasso, size=None):
+    if size is None:
+        size = SIZE
     m = Image.new("L", (size, size), 0)
     d = ImageDraw.Draw(m)
     d.polygon([(x * size, y * size) for x, y in lasso],
@@ -236,7 +242,9 @@ def _rasterize_rect(lasso, w, h):
     return m
 
 
-def neutral_mask(size=SIZE):
+def neutral_mask(size=None):
+    if size is None:
+        size = SIZE
     m = Image.new("L", (size, size), 0)
     d = ImageDraw.Draw(m)
     d.rectangle([NEUTRAL[0] * size, NEUTRAL[0] * size,
@@ -981,7 +989,7 @@ def charger_banque_synth(racine):
 
 
 def build_dataset(elites, resolve, rng, rotations=11):
-    """(X uint8 [N,256,256,3], Y uint8 [N,256,256])
+    """(X uint8 [N,SIZE,SIZE,3], Y uint8 [N,SIZE,SIZE])
     : chaque élite en native + `rotations`
     variantes tournées (image et masque ensemble,
     jamais de miroir)."""
@@ -2947,6 +2955,23 @@ def main():
                     help="rotations du cadre entier "
                          "par élite (0 = natives "
                          "seules)")
+    ap.add_argument("--taille", type=int,
+                    default=256,
+                    help="œil du traceur : "
+                         "résolution d'entrée du "
+                         "réseau (défaut 256 — le "
+                         "champ « Œil » de "
+                         "l'onglet Contours) ; "
+                         "bornes 20–1024, arrondie "
+                         "au multiple de 4")
+    ap.add_argument("--patience", type=int,
+                    default=8,
+                    help="arrêt anticipé : époques "
+                         "de suite sans progrès du "
+                         "score de sélection avant "
+                         "l'arrêt (défaut 8 — le "
+                         "champ « Tolérance » de "
+                         "l'onglet Contours)")
     ap.add_argument("--ignorer-synthetiques",
                     action="store_true",
                     help="ne pas charger la banque "
@@ -3002,6 +3027,15 @@ def main():
                          "son contour et imprime le "
                          "polygone en JSON")
     args = ap.parse_args()
+    # L'œil effectif, avant toute dispatch : le
+    # réseau descend deux fois (÷4), d'où
+    # l'arrondi au multiple de 4.
+    global SIZE
+    _oeil = max(20, min(1024, int(args.taille)))
+    _oeil = ((_oeil + 2) // 4) * 4
+    SIZE = _oeil
+    print(f"œil du traceur : {SIZE}×{SIZE}",
+          flush=True)
 
     if args.devine:
         return devine(args.devine, args.sortie,
@@ -3126,6 +3160,7 @@ def main():
             (X, Y), dev_items, banc_items,
             resolve=resolve, epochs=args.epochs,
             strict_items=strict_items,
+            patience=args.patience,
             dossier_archives=os.path.join(
                 args.sortie, "archives",
                 datetime.datetime.now().strftime(
@@ -3133,6 +3168,7 @@ def main():
         bulletin["synthetique"] = False
         bulletin["synthetique"] = synth_info
         bulletin["rotations"] = args.rotations
+        bulletin["taille"] = SIZE
         bulletin["n_train_elites"] = len(train_elites)
         bulletin["n_train_photos"] = (
             len(photos_pool) - len(dev_photos))
