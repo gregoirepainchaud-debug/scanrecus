@@ -612,6 +612,19 @@ final class TrainingBank {
         return prog
     }
 
+    /// Groupes stricts RÉSERVÉS (build
+    /// 153) : les prochains reçus que
+    /// Grégoire banque pour épaissir
+    /// l'examen strict — mêmes numéros que
+    /// GROUPES_STRICTS_RESERVES dans
+    /// contours.py. Dès qu'un reçu est
+    /// coffré sous un de ces numéros, ses
+    /// photos sont d'examen dans le jeu
+    /// aussi (aucune aide machine) : leurs
+    /// élites restent de sa main seule.
+    static let groupesStrictsReserves:
+        Set<Int> = [13, 14, 15]
+
     /// Le BANC FIGÉ (décidé le 2026-10-23, avant tout
     /// entraînement du réseau) : 1 reçu (groupe) sur 7,
     /// dans l'ordre des groupes. Ses images ne doivent
@@ -622,6 +635,10 @@ final class TrainingBank {
             $0.number == sourceNumber
         }) else { return false }
         let groups = Set(photos.map { $0.group }).sorted()
+        if Self.groupesStrictsReserves
+            .contains(photo.group) {
+            return true
+        }
         guard let idx = groups.firstIndex(of: photo.group)
         else { return false }
         return idx % 7 == 3

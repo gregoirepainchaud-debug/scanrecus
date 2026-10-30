@@ -75,14 +75,33 @@ NEUTRAL = (0.18, 0.82)  # boîte neutre du jeu
 
 # ---------------- Banque / journal ----------------
 
+# Groupes stricts RÉSERVÉS (build 153,
+# décision de Grégoire, 2026-10-30) : les
+# prochains reçus qu'il banque pour
+# épaissir l'examen strict. La banque
+# attribue les numéros de groupe au
+# max + 1 (le dernier en date : 12) ; les
+# groupes 13, 14 et 15 sont réservés
+# d'avance — tant qu'ils n'existent pas,
+# ils ne correspondent à rien ; dès qu'un
+# reçu est coffré sous un de ces numéros,
+# il est strict AVANT tout entraînement.
+GROUPES_STRICTS_RESERVES = {13, 14, 15}
+
+
 def bench_sets(racine):
     """(photos du banc par photo, photos de
-    l'examen strict) depuis le manifeste de la
-    banque. Banc par photo : dans chaque groupe,
-    les photos d'indice %7 == 3 (triées par
-    numéro). Examen strict : le ou les groupes
+    l'examen strict, groupes stricts) depuis
+    le manifeste de la banque. Banc par
+    photo : dans chaque groupe, les photos
+    d'indice %7 == 3 (triées par numéro).
+    Examen strict : le ou les groupes
     d'indice %7 == 3 dans la liste triée des
-    groupes (le découpage historique)."""
+    groupes (le découpage historique), PLUS
+    les groupes réservés (build 153) quand
+    ils existent. Une photo strict n'est
+    jamais aussi au banc : le strict
+    gagne."""
     man = os.path.join(racine, "banque.jsonl")
     photos = {}
     if not os.path.exists(man):
@@ -109,9 +128,12 @@ def bench_sets(racine):
     groups = sorted(by_group)
     strict_groups = {g for i, g in enumerate(groups)
                      if i % 7 == 3}
+    strict_groups |= (GROUPES_STRICTS_RESERVES
+                      & set(groups))
     strict = {n for n, g in photos.items()
               if g in strict_groups}
-    return bench, strict
+    bench -= strict
+    return bench, strict, strict_groups
 
 
 def build_resolver(racine):
@@ -1889,7 +1911,8 @@ def prepare_splits(racine):
     jamais entraînées dans le run."""
     elites = load_elites(os.path.join(
         racine, "jeu.jsonl"))
-    bench, strict = bench_sets(racine)
+    bench, strict, strict_groupes = \
+        bench_sets(racine)
     resolve = build_resolver(racine)
     exam = bench | strict
     pool = [e for e in elites if e["sn"] not in exam]
@@ -1907,6 +1930,7 @@ def prepare_splits(racine):
         "elites": elites, "resolve": resolve,
         "pool": pool, "banc_items": banc_items,
         "strict_items": strict_items,
+        "strict_groupes": sorted(strict_groupes),
         "photos_pool": photos_pool,
         "dev_photos": dev_photos,
         "train_elites": train_elites,
@@ -1970,6 +1994,8 @@ def evaluer_seul(args):
         len(sp["photos_pool"])
         - len(sp["dev_photos"]))
     bulletin["dev_photos"] = sorted(sp["dev_photos"])
+    bulletin["strict_groupes"] = \
+        sp["strict_groupes"]
     import datetime
     bulletin["modele_mtime"] = (
         datetime.datetime.fromtimestamp(
@@ -3091,6 +3117,8 @@ def main():
         bulletin["n_train_photos"] = (
             len(photos_pool) - len(dev_photos))
         bulletin["dev_photos"] = sorted(dev_photos)
+        bulletin["strict_groupes"] = \
+            sp["strict_groupes"]
         import torch
         torch.save(model.state_dict(), os.path.join(
             args.sortie, "contours-v0.pt"))
