@@ -87,6 +87,10 @@ struct ContoursView: View {
                     .frame(width: 44)
                     .textFieldStyle(.roundedBorder)
                     .disabled(runner.running)
+                Toggle("Ignorer les synthétiques",
+                       isOn: $runner.ignorerSynths)
+                    .font(.system(size: 11.5))
+                    .disabled(runner.running)
                 Text("(défaut 60 — l'atelier est le "
                      + "même que celui du juge)")
                     .font(.system(size: 11.5))

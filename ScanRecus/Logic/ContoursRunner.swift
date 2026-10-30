@@ -27,6 +27,10 @@ final class ContoursRunner: ObservableObject {
     @Published var epochsText: String = "60"
     @Published var rotationsText: String = "0"
     @Published var limiteText: String = ""
+    /// Case « Ignorer les synthétiques »
+    /// (build 151) : persistée, transmise au
+    /// script à l'entraînement.
+    @Published var ignorerSynths: Bool = false
     @Published var synthInfo: [String: Any]?
 
     let jugeDir: URL
@@ -58,6 +62,8 @@ final class ContoursRunner: ObservableObject {
             forKey: "contoursLimite"), !savedL.isEmpty {
             limiteText = savedL
         }
+        ignorerSynths = UserDefaults.standard.bool(
+            forKey: "contoursIgnorerSynths")
         refreshState()
         loadSynthInfo()
     }
@@ -194,13 +200,20 @@ final class ContoursRunner: ObservableObject {
         rotationsText = String(rot)
         UserDefaults.standard.set(rotationsText,
                                   forKey: "contoursRotations")
+        UserDefaults.standard.set(
+            ignorerSynths,
+            forKey: "contoursIgnorerSynths")
+        var args = [scriptURL.path,
+                    "--racine", racine.path,
+                    "--sortie", jugeDir.path,
+                    "--epochs", String(ep),
+                    "--rotations", String(rot)]
+        if ignorerSynths {
+            args.append("--ignorer-synthetiques")
+        }
         progress = 0
         run(executable: venvPython.path,
-            args: [scriptURL.path,
-                   "--racine", racine.path,
-                   "--sortie", jugeDir.path,
-                   "--epochs", String(ep),
-                   "--rotations", String(rot)],
+            args: args,
             phase: "Démarrage…") { [weak self] status in
             guard let self else { return }
             if status == 0 {

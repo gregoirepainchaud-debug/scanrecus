@@ -1133,9 +1133,14 @@ def evaluate_model(model, device, dev_items,
                     st.get("depl_med_pct"),
                 "_true": true_m,
             })
+            servi_txt = (
+                f" · servi {res[-1]['servi_erreur_pct']} %"
+                if res[-1]['servi_erreur_pct'] is not None
+                else "")
             print(f"{label} photo {it['sn']} : erreur "
                   f"{res[-1]['erreur_pct']} % · IoU "
-                  f"{res[-1]['iou']}", flush=True)
+                  f"{res[-1]['iou']}{servi_txt}",
+                  flush=True)
         return res
 
     dev_res = evaluate(dev_items, "dev")
@@ -1234,9 +1239,27 @@ def evaluate_model(model, device, dev_items,
     return bulletin
 
 
+def _maj_selection(meilleur_score, sans_progress,
+                   score):
+    """Comptabilité de l'arrêt anticipé
+    (build 151) : un score (déviation du dev
+    au servi, plus bas = mieux) qui bat le
+    meilleur remet le compteur à zéro ; sinon
+    il monte d'un cran. Fonction pure — la
+    fumée la teste telle quelle."""
+    if score is not None and (
+            meilleur_score is None
+            or score < meilleur_score):
+        return score, 0, True
+    return (meilleur_score,
+            sans_progress + 1, False)
+
+
 def train_and_eval(train_xy, dev_items, banc_items,
                    resolve, epochs, seed=13,
-                   strict_items=None):
+                   strict_items=None,
+                   dossier_instantanes=None,
+                   patience=4):
     import torch
     import torch.nn.functional as Fn
 
@@ -1264,6 +1287,24 @@ def train_and_eval(train_xy, dev_items, banc_items,
     rng = np.random.default_rng(seed)
     batch = 8
     pertes = []
+    # Sélection par époque (build 151, idée de
+    # Grégoire) : après chaque époque, le
+    # modèle est évalué sur le DEV et
+    # instantané sur disque ; quatre époques
+    # de suite sans progrès arrêtent la course
+    # (surapprentissage) et le meilleur
+    # instantané est rechargé. Le strict
+    # n'entre JAMAIS dans la sélection — il
+    # reste un examen pur, lu une seule fois
+    # à la fin, sur le modèle choisi.
+    import contextlib
+    import io
+    hist_evals = []
+    meilleur_score = None
+    meilleure_ep = None
+    meilleur_chemin = None
+    sans_progress = 0
+    arrete = False
     for ep in range(epochs):
         model.train()
         order = rng.permutation(n)
@@ -1288,12 +1329,83 @@ def train_and_eval(train_xy, dev_items, banc_items,
         print(f"époque {ep + 1}/{epochs} — perte "
               f"{tot_loss / n:.4f}", flush=True)
         pertes.append(round(tot_loss / n, 4))
+        if dossier_instantanes:
+            os.makedirs(dossier_instantanes,
+                        exist_ok=True)
+            chemin_ep = os.path.join(
+                dossier_instantanes,
+                f"epoque-{ep + 1:02d}.pt")
+            torch.save(model.state_dict(),
+                       chemin_ep)
+            with contextlib.redirect_stdout(
+                    io.StringIO()):
+                b_ep = evaluate_model(
+                    model, device, dev_items, [],
+                    resolve, strict_items=None)
+            score = b_ep["dev"][
+                "servi_erreur_mediane_pct"]
+            hist_evals.append({
+                "epoque": ep + 1,
+                "dev_servi_pct": score,
+                "dev_masque_pct": b_ep["dev"][
+                    "erreur_mediane_pct"]})
+            # Les scores en temps réel, photo par
+            # photo (demande de Grégoire) : c'est
+            # ce défilement qu'il regardera
+            # pendant que les tests se font.
+            for r in b_ep["dev"]["par_photo"]:
+                print(f"   dev photo {r['photo']} : "
+                      f"servi "
+                      f"{r['servi_erreur_pct']} % · "
+                      f"masque {r['erreur_pct']} %",
+                      flush=True)
+            (meilleur_score, sans_progress,
+             ameliore) = _maj_selection(
+                meilleur_score, sans_progress,
+                score)
+            if ameliore:
+                meilleure_ep = ep + 1
+                meilleur_chemin = chemin_ep
+            print(f"époque {ep + 1} — dev servi "
+                  f"{score} % · meilleur : "
+                  f"époque {meilleure_ep}",
+                  flush=True)
+            if sans_progress >= patience:
+                print(f"arrêt anticipé : "
+                      f"{patience} époques sans "
+                      f"progrès sur le dev",
+                      flush=True)
+                arrete = True
+                break
 
+    if meilleur_chemin is not None:
+        model.load_state_dict(torch.load(
+            meilleur_chemin, map_location=device))
+        model.to(device)
+        for f in os.listdir(dossier_instantanes):
+            os.remove(os.path.join(
+                dossier_instantanes, f))
+        os.rmdir(dossier_instantanes)
+        print(f"sélection : meilleure époque "
+              f"{meilleure_ep} (dev servi "
+              f"{meilleur_score} %) — instantanés "
+              f"effacés, meilleur rechargé",
+              flush=True)
     bulletin = evaluate_model(
         model, device, dev_items, banc_items,
         resolve, strict_items=strict_items)
-    bulletin["epochs"] = epochs
+    bulletin["epochs"] = len(pertes)
+    bulletin["epochs_demandees"] = epochs
     bulletin["pertes"] = pertes
+    if hist_evals:
+        bulletin["selection"] = {
+            "metrique":
+                "dev servi_erreur_mediane_pct",
+            "meilleure_epoque": meilleure_ep,
+            "meilleur_score_pct": meilleur_score,
+            "patience": patience,
+            "arrete_tot": arrete,
+            "evaluations": hist_evals}
     return model, bulletin
 
 
@@ -2729,6 +2841,11 @@ def main():
                     help="rotations du cadre entier "
                          "par élite (0 = natives "
                          "seules)")
+    ap.add_argument("--ignorer-synthetiques",
+                    action="store_true",
+                    help="ne pas charger la banque "
+                         "synthétique (case de "
+                         "l'onglet Contours)")
     ap.add_argument("--evalue", action="store_true",
                     help="évaluation seule : charge le "
                          "modèle existant et régénère "
@@ -2868,9 +2985,15 @@ def main():
         if X is None:
             print("Aucune image lisible.", flush=True)
             return 2
-        synth_banque = charger_banque_synth(
-            args.racine)
-        synth_info = None
+        if args.ignorer_synthetiques:
+            synth_banque = None
+            synth_info = {"n": 0, "ignore": True}
+            print("banque synthétique : ignorée "
+                  "(case cochée)", flush=True)
+        else:
+            synth_banque = charger_banque_synth(
+                args.racine)
+            synth_info = None
         if synth_banque is not None:
             Xs, Ys = synth_banque
             X = np.concatenate([X, Xs])
@@ -2889,7 +3012,9 @@ def main():
         model, bulletin = train_and_eval(
             (X, Y), dev_items, banc_items,
             resolve=resolve, epochs=args.epochs,
-            strict_items=strict_items)
+            strict_items=strict_items,
+            dossier_instantanes=os.path.join(
+                args.sortie, "instantanes"))
         bulletin["synthetique"] = False
         bulletin["synthetique"] = synth_info
         bulletin["rotations"] = args.rotations
