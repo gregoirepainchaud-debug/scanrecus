@@ -1,0 +1,800 @@
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftConstValuesFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.LinkFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-OutputFileMap.json (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_const_extract_protocols.json (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftConstValuesFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.LinkFileList (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-OutputFileMap.json (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    write-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-OutputFileMap.json
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/__preview.dylib normal arm64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos26.2 -dynamiclib -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -install_name @rpath/ScanRecus.debug.dylib -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_dependency_info.dat -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/__preview.dylib
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/__preview.dylib normal x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target x86_64-apple-macos26.2 -dynamiclib -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -install_name @rpath/ScanRecus.debug.dylib -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_dependency_info.dat -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/__preview.dylib
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/unthinned (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/unthinned
+
+MkDir /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/thinned (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /bin/mkdir -p /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/thinned
+
+GenerateAssetSymbols /Users/runner/work/scanrecus/scanrecus/ScanRecus/Assets.xcassets (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/scanrecus/scanrecus/ScanRecus/Assets.xcassets --compile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_dependencies --output-partial-info-plist /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist --app-icon AppIcon --accent-color AccentColor --enable-on-demand-resources NO --development-region en --target-device mac --minimum-deployment-target 26.2 --platform macosx --bundle-identifier Gregz.ScanRecus --generate-swift-asset-symbols /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+CreateUniversalBinary /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/__preview.dylib normal arm64\ x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo -create /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/__preview.dylib /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/__preview.dylib -output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/__preview.dylib
+
+CompileAssetCatalogVariant thinned /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources /Users/runner/work/scanrecus/scanrecus/ScanRecus/Assets.xcassets (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/usr/bin/actool /Users/runner/work/scanrecus/scanrecus/ScanRecus/Assets.xcassets --compile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --accent-color AccentColor --enable-on-demand-resources NO --development-region en --target-device mac --minimum-deployment-target 26.2 --platform macosx
+/* com.apple.actool.compilation-results */
+/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist_thinned
+
+
+LinkAssetCatalog /Users/runner/work/scanrecus/scanrecus/ScanRecus/Assets.xcassets (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-linkAssetCatalog --thinned /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/thinned --thinned-dependencies /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_dependencies_thinned --thinned-info-plist-content /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist_thinned --unthinned /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_output/unthinned --unthinned-dependencies /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist_unthinned --output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources --plist-output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist
+
+ProcessInfoPlistFile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Info.plist /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/empty-ScanRecus.plist (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-infoPlistUtility /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/empty-ScanRecus.plist -producttype com.apple.product-type.application -genpkginfo /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/PkgInfo -expandbuildsettings -platform macosx -additionalcontentfile /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/assetcatalog_generated_info.plist -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Info.plist
+
+SwiftDriver ScanRecus normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-SwiftDriver -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target x86_64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+SwiftDriver ScanRecus normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-SwiftDriver -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target arm64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stddef-3ENKS1MQ6QI66LS11RTC5OISU.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrauth-23R858W470DCDRCK9YLEFL2FE.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_AvailabilityInternal-176VF40566PATK12ZJ3TEHV03.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftShims-6JFY0KG90AKBQK16QGPG2H4J0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdbool-8S4JPWM4FK7Q26WA5Y8DSTLFG.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftShims-AD92ZE3047NDZAHF4IYFGSDK6.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdbool-BQJIMO4W477PBMYDK6Q5L7SXG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_AvailabilityInternal-HN3S997UB9HEGWY2NFA3VI9V.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrcheck-3XW4GGPW994NE9NUCJS5XE5M3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stddef-6D9ZHS2IWI47XC73MTVHRY3M8.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DeveloperToolsSupport-2Z2PXLJCR39WEGFU1KX2JTL5B.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation1-7XLBZNQO1N6P79OWE95E0DP7U.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_float-E2NNQQNHRA526EEQFLTZ950E9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DeveloperToolsSupport-5VQIPCQ38CHYO2VN0QXDJE2V4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrauth-5OSQSS47V56B064QLHOZSB18K.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_limits-AEIX9ZF2EJBE335KK1G05TU4S.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_float-T7R0K6DAOZTUL5NAI86068F7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_SwiftConcurrencyShims-2SS3AIYQI6538NUF3J8OGZH69.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdarg-1ERV0G220XX8NLF8I77XSPZFP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdarg-EXYMURK1D95TDDZRAVALY49EX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ptrcheck-E69WBN8GUSUD3191LEN1EJBPO.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation2-AQEY1GM862MWALTSY95L61T84.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_SwiftConcurrencyShims-CPUWQPOIED5PDUJYB89AW619K.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation1-3VFAMDVB505TJUV8RWU4N1VP2.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/sys_types-1V5E0U3YWIDXQ7KUP4G3OSURN.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_tgmath-10F2F9D2TV434FC6W7DX8KFUQ.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdint-3YDMESU5JVMKU05I6Q09PRYKX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation2-1X0JLD4TVC7IYD6IAMFDLG61X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_limits-CPGYQH92I4TU0DY4MF1IWO3KI.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation3-3HOE4E0EPX81ER9M5DLXZ8NV4.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OpenGL-AGSCZSS461T17HTU6T2RH16H1.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdatomic-ME9ESS0TNJPF90AONNWUS2VY.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_tgmath-DX5YDSJQ1SNDWB5H8M712USYP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/sys_types-1Z5ZHG619ESSFBJBIM00U174G.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_intrinsics-11ZXWR5B0I262R70M1O3D5M5I.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdint-A2TJY8FFPK5ZNSD5U4608N5ZX.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_inttypes-F38JB71FU8UGWLRCUZIMFMOLJ.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/libDER-1P660WZYZ0QB8396ASXTS04ZK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_stdatomic-8FABJO0UW1OLCUEXJ4YITZGN0.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Darwin-1JY79YX4OBIEAXRW5BY1XDTYQ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_DarwinFoundation3-43PL569Z9LDC2YEFA7SRD6QQH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/libDER-1GRTFOPPIIZW11ZU3HWVN3PFX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OpenGL-AY7SEI93T5Q47VDNT7U8Q2O0A.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_inttypes-D4LNDBAO6S0E3LGK0XNJKMHZR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/_Builtin_intrinsics-D3CGBVEV3M8LKBQMBYZ71JOV7.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/simd-DYX952GFOH2568TEGEOGLG3SI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Darwin-EBN2XY1X0CWQD3IJ5RA705Z1S.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CUPS-4CFB9ZTW0OYTHI0XN1JQG520E.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MachO-CA8EM7KSO0PZW70120CTN0B4M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/simd-92FFWT02IU3BS2XOD07EOSE0V.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ObjectiveC-40X3FMC6CRASGZ99G27X39ACE.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Spatial-CQM45IN85A85LEQGAEHJRJZLR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CUPS-17CRAOXG1UE0XZ005CSJRAZPD.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_object-8FW6SVE6FK2HKMOE6PCLPPHBD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MachO-5FN42R3VZ7XWUKS724WDHRX3R.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_workgroup-DUVXY1S4J3TTAT3VNGV1USAE6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/launch-CQG60AZB9VH03H3BY2H2H25FV.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ObjectiveC-DFRSE0JCQOG1BU31EJD0OIFXL.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Dispatch-82H2QDPEC4D6CNEMFYCBKID7X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/libkern-D8HTEQ0EOD1UEWWBD0KTWEFTC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_object-C3N34F9UE3KS5T7NLMMP3P22I.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/libkern-DYS6B73ZRT6SF01UA4DCCYY87.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Spatial-DRK9QJH4WS4BBPM2VTQJ6L45Y.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/launch-B51GUCAS7H9YMOVM9EJ2AJG78.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os_workgroup-CUMNBB5WAHK36KHNW7W0YOT9S.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreFoundation-5DTPZ5D17MZ6MLD6EN897A1U6.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/XPC-AD590BP5E6CBDFGBG25GHXI43.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Dispatch-BCFFL2PJHG3Q6VBGIY2M1WW8P.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os-YMADGZQB00JJ8V3D47QUVCOU.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/IOKit-9YQQ9SLER9WDPD3NY63ZYJURR.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudioTypes-5236D9ZUW4F1KWHSOJ9TBIM31.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreFoundation-ALDGTX1VLSMK3RGCNMH4MQ4JU.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CFNetwork-5POR668AUQEDI7E0A8GK93SC3.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/XPC-47KBZM0GHVYATPA1T0SUEYGDI.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Security-396H4D9QT8CVOEHT77W4JUF9Q.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudioTypes-BSWLCEF1238SMLP7L27FV265R.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Security-AF89EKI5A5GTVYOZ1QWRNU8V4.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreGraphics-7F9DUI2KD2NAK48VJIYK0IBY8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/IOKit-CFMWPL270PU15VBJH2BEIGEIP.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DiskArbitration-2764QMHKIX61IDMDSOJNVXY93.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/os-5LZPHGY0JVY80VJKLZU3XVUVI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ColorSync-AH5EXFSIV05J3NQT0LPWT4S9J.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreServices-9I5JFQBDJG85S00T5ERP577OM.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreText-CTPVRZH8QBM1ED3SU7L83YWLF.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ColorSync-BRIEP61L00TK5NDKX0XW2UWKX.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ImageIO-9Z3A6Y68IJUEKGZETOOIXNN6H.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CFNetwork-7B33JJTCSUF14QFOX7Z46H334.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreGraphics-13P0DEG97T6KRQ1PI9MLIJ2IO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DiskArbitration-ECDEPSWQOVIDQWWO1EAI31BG4.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Foundation-5SND3JVP39589PYHQ0SANO3J6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreServices-1D2UZT595K845IP00QQP7FC9L.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreText-1II8RR8BJJRZ99GB9FJEWSWG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ImageIO-2Q6HFLHICIX6QYWLH327TOVGX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Foundation-4M26N7154JJNH1M8SP6XK8V2L.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMIDI-E8TL5J1N2N8F5L8QXUOD8541N.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ApplicationServices-8KMRSHNQK9WMBGQLTQT8JOCRI.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/LocalAuthentication-C99JP3X4CFG3H4X7DJQ576IJZ.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudio-88YEVJIL1XWH9A8LDIHXPOJEV.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Carbon-7WMYFRV3OOX1ZXXG3X05QA3TB.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Accessibility-C0ELATGZJTVJ2A82LRSAMOC69.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UniformTypeIdentifiers-AYE38WWZQQ9IUR617288PY1PF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Symbols-53WV558J8XERZAB9EE57FJVNJ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/IOSurface-2PDRBL9L6AZEJBY6687YCIE1H.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OSLog-1HLR16Q08QIN5L3V6IZRJZK1X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/UniformTypeIdentifiers-7A0IBY84JO6YWVVXOKP14K8VQ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Accessibility-7ZLSFEKK8SS668JY0KJA2GH36.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AudioToolbox-85K13MYI34Z6PL71SYR36WI98.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMIDI-4IK2LK4H96CDE76A7H6OO7KMN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DataDetection-7R8LFDZP892PX8KD6JPR41N2J.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreTransferable-CKGAG09LBXKQ34W9MURK8W5BM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/ApplicationServices-7BD4YNBTCJHU2PL5CFEP9O3NT.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/OSLog-3DHSK1XQP3RMG8NBV53R70J0L.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Symbols-9CM0B1FTA17G7TPDE2MBOYN6F.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreData-2Q00YP2UNLG3M7RCRMB7QBE83.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/DataDetection-209EELFEGNC3YAEB1O08H3ZCB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreAudio-4H0EQPNMU23XJ6UET1U9VW273.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Carbon-8NDNKD2BGS6U7ZYAVH2T10Q4M.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreData-26SBD57ZHMO9X72L2WS38H49D.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreTransferable-BFWVQIAX7OY7MRG2IMRHKHGI7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Metal-AEM2O5QHIUO2V2NEJ8961ZIHU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/LocalAuthentication-EBPC4HJXG4YEP4DBIO33SVXLP.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/IOSurface-6C05GCD3M1WQ1UOQWFHPP0L3R.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Metal-EPTWF80J4L47YSD30S3VESJH4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AudioToolbox-7HH7ZN7NWO8AR5WYGS96W4J9K.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreVideo-DBK9GP3VKLPODAMTPXHDMXXSB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Accelerate-18S91ZVIDU085DTEEDH0CMLZM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMedia-3RWBRZJSL3MLO2KXQC9EQYVVR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreImage-5PN3FYM92MXU2JINF8S2HO2DJ.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreVideo-1UCUE4XJ71M0EM2L45U0DE7NS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MediaToolbox-86M0MQ4VMB7Z5RIP58IIXDNJ7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFAudio-C5YVDTNDZ5I9GL6S4VCKVO1VP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/QuartzCore-71KB4JQHJQA3N8I6MXI26T3FO.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/QuartzCore-2KRC3KU0HHPQPXD1T9VWK6OCS.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreMedia-3B37E2Y1PVHL2842VPAT5344C.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFoundation-6927EN8B12ZHVZD5CYW90S25J.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUICore-57LIF6IRNW9HLDQDZXNVYAECL.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/MediaToolbox-4Z5NKBL2ABTH99SZCJYZBA5RP.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFAudio-29KTSH7BID60FFYXUUSABNJKD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUICore-8T85SQ9L9LNNHN7A0QNF2FAFJ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AppKit-BH0XSEDA2ZRRPC83AESSB4CPP.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreImage-EKDTQ2OGS8TV9WJ0DR1FGPGT6.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreML-B13A5SGLBUHCDH39XDFA8C4CX.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AppKit-28AOEJD81KMGKL079Y4OO09AG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/CoreML-B09783QG3FUABM9T8FSMIIOO8.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Vision-CKOSAO5UUZUU1GU71ZQ2ONH10.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Vision-2VL00IA8ESIM48IZO6N3JXBT0.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Accelerate-64JT9GBQ4IEV52PUD54ANPNRC.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/AVFoundation-VK5LFBKIE3N4B79CS5UAC7U7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUI-6HETNK64SCN1UBAJRLN5MMT96.pcm
+
+SwiftExplicitDependencyGeneratePcm x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/SwiftUI-7GBATA7LOX91EERFOE0PYR800.pcm
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ ScanRecus (in target 'ScanRecus' from project 'ScanRecus')
+EmitSwiftModule normal arm64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 Compiling\ CameraManager.swift,\ CompositeScanner.swift,\ ReceiptPhotoRenderer.swift,\ ContoursRunner.swift,\ ContoursScript.swift,\ JugeRunner.swift,\ JugeScript.swift,\ Proposeur.swift,\ QuarterHelper.swift,\ ReceiptAutoTrigger.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/ReceiptPhotoRenderer.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursRunner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursScript.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeRunner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeScript.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/Proposeur.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/QuarterHelper.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/ReceiptPhotoRenderer.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursRunner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursScript.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeRunner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeScript.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/Proposeur.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/QuarterHelper.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 Compiling\ ReceiptGeometry.swift,\ ReceiptNumbering.swift,\ ReceiptOutbox.swift,\ ReceiptParser.swift,\ ReceiptUploader.swift,\ TrainingBank.swift,\ Models.swift,\ CompositeScanView.swift,\ ContoursView.swift,\ CPUMonitor.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptGeometry.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptNumbering.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptOutbox.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptParser.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptUploader.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Models/Models.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptGeometry.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptNumbering.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptOutbox.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptParser.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptUploader.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Models/Models.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftEmitModule normal x86_64 Emitting\ module\ for\ ScanRecus (in target 'ScanRecus' from project 'ScanRecus')
+
+EmitSwiftModule normal x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for ScanRecus (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriver\ Compilation\ Requirements ScanRecus normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target arm64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal x86_64 Emitting module for ScanRecus (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriver\ Compilation\ Requirements ScanRecus normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target x86_64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.swiftmodule
+
+SwiftMergeGeneratedHeaders /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/ScanRecus-Swift.h /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-Swift.h /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-Swift.h (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-swiftHeaderTool -arch arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-Swift.h -arch x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-Swift.h -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/ScanRecus-Swift.h
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.swiftmodule
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.swiftdoc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftdoc (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftdoc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.swiftdoc
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.abi.json /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.abi.json (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.abi.json /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/x86_64-apple-macos.abi.json
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.swiftdoc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftdoc (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftdoc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.swiftdoc
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.abi.json /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.abi.json (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.abi.json /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/arm64-apple-macos.abi.json
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/Project/x86_64-apple-macos.swiftsourceinfo /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftsourceinfo (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftsourceinfo /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/Project/x86_64-apple-macos.swiftsourceinfo
+
+Copy /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftsourceinfo (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftsourceinfo /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.swiftmodule/Project/arm64-apple-macos.swiftsourceinfo
+
+SwiftCompile normal x86_64 Compiling\ CameraManager.swift,\ CompositeScanner.swift,\ ReceiptPhotoRenderer.swift,\ ContoursRunner.swift,\ ContoursScript.swift,\ JugeRunner.swift,\ JugeScript.swift,\ Proposeur.swift,\ QuarterHelper.swift,\ ReceiptAutoTrigger.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/ReceiptPhotoRenderer.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursRunner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursScript.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeRunner.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeScript.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/Proposeur.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/QuarterHelper.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CameraManager.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/CompositeScanner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Camera/ReceiptPhotoRenderer.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursRunner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ContoursScript.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeRunner.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/JugeScript.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/Proposeur.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/QuarterHelper.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 Compiling\ ReceiptGeometry.swift,\ ReceiptNumbering.swift,\ ReceiptOutbox.swift,\ ReceiptParser.swift,\ ReceiptUploader.swift,\ TrainingBank.swift,\ Models.swift,\ CompositeScanView.swift,\ ContoursView.swift,\ CPUMonitor.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptGeometry.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptNumbering.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptOutbox.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptParser.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptUploader.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/Models/Models.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptGeometry.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptNumbering.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptOutbox.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptParser.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/ReceiptUploader.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Logic/TrainingBank.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/Models/Models.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CompositeScanView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ContoursView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling ReceiptGeometry.swift, ReceiptNumbering.swift, ReceiptOutbox.swift, ReceiptParser.swift, ReceiptUploader.swift, TrainingBank.swift, Models.swift, CompositeScanView.swift, ContoursView.swift, CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftCompile normal x86_64 Compiling\ JugeView.swift,\ LassoSession.swift,\ ReceiptScannerView.swift,\ RotaryKnobView.swift,\ ScanOverlayView.swift,\ BuildInfo.swift,\ ContentView.swift,\ ScanRecusApp.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/JugeView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ReceiptScannerView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/RotaryKnobView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ScanOverlayView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/BuildInfo.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/ContentView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/ScanRecusApp.swift /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/JugeView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift:423:26: warning: main actor-isolated property 'modeRevision' can not be referenced from a Sendable closure
+                    self.modeRevision ? .aucunModele
+                         ^
+/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift:108:20: note: property declared here
+    @Published var modeRevision = false
+                   ^
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ReceiptScannerView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/RotaryKnobView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ScanOverlayView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/BuildInfo.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/ContentView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/ScanRecusApp.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal x86_64 /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling CameraManager.swift, CompositeScanner.swift, ReceiptPhotoRenderer.swift, ContoursRunner.swift, ContoursScript.swift, JugeRunner.swift, JugeScript.swift, Proposeur.swift, QuarterHelper.swift, ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftCompile normal arm64 Compiling\ JugeView.swift,\ LassoSession.swift,\ ReceiptScannerView.swift,\ RotaryKnobView.swift,\ ScanOverlayView.swift,\ BuildInfo.swift,\ ContentView.swift,\ ScanRecusApp.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/JugeView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ReceiptScannerView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/RotaryKnobView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ScanOverlayView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/BuildInfo.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/ContentView.swift /Users/runner/work/scanrecus/scanrecus/ScanRecus/ScanRecusApp.swift /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/JugeView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift:423:26: warning: main actor-isolated property 'modeRevision' can not be referenced from a Sendable closure
+                    self.modeRevision ? .aucunModele
+                         ^
+/Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/LassoSession.swift:108:20: note: property declared here
+    @Published var modeRevision = false
+                   ^
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ReceiptScannerView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/RotaryKnobView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/UI/ScanOverlayView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/BuildInfo.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/ContentView.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/work/scanrecus/scanrecus/ScanRecus/ScanRecusApp.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftCompile normal arm64 /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    
+
+SwiftDriverJobDiscovery normal x86_64 Compiling CameraManager.swift, CompositeScanner.swift, ReceiptPhotoRenderer.swift, ContoursRunner.swift, ContoursScript.swift, JugeRunner.swift, JugeScript.swift, Proposeur.swift, QuarterHelper.swift, ReceiptAutoTrigger.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriverJobDiscovery normal x86_64 Compiling JugeView.swift, LassoSession.swift, ReceiptScannerView.swift, RotaryKnobView.swift, ScanOverlayView.swift, BuildInfo.swift, ContentView.swift, ScanRecusApp.swift, GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriverJobDiscovery normal x86_64 Compiling ReceiptGeometry.swift, ReceiptNumbering.swift, ReceiptOutbox.swift, ReceiptParser.swift, ReceiptUploader.swift, TrainingBank.swift, Models.swift, CompositeScanView.swift, ContoursView.swift, CPUMonitor.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriver\ Compilation ScanRecus normal x86_64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-Swift-Compilation -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target x86_64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/x86_64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus.debug.dylib normal x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target x86_64-apple-macos26.2 -dynamiclib -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -filelist /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.LinkFileList -install_name @rpath/ScanRecus.debug.dylib -Xlinker -rpath -Xlinker @executable_path/../Frameworks -Xlinker -object_path_lto -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_dependency_info.dat -fobjc-link-runtime -fprofile-instr-generate -L/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.swiftmodule @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus.debug.dylib
+
+ConstructStubExecutorLinkFileList /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-x86_64.txt (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    construct-stub-executor-link-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus.debug.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-x86_64.txt
+note: Using stub executor library with Swift entry point. (in target 'ScanRecus' from project 'ScanRecus')
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus normal x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target x86_64-apple-macos26.2 -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-DebugDylibPath-normal-x86_64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-DebugDylibInstallName-normal-x86_64.txt -Xlinker -filelist -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-x86_64.txt /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus.debug.dylib -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus
+
+SwiftDriverJobDiscovery normal arm64 Compiling JugeView.swift, LassoSession.swift, ReceiptScannerView.swift, RotaryKnobView.swift, ScanOverlayView.swift, BuildInfo.swift, ContentView.swift, ScanRecusApp.swift, GeneratedAssetSymbols.swift (in target 'ScanRecus' from project 'ScanRecus')
+
+SwiftDriver\ Compilation ScanRecus normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-Swift-Compilation -- /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ScanRecus -Onone @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList -DDEBUG -default-isolation\=MainActor -enable-bare-slash-regex -enable-upcoming-feature DisableOutwardActorInference -enable-upcoming-feature InferSendableFromCaptures -enable-upcoming-feature GlobalActorIsolatedTypesUsability -enable-upcoming-feature MemberImportVisibility -enable-upcoming-feature InferIsolatedConformances -enable-upcoming-feature NonisolatedNonsendingByDefault -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -target arm64-apple-macos26.2 -g -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -profile-coverage-mapping -profile-generate -enable-testing -index-store-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -emit-localized-strings -emit-localized-strings-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64 -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/SDKStatCaches.noindex/macosx26.5-25F70-688ef53f1462e2c8f657fdc38a81448fee0e6409aa6676c5e6c013d148225433.sdkstatcache -output-file-map /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/Library/Developer/Xcode/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-generated-files.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-own-target-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-project-headers.hmap -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/include -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources/arm64 -Xcc -I/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-Swift.h -working-directory /Users/runner/work/scanrecus/scanrecus -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus.debug.dylib normal arm64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos26.2 -dynamiclib -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/EagerLinkingTBDs/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -filelist /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.LinkFileList -install_name @rpath/ScanRecus.debug.dylib -Xlinker -rpath -Xlinker @executable_path/../Frameworks -Xlinker -object_path_lto -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -Xlinker -dependency_info -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_dependency_info.dat -fobjc-link-runtime -fprofile-instr-generate -L/Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.swiftmodule @/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus.debug.dylib
+
+CreateUniversalBinary /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus.debug.dylib normal arm64\ x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo -create /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus.debug.dylib /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus.debug.dylib -output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus.debug.dylib
+
+ConstructStubExecutorLinkFileList /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-arm64.txt (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    construct-stub-executor-link-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus.debug.dylib /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'ScanRecus' from project 'ScanRecus')
+
+Ld /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus normal arm64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-macos26.2 -isysroot /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk -O0 -L/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -F/Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/../Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -debug_variant -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus-ExecutorLinkFileList-normal-arm64.txt /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus.debug.dylib -o /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus
+
+CreateUniversalBinary /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus normal arm64\ x86_64 (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo -create /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/Binary/ScanRecus /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/Binary/ScanRecus -output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus
+
+CopySwiftLibs /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus.debug.dylib --scan-folder /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Frameworks --scan-folder /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/PlugIns --scan-folder /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Library/SystemExtensions --scan-folder /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Extensions --platform macosx --toolchain /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.5exyvP/Metal.xctoolchain --toolchain /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /var/run/com.apple.security.cryptexd/mnt/com.apple.MobileAsset.MetalToolchain-v17.6.109.0.5exyvP/Metal.xctoolchain --module-name ScanRecus --sdk-root /Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk --xcode-version 17F113 --platform-family macOS --deployment-target 26.2 --bundle-identifier Gregz.ScanRecus --output /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/Resources --target-triple arm64-apple-macos26.2 --target-triple x86_64-apple-macos26.2 --binary-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app/Contents/MacOS/ScanRecus --dependency-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus_dependency_info.dat --dependency-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus_dependency_info.dat --stringsdata-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --stringsdata-file /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftFileList --source-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftFileList --metadata-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus.DependencyMetadataFileList --static-metadata-file-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/ScanRecus.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/arm64/ScanRecus.SwiftConstValuesFileList --swift-const-vals-list /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Intermediates.noindex/ScanRecus.build/Debug/ScanRecus.build/Objects-normal/x86_64/ScanRecus.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-10-30 23:36:40.122 appintentsmetadataprocessor[4118:16251] Starting appintentsmetadataprocessor export
+2026-10-30 23:36:40.145 appintentsmetadataprocessor[4118:16251] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+RegisterExecutionPolicyException /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-RegisterExecutionPolicyException /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app
+
+Validate /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    builtin-validationUtility /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app -no-validate-extension -infoplist-subpath Contents/Info.plist
+
+Touch /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /usr/bin/touch -c /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app
+
+RegisterWithLaunchServices /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app (in target 'ScanRecus' from project 'ScanRecus')
+    cd /Users/runner/work/scanrecus/scanrecus
+    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -f -R -trusted /Users/runner/Library/Developer/Xcode/DerivedData/ScanRecus-ediqrhtbdvrbctbxtcrfpbhbcjgg/Build/Products/Debug/ScanRecus.app
+
+** BUILD SUCCEEDED **
+
