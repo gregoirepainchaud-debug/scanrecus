@@ -69,7 +69,7 @@ enum Proposeur {
         let oeilBrut = UserDefaults.standard.string(
             forKey: "contoursOeil") ?? "256"
         var oeil = Int(oeilBrut) ?? 256
-        oeil = min(1024, max(20, oeil))
+        oeil = min(1024, max(8, oeil))
         oeil = ((oeil + 2) / 4) * 4
         // L'appel, avec garde-fou de durée.
         let proc = Process()

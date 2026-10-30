@@ -18,9 +18,7 @@ final class ContoursRunner: ObservableObject {
     @Published var running = false
     @Published var atelierPret = false
     @Published var bulletin: [String: Any]?
-    @Published var tournoiRapport: [String: Any]?
-    @Published var megaRapport: [String: Any]?
-    @Published var oracleRapport: [String: Any]?
+    @Published var tournoiOeilRapport: [String: Any]?
     /// Nombre d'époques demandé : champ de
     /// l'onglet, persisté, validé au lancement
     /// (1 à 500, défaut 60).
@@ -38,7 +36,7 @@ final class ContoursRunner: ObservableObject {
     /// d'entrée du traceur (256 = il voit la
     /// silhouette ; 512 = il voit aussi les
     /// détails — doigts, imprimé, plis).
-    /// Persisté, validé (20 à 1024, multiple
+    /// Persisté, validé (8 à 1024, multiple
     /// de 4, défaut 256), transmis au script
     /// (--taille) à tous les modes et consigné
     /// au bulletin.
@@ -104,40 +102,18 @@ final class ContoursRunner: ObservableObject {
         atelierPret = FileManager.default
             .fileExists(atPath: venvPython.path)
         loadBulletin()
-        loadTournoi()
-        loadMega()
-        loadOracle()
+        loadTournoiOeil()
         if bulletin != nil { mirrorBulletin() }
     }
 
-    func loadTournoi() {
+    func loadTournoiOeil() {
         let url = jugeDir.appendingPathComponent(
-            "tournoi-rapport.json")
+            "rapport-tournoi-oeil.json")
         guard let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization
                 .jsonObject(with: data) as? [String: Any]
-        else { tournoiRapport = nil; return }
-        tournoiRapport = obj
-    }
-
-    func loadMega() {
-        let url = jugeDir.appendingPathComponent(
-            "mega-rapport.json")
-        guard let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization
-                .jsonObject(with: data) as? [String: Any]
-        else { megaRapport = nil; return }
-        megaRapport = obj
-    }
-
-    func loadOracle() {
-        let url = jugeDir.appendingPathComponent(
-            "oracle-rapport.json")
-        guard let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization
-                .jsonObject(with: data) as? [String: Any]
-        else { oracleRapport = nil; return }
-        oracleRapport = obj
+        else { tournoiOeilRapport = nil; return }
+        tournoiOeilRapport = obj
     }
 
     func loadBulletin() {
@@ -225,7 +201,7 @@ final class ContoursRunner: ObservableObject {
     }
 
     /// Valeur validée du champ œil : un entier
-    /// entre 20 et 1024, arrondi au multiple
+    /// entre 8 et 1024, arrondi au multiple
     /// de 4 (le réseau descend deux fois),
     /// sinon le défaut (256). Même formule
     /// que dans le script.
@@ -233,7 +209,7 @@ final class ContoursRunner: ObservableObject {
         let t = oeilText.trimmingCharacters(
             in: .whitespaces)
         guard let v = Int(t) else { return 256 }
-        let borne = min(1024, max(20, v))
+        let borne = min(1024, max(8, v))
         return ((borne + 2) / 4) * 4
     }
 
@@ -316,104 +292,56 @@ final class ContoursRunner: ObservableObject {
         }
     }
 
-    /// Le TOURNOI (build 143) : des variantes des
-    /// constantes d'extraction compétitionnent sur
-    /// dev+banc, verdict sur le strict scellé. Le
-    /// champion, s'il y en a un, est écrit par le
-    /// script dans extraction-champion.json et
-    /// s'applique ensuite partout (jeu, bulletins).
-    func tournoi() {
+    /// Le GRAND TOURNOI D'ŒIL (build 157, dessiné
+    /// par Grégoire) : grille complète — les yeux
+    /// 8, 16, 32, 64, 128, 256, 512 (paliers qui
+    /// doublent) × les tolérances 3, 5, 7, 9, 11,
+    /// soit 35 entraînements sur le même corpus,
+    /// aux réglages du panneau (époques, rotations,
+    /// synthétiques). Verdict au barème du build
+    /// 154 (strict servi : moyenne + pire cas).
+    /// Le rapport est réécrit après chaque
+    /// combinaison : un arrêt en cours de route
+    /// garde sa récolte, quand même mirée sur
+    /// Drive. Aucun modèle servi n'est touché.
+    func tournoiOeil() {
         guard !running, atelierPret else { return }
         writeScript()
         progress = 0
-        run(executable: venvPython.path,
-            args: [scriptURL.path,
+        let ep = epochsValides
+        epochsText = String(ep)
+        UserDefaults.standard.set(epochsText,
+                                  forKey: "contoursEpochs")
+        let rot = rotationsValides
+        rotationsText = String(rot)
+        UserDefaults.standard.set(rotationsText,
+                                  forKey: "contoursRotations")
+        var args: [String] = [scriptURL.path,
                    "--racine", racine.path,
                    "--sortie", jugeDir.path,
-                   "--tournoi",
-                   "--taille", String(oeilValide)],
-            phase: "Tournoi des constantes…") {
-            [weak self] status in
-            guard let self else { return }
-            if status == 0 {
-                self.progress = 100
-                self.phase = "Terminé — tournoi "
-                    + "bouclé, rapport à jour."
-            } else {
-                self.phase = "Échec (code \(status)) — "
-                    + "voir le journal."
-            }
-            self.loadTournoi()
-            if status == 0 { self.mirrorTournoi() }
+                   "--tournoi-oeil",
+                   "--epochs", String(ep),
+                   "--rotations", String(rot)]
+        if ignorerSynths {
+            args.append("--ignorer-synthetiques")
         }
-    }
-
-    /// Le MÉGA-TOURNOI (build 144) : prospection
-    /// massive sur la photo 67 (des dizaines de
-    /// milliers d'enfants, échantillonnage qui
-    /// apprend des échecs), séries sur la
-    /// sélection, verdict sur le strict scellé.
-    /// Le rapport est réécrit à chaque lot : un
-    /// arrêt en cours de route laisse sa récolte,
-    /// qui est quand même mirée sur Drive.
-    func mega() {
-        guard !running, atelierPret else { return }
-        writeScript()
-        progress = 0
         run(executable: venvPython.path,
-            args: [scriptURL.path,
-                   "--racine", racine.path,
-                   "--sortie", jugeDir.path,
-                   "--mega", "--photo", "67",
-                   "--taille", String(oeilValide)],
-            phase: "Méga-tournoi — prospection "
-                + "photo 67…") {
+            args: args,
+            phase: "Grand tournoi d'œil — 35 "
+                + "combinaisons…") {
             [weak self] status in
             guard let self else { return }
             if status == 0 {
                 self.progress = 100
-                self.phase = "Terminé — méga-tournoi "
-                    + "bouclé, rapport à jour."
+                self.phase = "Terminé — grand "
+                    + "tournoi bouclé, rapport à jour."
             } else {
                 self.phase = "Arrêt ou échec "
                     + "(code \(status)) — récolte "
                     + "au dernier point de contrôle."
             }
-            self.loadMega()
-            self.mirrorMega()
-        }
-    }
-
-    /// L'ÉCART ORACLE (build 145) : pour chaque
-    /// photo des examens, le meilleur tenant du
-    /// portefeuille (défauts, champion, tenants
-    /// du méga), en pleine précision. Une mesure
-    /// du plafond d'un sélecteur par photo —
-    /// n'écrit aucun champion.
-    func oracle() {
-        guard !running, atelierPret else { return }
-        writeScript()
-        progress = 0
-        run(executable: venvPython.path,
-            args: [scriptURL.path,
-                   "--racine", racine.path,
-                   "--sortie", jugeDir.path,
-                   "--oracle",
-                   "--taille", String(oeilValide)],
-            phase: "Écart oracle — meilleur "
-                + "tenant par photo…") {
-            [weak self] status in
-            guard let self else { return }
-            if status == 0 {
-                self.progress = 100
-                self.phase = "Terminé — écart "
-                    + "oracle mesuré."
-            } else {
-                self.phase = "Échec (code \(status)) — "
-                    + "voir le journal."
-            }
-            self.loadOracle()
-            if status == 0 { self.mirrorOracle() }
+            self.loadTournoiOeil()
+            self.mirrorTournoiOeil()
         }
     }
 
@@ -523,56 +451,26 @@ final class ContoursRunner: ObservableObject {
         }
     }
 
-    /// Miroir Drive du rapport de tournoi (même
-    /// principe que le bulletin) : Muse le lit
-    /// pour annoncer le verdict sans que Grégoire
-    /// ait à l'envoyer.
-    func mirrorTournoi() {
+    /// Miroir Drive du rapport du grand tournoi
+    /// d'œil (même principe que le bulletin) :
+    /// Muse le lit pour annoncer le verdict sans
+    /// que Grégoire ait à l'envoyer. Appelé même
+    /// après un arrêt : la récolte partielle vaut
+    /// la peine d'être mirée.
+    func mirrorTournoiOeil() {
         let fm = FileManager.default
         let src = jugeDir.appendingPathComponent(
-            "tournoi-rapport.json")
-        guard fm.fileExists(atPath: src.path) else { return }
-        guard let folder = driveFolder() else {
-            log("Miroir Drive : dossier introuvable — "
-                + "rapport de tournoi en local seulement.")
-            return
-        }
-        let dst = folder.appendingPathComponent(
-            "tournoi-rapport.json")
-        let srcSize = (try? fm.attributesOfItem(
-            atPath: src.path))?[.size] as? NSNumber
-        let dstSize = (try? fm.attributesOfItem(
-            atPath: dst.path))?[.size] as? NSNumber
-        if srcSize != nil, srcSize == dstSize { return }
-        do {
-            if fm.fileExists(atPath: dst.path) {
-                try fm.removeItem(at: dst)
-            }
-            try fm.copyItem(at: src, to: dst)
-            log("Rapport de tournoi recopié vers Drive "
-                + "(tournoi-rapport.json).")
-        } catch {
-            log("Miroir Drive : échec ("
-                + error.localizedDescription + ")")
-        }
-    }
-
-    /// Miroir Drive du rapport de méga-tournoi
-    /// (même principe que le tournoi).
-    func mirrorMega() {
-        let fm = FileManager.default
-        let src = jugeDir.appendingPathComponent(
-            "mega-rapport.json")
+            "rapport-tournoi-oeil.json")
         guard fm.fileExists(atPath: src.path)
         else { return }
         guard let folder = driveFolder() else {
             log("Miroir Drive : dossier introuvable — "
-                + "rapport de méga-tournoi en local "
+                + "rapport du tournoi d'œil en local "
                 + "seulement.")
             return
         }
         let dst = folder.appendingPathComponent(
-            "mega-rapport.json")
+            "rapport-tournoi-oeil.json")
         let srcSize = (try? fm.attributesOfItem(
             atPath: src.path))?[.size] as? NSNumber
         let dstSize = (try? fm.attributesOfItem(
@@ -583,41 +481,9 @@ final class ContoursRunner: ObservableObject {
                 try fm.removeItem(at: dst)
             }
             try fm.copyItem(at: src, to: dst)
-            log("Rapport de méga-tournoi recopié "
-                + "vers Drive (mega-rapport.json).")
-        } catch {
-            log("Miroir Drive : échec ("
-                + error.localizedDescription + ")")
-        }
-    }
-
-    /// Miroir Drive du rapport d'écart oracle
-    /// (même principe que le tournoi).
-    func mirrorOracle() {
-        let fm = FileManager.default
-        let src = jugeDir.appendingPathComponent(
-            "oracle-rapport.json")
-        guard fm.fileExists(atPath: src.path)
-        else { return }
-        guard let folder = driveFolder() else {
-            log("Miroir Drive : dossier introuvable — "
-                + "rapport oracle en local seulement.")
-            return
-        }
-        let dst = folder.appendingPathComponent(
-            "oracle-rapport.json")
-        let srcSize = (try? fm.attributesOfItem(
-            atPath: src.path))?[.size] as? NSNumber
-        let dstSize = (try? fm.attributesOfItem(
-            atPath: dst.path))?[.size] as? NSNumber
-        if srcSize != nil, srcSize == dstSize { return }
-        do {
-            if fm.fileExists(atPath: dst.path) {
-                try fm.removeItem(at: dst)
-            }
-            try fm.copyItem(at: src, to: dst)
-            log("Rapport oracle recopié vers Drive "
-                + "(oracle-rapport.json).")
+            log("Rapport du tournoi d'œil recopié "
+                + "vers Drive "
+                + "(rapport-tournoi-oeil.json).")
         } catch {
             log("Miroir Drive : échec ("
                 + error.localizedDescription + ")")

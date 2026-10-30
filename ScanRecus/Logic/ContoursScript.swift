@@ -1403,7 +1403,21 @@ def train_and_eval(train_xy, dev_items, banc_items,
             if strict_b:
                 metrique_sel = "strict"
             base_b = strict_b or dev_b
-            servis = [r["servi_erreur_pct"]
+            # Un servi absent (le masque n'a
+            # donné aucun polygone — fréquent
+            # aux très petits yeux et aux
+            # premières époques) compte comme
+            # l'erreur maximale de l'échelle
+            # (100 %) : ne rien servir est pire
+            # que mal servir, et filtrer la
+            # photo récompenserait l'échec
+            # (correctif du build 157, né du
+            # grand tournoi d'œil ; il solidifie
+            # aussi la sélection des courses
+            # ordinaires).
+            servis = [(r["servi_erreur_pct"]
+                       if r["servi_erreur_pct"]
+                       is not None else 100.0)
                       for r in
                       base_b["par_photo"]]
             moy = (round(sum(servis)
@@ -1566,7 +1580,7 @@ SNAP_SEUIL_MARCHE = 24.0  # marche de luminance
 # TENANT est le jeu de constantes des builds
 # 136/139. Un champion de tournoi peut le
 # remplacer via extraction-champion.json dans
-# le dossier de sortie (voir tournoi_seul) —
+# le dossier de sortie (vestige des tournois de constantes, retirés au build 157) —
 # c'est le seul endroit où ces nombres bougent,
 # et le bulletin consigne lesquels ont servi.
 PARAMS_DEFAUT = {
@@ -2074,856 +2088,296 @@ TOURNOI_BORNES = {
 }
 
 
-def _muter(parent, rng):
-    """Un enfant : chaque paramètre est multiplié
-    par un facteur log-normal (petit pas le plus
-    souvent, grand saut parfois), borné."""
-    enfant = {}
-    for k, v in parent.items():
-        lo, hi = TOURNOI_BORNES[k]
-        sigma = 0.45 if rng.random() < 0.12 else 0.16
-        nv = v * math.exp(rng.gauss(0, sigma))
-        enfant[k] = round(min(hi, max(lo, nv)), 4)
-    return enfant
-
-
-def tournoi_seul(args):
-    """LE TOURNOI (build 143) : des variantes des
-    constantes d'extraction compétitionnent sur
-    la base du modèle existant. Les masques sont
-    calculés UNE fois ; chaque variante ne rejoue
-    que l'extraction. Sélection sur dev + banc
-    (l'oracle note contre les élites, les
-    variantes ne voient que leur rang) ;
-    l'examen strict reste SCELLÉ pendant la
-    sélection et ne sert qu'au verdict final,
-    une fois. Le tenant (paramètres actifs) n'est
-    remplacé que battu : le champion est alors
-    écrit dans extraction-champion.json, que
-    charger_params lira partout ensuite."""
-    import torch
+def tournoi_oeil(args):
+    """Le GRAND TOURNOI D'ŒIL (build 157, dessiné
+    par Grégoire le 2026-10-30) : une grille
+    complète — les yeux 8, 16, 32, 64, 128, 256,
+    512 (paliers qui doublent) × les tolérances
+    3, 5, 7, 9, 11 — entraînée sur le MÊME corpus,
+    aux réglages du panneau (époques, rotations,
+    synthétiques). Le jeu de données est préparé
+    une fois par œil (graine 13, comme la course
+    ordinaire) et partagé par ses 5 tolérances.
+    Chaque combinaison est jugée au barème du
+    build 154 (strict servi : moyenne + pire cas).
+    Le rapport (rapport-tournoi-oeil.json) est
+    réécrit après CHAQUE combinaison : un arrêt
+    en cours de route garde sa récolte. Aucun
+    modèle servi n'est touché : contours-v0.pt et
+    bulletin-contours.json restent ceux des
+    courses ordinaires ; les époques de chaque
+    combinaison sont archivées sous
+    archives/grand-tournoi-<horodatage>/.
+    ROBUSTESSE (remarque de Grégoire) : une
+    combinaison qui plante est notée en échec
+    dans le rapport et le tournoi CONTINUE —
+    un plantage à l'œil 8 ne tue pas la grille,
+    on sait que cet œil ne donne rien, on le
+    note et on passe à l'œil suivant."""
     import datetime
-    import random
-    import time
-    modele = os.path.join(args.sortie,
-                          "contours-v0.pt")
-    if not os.path.exists(modele):
-        print("Tournoi impossible : aucun modèle "
-              "(contours-v0.pt) dans le dossier de "
-              "sortie — entraînez d'abord le "
-              "traceur.", flush=True)
-        return 3
+    global SIZE
+    YEUX = [8, 16, 32, 64, 128, 256, 512]
+    TOLERANCES = [3, 5, 7, 9, 11]
     sp = prepare_splits(args.racine)
-    sel_items = sp["dev_items"] + sp["banc_items"]
-    strict_items = sp["strict_items"] or []
-    if len(sel_items) < 4:
-        print("Tournoi impossible : pas assez de "
-              "photos de sélection (dev + banc).",
-              flush=True)
-        return 2
-    device = pick_device(torch)
-    print(f"appareil : {device}", flush=True)
-    model = build_model(torch).to(device)
-    model.load_state_dict(torch.load(
-        modele, map_location=device))
-    model.eval()
-
-    def predict_mask(img_pil):
-        x = torch.from_numpy(
-            np.asarray(img_pil, dtype=np.float32)
-            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-        with torch.no_grad():
-            prob = torch.sigmoid(model(x))[0, 0]
-        return prob.cpu().numpy() > 0.5
-
-    print("PHASE Tournoi — calcul des masques…",
+    elites = sp["elites"]
+    resolve = sp["resolve"]
+    banc_items = sp["banc_items"]
+    strict_items = sp["strict_items"]
+    photos_pool = sp["photos_pool"]
+    dev_photos = sp["dev_photos"]
+    train_elites = sp["train_elites"]
+    dev_items = sp["dev_items"]
+    print(f"élites : {len(elites)} au total · "
+          f"{len(sp['pool'])} hors examen · "
+          f"{len(banc_items)} au banc · "
+          f"{len(strict_items)} au strict",
           flush=True)
-    print("PROGRES 10", flush=True)
-    t0 = time.time()
-
-    def prep(items):
-        out = []
-        for it in items:
-            try:
-                chemin = sp["resolve"](it["file"])
-                img = load_image_modele(chemin)
-                gray = np.asarray(
-                    Image.open(chemin).convert("L"),
-                    dtype=np.float64)
-            except Exception:
-                continue
-            out.append({
-                "sn": it["sn"],
-                "mask": predict_mask(img),
-                "gray": gray,
-                "true": np.asarray(
-                    rasterize(it["lasso"]),
-                    dtype=np.uint8),
-            })
-        return out
-
-    sel = prep(sel_items)
-    ver = prep(strict_items)
-    if len(sel) < 4:
-        print("Tournoi impossible : photos de "
-              "sélection illisibles.", flush=True)
+    print(f"entraînement : {len(train_elites)} "
+          f"élites / {len(photos_pool) - len(dev_photos)} "
+          f"photos · dev (jamais entraînées) : "
+          f"{len(dev_items)} élites / "
+          f"{len(dev_photos)} photos "
+          f"{sorted(dev_photos)}", flush=True)
+    if len(train_elites) < 10 or not dev_items:
+        print("Pas assez de données pour un test "
+              "honnête (il faut des élites des "
+              "deux côtés).", flush=True)
         return 2
-    print(f"sélection : {len(sel)} photos · "
-          f"strict scellé : {len(ver)} photos",
-          flush=True)
-    print("PROGRES 25", flush=True)
-
-    def score(params, items):
-        if not items:
-            return None
-        return _servi_score(params, items)
-
-    tenant, source = charger_params(args.sortie)
-    parent = dict(tenant)
-    parent_score = score(parent, sel)
-    tenant_score = parent_score
-    print(f"tenant ({source}) : sélection "
-          f"{parent_score} %", flush=True)
-    rng = random.Random(args.seed)
-    historique = [{"gen": 0, "score": parent_score,
-                   "params": dict(parent)}]
-    G, L = args.generations, args.enfants
-    for g in range(1, G + 1):
-        print(f"PHASE Tournoi — génération {g}/{G}…",
-              flush=True)
-        enfants = [(_servi_score(e, sel), e)
-                   for e in [_muter(parent, rng)
-                             for _ in range(L)]]
-        enfants.sort(key=lambda t: t[0])
-        meilleur, meilleur_p = enfants[0]
-        if meilleur < parent_score - 0.001:
-            parent, parent_score = meilleur_p, meilleur
-            historique.append({
-                "gen": g, "score": parent_score,
-                "params": dict(parent)})
-        print(f"génération {g}/{G} : meilleur "
-              f"enfant {meilleur} % · tenant "
-              f"{parent_score} %", flush=True)
-        print(f"PROGRES {25 + int(65 * g / G)}",
-              flush=True)
-
-    print("PHASE Tournoi — verdict sur l'examen "
-          "scellé…", flush=True)
-    print("PROGRES 95", flush=True)
-    strict_tenant = score(tenant, ver)
-    strict_champ = score(parent, ver)
-    ameliore = parent_score < tenant_score - 0.001
+    charger_params(args.sortie)
+    horo = datetime.datetime.now().strftime(
+        "%Y%m%d-%H%M%S")
+    base = os.path.join(args.sortie, "archives",
+                        f"grand-tournoi-{horo}")
+    total = len(YEUX) * len(TOLERANCES)
     rapport = {
         "genere": datetime.datetime.now().strftime(
             "%Y-%m-%dT%H:%M:%S"),
-        "appareil": str(device),
-        "modele_mtime": (
-            datetime.datetime.fromtimestamp(
-                os.path.getmtime(modele))
-            .strftime("%Y-%m-%dT%H:%M:%S")),
-        "seed": args.seed,
-        "generations": G,
-        "enfants": L,
-        "evaluations": G * L + 1,
-        "duree_s": round(time.time() - t0, 1),
-        "n_selection": len(sel),
-        "n_strict": len(ver),
-        "tenant": {
-            "params": tenant, "source": source,
-            "score_selection": tenant_score,
-            "score_strict": strict_tenant,
-        },
-        "champion": {
-            "params": parent,
-            "score_selection": parent_score,
-            "score_strict": strict_champ,
-            "nouveau": ameliore,
-        },
-        "historique": historique,
+        "mode": "grand-tournoi-oeil",
+        "yeux": YEUX, "tolerances": TOLERANCES,
+        "epochs": args.epochs,
+        "rotations": args.rotations,
+        "ignorer_synthetiques":
+            bool(args.ignorer_synthetiques),
+        "n_train_elites": len(train_elites),
+        "strict_groupes": sp["strict_groupes"],
+        "resultats": [], "gagnant": None,
+        "termine": False,
     }
-    out_r = os.path.join(args.sortie,
-                         "tournoi-rapport.json")
-    with open(out_r, "w") as f:
-        json.dump(rapport, f, indent=1, sort_keys=True)
-    if ameliore:
-        out_c = os.path.join(
-            args.sortie, "extraction-champion.json")
-        with open(out_c, "w") as f:
-            json.dump({
-                "params": parent,
-                "score_selection": parent_score,
-                "score_strict": strict_champ,
-                "genere": rapport["genere"],
-                "modele_mtime": rapport["modele_mtime"],
-            }, f, indent=1, sort_keys=True)
-        print(f"CHAMPION : sélection "
-              f"{rapport['tenant']['score_selection']}"
-              f" → {parent_score} % · strict "
-              f"{strict_tenant} → {strict_champ} % "
-              f"— constantes écrites dans "
-              f"extraction-champion.json", flush=True)
-    else:
-        print(f"Le tenant garde son titre : "
-              f"sélection {parent_score} % · strict "
-              f"{strict_tenant} % — aucun fichier "
-              f"champion écrit.", flush=True)
-    print(f"rapport écrit : {out_r}", flush=True)
-    print("PROGRES 100", flush=True)
-    return 0
 
-
-def _servi_score(params, items):
-    """Score de sélection d'une variante :
-    médiane des erreurs du servi sur les items
-    en cache (extraction impossible = 10 %)."""
-    vals = []
-    for c in items:
-        e = _servi_erreur(c["mask"], c["gray"],
-                          c["true"], params)
-        vals.append(10.0 if e is None else e)
-    return round(float(np.median(vals)), 3)
-
-
-
-def _servi_erreur_precise(mask_bool, gray, true_m,
-                          params):
-    """Comme _servi_erreur, mais SANS arrondi :
-    le score d'arène du méga-tournoi — sur une
-    seule photo, l'arrondi au centième
-    recréerait un plateau d'ex æquo."""
-    servi = mask_to_polygon(mask_bool, gray=gray,
-                            params=params)
-    if servi is None:
-        return None
-    servi_m = np.asarray(rasterize(servi),
-                         dtype=np.uint8)
-    return float(chamfer_pct(servi_m, true_m))
-
-
-def _cle_params(params):
-    """Clé déterministe d'un jeu de paramètres
-    (bris d'égalité stable entre exécutions)."""
-    return tuple(params[k] for k in sorted(params))
-
-
-# Contexte des travailleurs du méga-tournoi :
-# rempli par l'initialiseur de chaque processus
-# (masque, photo et référence de l'arène,
-# calculés une seule fois par le parent).
-_MEGA_CTX = {}
-
-
-def _mega_init(ctx):
-    _MEGA_CTX.update(ctx)
-
-
-def _mega_eval(params):
-    """Un enfant du méga-tournoi : extraction
-    sur l'arène, score pleine précision (échec
-    d'extraction = 10 %)."""
-    e = _servi_erreur_precise(
-        _MEGA_CTX["mask"], _MEGA_CTX["gray"],
-        _MEGA_CTX["true"], params)
-    return (10.0 if e is None else e), params
-
-
-def _mega_echantillon(rng, boite=None):
-    """Un candidat tiré uniformément (en log)
-    dans une boîte {param: (lo, hi)} — par
-    défaut les bornes du tournoi."""
-    src = boite or TOURNOI_BORNES
-    out = {}
-    for k, (lo, hi) in src.items():
-        out[k] = round(math.exp(rng.uniform(
-            math.log(lo), math.log(hi))), 4)
-    return out
-
-
-def _mega_boite_confiance(evalues, fraction=0.10):
-    """La boîte de confiance (build 144) :
-    pour chaque paramètre, l'intervalle (en
-    log) couvert par le meilleur `fraction`
-    des enfants déjà évalués, élargi de 15 %,
-    sans jamais descendre sous 30 % de
-    l'intervalle d'origine. Les directions qui
-    empirent le score sont échantillonnées de
-    moins en moins — jamais interdites : une
-    valeur mauvaise seule peut être bonne en
-    combinaison."""
-    if len(evalues) < 200:
-        return None
-    tries = sorted(
-        evalues,
-        key=lambda t: (t[0], _cle_params(t[1])))
-    n = max(20, int(len(tries) * fraction))
-    top = [p for _, p in tries[:n]]
-    boite = {}
-    for k, (lo, hi) in TOURNOI_BORNES.items():
-        llo, lhi = math.log(lo), math.log(hi)
-        vals = sorted(math.log(p[k]) for p in top)
-        a, b = vals[0], vals[-1]
-        marge = 0.15 * (b - a)
-        a, b = a - marge, b + marge
-        largeur_min = 0.30 * (lhi - llo)
-        if b - a < largeur_min:
-            m = (a + b) / 2
-            a, b = (m - largeur_min / 2,
-                    m + largeur_min / 2)
-        boite[k] = (math.exp(max(llo, a)),
-                    math.exp(min(lhi, b)))
-    return boite
-
-
-def _mega_recolte(evalues, cap=40, dist_min=0.12):
-    """La récolte : les meilleurs enfants, en
-    gardant une distance minimale dans
-    l'espace des paramètres normalisé
-    (coordonnées log ramenées à [0, 1]) — pas
-    40 clones du même point."""
-    def z(p):
-        return [(math.log(p[k])
-                 - math.log(TOURNOI_BORNES[k][0]))
-                / (math.log(TOURNOI_BORNES[k][1])
-                   - math.log(TOURNOI_BORNES[k][0]))
-                for k in sorted(TOURNOI_BORNES)]
-    tries = sorted(
-        evalues,
-        key=lambda t: (t[0], _cle_params(t[1])))
-    garde, zs = [], []
-    for s, p in tries:
-        zp = z(p)
-        if all(math.dist(zp, zq) >= dist_min
-               for zq in zs):
-            garde.append((s, p))
-            zs.append(zp)
-            if len(garde) >= cap:
-                break
-    return garde
-
-
-def _oracle_portefeuille(sortie):
-    """Les tenants que l'oracle peut choisir :
-    défauts, champion actif (fichier), roi de
-    l'arène et gagnant des séries du méga (lus
-    dans mega-rapport.json s'il existe)."""
-    port = [("défauts", dict(PARAMS_DEFAUT))]
-    ch = os.path.join(sortie,
-                      "extraction-champion.json")
-    if os.path.exists(ch):
-        try:
-            cj = json.load(open(ch))
-            p = {k: float(cj["params"][k])
-                 for k in PARAMS_DEFAUT}
-            port.append(("champion", p))
-        except Exception:
-            pass
-    mg = os.path.join(sortie, "mega-rapport.json")
-    if os.path.exists(mg):
-        try:
-            mj = json.load(open(mg))
-            pa = mj["arene"]["params_meilleur"]
-            port.append(("arène-méga",
-                         {k: float(pa[k])
-                          for k in PARAMS_DEFAUT}))
-            pg = mj["gagnant"]["params"]
-            port.append(("séries-méga",
-                         {k: float(pg[k])
-                          for k in PARAMS_DEFAUT}))
-        except Exception:
-            pass
-    return port
-
-
-def oracle_seul(args):
-    """L'ÉCART ORACLE (build 145) : pour chaque
-    photo des examens, le meilleur tenant du
-    portefeuille, en pleine précision. Mesure
-    le plafond d'un sélecteur par photo : si
-    l'oracle ne bat le tenant que d'un souffle,
-    apprendre à choisir ne vaut pas la peine.
-    Ne sélectionne rien, n'écrit aucun
-    champion : une mesure, pas un verdict."""
-    import torch
-    import datetime
-    import time
-    modele = os.path.join(args.sortie,
-                          "contours-v0.pt")
-    if not os.path.exists(modele):
-        print("Oracle impossible : aucun modèle "
-              "(contours-v0.pt) dans le dossier "
-              "de sortie — entraînez d'abord le "
-              "traceur.", flush=True)
-        return 3
-    sp = prepare_splits(args.racine)
-    device = pick_device(torch)
-    print(f"appareil : {device}", flush=True)
-    model = build_model(torch).to(device)
-    model.load_state_dict(torch.load(
-        modele, map_location=device))
-    model.eval()
-
-    def predict_mask(img_pil):
-        x = torch.from_numpy(
-            np.asarray(img_pil, dtype=np.float32)
-            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-        with torch.no_grad():
-            prob = torch.sigmoid(model(x))[0, 0]
-        return prob.cpu().numpy() > 0.5
-
-    print("PHASE Oracle — calcul des masques…",
-          flush=True)
-    print("PROGRES 10", flush=True)
-    t0 = time.time()
-
-    def prep(items):
-        out = []
-        for it in items:
-            try:
-                chemin = sp["resolve"](it["file"])
-                img = load_image_modele(chemin)
-                gray = np.asarray(
-                    Image.open(chemin).convert("L"),
-                    dtype=np.float64)
-            except Exception:
-                continue
-            out.append({
-                "sn": it["sn"],
-                "mask": predict_mask(img),
-                "gray": gray,
-                "true": np.asarray(
-                    rasterize(it["lasso"]),
-                    dtype=np.uint8),
-            })
-        return out
-
-    def med(vals):
-        return round(float(np.median(vals)), 4)
-
-    port = _oracle_portefeuille(args.sortie)
-    noms = [n for n, _ in port]
-    print("portefeuille : " + ", ".join(noms),
-          flush=True)
-    ensembles = {}
-    for nom_ens, items in (
-            ("dev", sp["dev_items"]),
-            ("banc", sp["banc_items"]),
-            ("strict", sp["strict_items"] or [])):
-        par_photo = []
-        for c in prep(items):
-            erreurs = {}
-            for nom_t, params in port:
-                e = _servi_erreur_precise(
-                    c["mask"], c["gray"], c["true"],
-                    params)
-                erreurs[nom_t] = (
-                    10.0 if e is None
-                    else round(e, 4))
-            gagnant = min(
-                erreurs,
-                key=lambda k: (erreurs[k], k))
-            par_photo.append({
-                "photo": c["sn"],
-                "erreurs": erreurs,
-                "gagnant": gagnant,
-                "oracle": erreurs[gagnant],
-            })
-        if not par_photo:
-            ensembles[nom_ens] = None
-            continue
-        victoires = {n: 0 for n in noms}
-        for p in par_photo:
-            victoires[p["gagnant"]] += 1
-        ensembles[nom_ens] = {
-            "photos": len(par_photo),
-            "tenants": {n: med([p["erreurs"][n]
-                                 for p in par_photo])
-                        for n in noms},
-            "oracle": med([p["oracle"]
-                           for p in par_photo]),
-            "oracle_2": (
-                med([min(p["erreurs"]["défauts"],
-                         p["erreurs"]["champion"])
-                     for p in par_photo])
-                if "champion" in noms else None),
-            "victoires": victoires,
-            "par_photo": par_photo,
-        }
-        e = ensembles[nom_ens]
-        print(f"{nom_ens} : oracle {e['oracle']} %"
-              " · tenants " + " · ".join(
-                  f"{n} {e['tenants'][n]}"
-                  for n in noms), flush=True)
-    tous = []
-    for s_ in ("dev", "banc"):
-        if ensembles.get(s_):
-            tous.extend(ensembles[s_]["par_photo"])
-    if tous:
-        selection = {
-            "tenants": {n: med([p["erreurs"][n]
-                                 for p in tous])
-                        for n in noms},
-            "oracle": med([p["oracle"]
-                           for p in tous]),
-            "oracle_2": (
-                med([min(p["erreurs"]["défauts"],
-                         p["erreurs"]["champion"])
-                     for p in tous])
-                if "champion" in noms else None),
-        }
-    else:
-        selection = None
-    rap = {
-        "genere": datetime.datetime.now().strftime(
-            "%Y-%m-%dT%H:%M:%S"),
-        "appareil": str(device),
-        "modele_mtime": (
-            datetime.datetime.fromtimestamp(
-                os.path.getmtime(modele))
-            .strftime("%Y-%m-%dT%H:%M:%S")),
-        "portefeuille": noms,
-        "ensembles": ensembles,
-        "selection": selection,
-        "duree_s": round(time.time() - t0, 1),
-    }
-    out = os.path.join(args.sortie,
-                       "oracle-rapport.json")
-    tmp = out + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(rap, f, indent=1, sort_keys=True)
-    os.replace(tmp, out)
-    print(f"rapport oracle écrit : {out}",
-          flush=True)
-    print("PROGRES 100", flush=True)
-    return 0
-
-
-def mega_seul(args):
-    """LE MÉGA-TOURNOI (build 144) : prospection
-    massive sur UNE photo-arène (défaut : la
-    67, dont l'extraction dégrade un bon
-    masque). Des dizaines de milliers d'enfants
-    y sont notés en pleine précision contre le
-    tracé de référence, en parallèle.
-    L'échantillonnage APPREND : chaque enfant
-    est archivé (mega-enfants.jsonl), une boîte
-    de confiance se resserre sur les régions
-    du meilleur décile, des éclaireurs gardent
-    l'espace complet ouvert. La récolte (les
-    meilleurs enfants DIVERS) affronte ensuite
-    toute la sélection (séries), puis l'examen
-    strict scellé rend le verdict — comme au
-    tournoi. Le rapport est réécrit à chaque
-    lot : un arrêt en cours de route laisse sa
-    récolte derrière lui."""
-    import torch
-    import datetime
-    import random
-    import time
-    import multiprocessing as mp
-    modele = os.path.join(args.sortie,
-                          "contours-v0.pt")
-    if not os.path.exists(modele):
-        print("Méga-tournoi impossible : aucun "
-              "modèle (contours-v0.pt) dans le "
-              "dossier de sortie — entraînez "
-              "d'abord le traceur.", flush=True)
-        return 3
-    tenant, source = charger_params(args.sortie)
-    sp = prepare_splits(args.racine)
-    examens = (sp["dev_items"] + sp["banc_items"]
-               + (sp["strict_items"] or []))
-    cible = next((e for e in examens
-                  if e["sn"] == args.photo), None)
-    if cible is None:
-        print(f"Méga-tournoi impossible : la "
-              f"photo {args.photo} n'est pas "
-              f"dans les examens (dev, banc ou "
-              f"strict) — l'arène exige un tracé "
-              f"de référence hors entraînement.",
-              flush=True)
-        return 2
-    sel_items = sp["dev_items"] + sp["banc_items"]
-    strict_items = sp["strict_items"] or []
-    if len(sel_items) < 4:
-        print("Méga-tournoi impossible : pas "
-              "assez de photos de sélection.",
-              flush=True)
-        return 2
-    device = pick_device(torch)
-    print(f"appareil : {device}", flush=True)
-    model = build_model(torch).to(device)
-    model.load_state_dict(torch.load(
-        modele, map_location=device))
-    model.eval()
-
-    def predict_mask(img_pil):
-        x = torch.from_numpy(
-            np.asarray(img_pil, dtype=np.float32)
-            / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-        with torch.no_grad():
-            prob = torch.sigmoid(model(x))[0, 0]
-        return prob.cpu().numpy() > 0.5
-
-    def prep(items):
-        out = []
-        for it in items:
-            try:
-                chemin = sp["resolve"](it["file"])
-                img = load_image_modele(chemin)
-                gray = np.asarray(
-                    Image.open(chemin).convert("L"),
-                    dtype=np.float64)
-            except Exception:
-                continue
-            out.append({
-                "sn": it["sn"],
-                "mask": predict_mask(img),
-                "gray": gray,
-                "true": np.asarray(
-                    rasterize(it["lasso"]),
-                    dtype=np.uint8),
-            })
-        return out
-
-    print("PHASE Méga-tournoi — calcul des "
-          "masques…", flush=True)
-    print("PROGRES 3", flush=True)
-    t0 = time.time()
-    arene_l = prep([cible])
-    if not arene_l:
-        print("Méga-tournoi impossible : photo "
-              "arène illisible.", flush=True)
-        return 2
-    arene = arene_l[0]
-    sel = prep(sel_items)
-    ver = prep(strict_items)
-
-    def score_arene(params):
-        e = _servi_erreur_precise(
-            arene["mask"], arene["gray"],
-            arene["true"], params)
-        return 10.0 if e is None else e
-
-    sc_defauts = score_arene(PARAMS_DEFAUT)
-    sc_tenant = score_arene(tenant)
-    print(f"arène : photo {args.photo} · "
-          f"défauts {sc_defauts:.3f} % · tenant "
-          f"({source}) {sc_tenant:.3f} %",
-          flush=True)
-
-    ctx = {"mask": arene["mask"],
-           "gray": arene["gray"],
-           "true": arene["true"]}
-    W = args.travailleurs
-    if W <= 0:
-        W = min(10, os.cpu_count() or 2)
-    pool = None
-    if W > 1:
-        try:
-            pool = mp.get_context("spawn").Pool(
-                processes=W,
-                initializer=_mega_init,
-                initargs=(ctx,))
-        except Exception as ex:
-            print(f"parallèle impossible "
-                  f"({ex}) — mode séquentiel.",
-                  flush=True)
-            pool = None
-    print(f"travailleurs : "
-          f"{W if pool is not None else 1}",
-          flush=True)
-
-    rng = random.Random(args.seed)
-    budget = max(50, args.budget)
-    LOT = 600
-    evalues = []
-    arch_path = os.path.join(
-        args.sortie, "mega-enfants.jsonl")
-    archive = open(arch_path, "a")
-    rap_path = os.path.join(
-        args.sortie, "mega-rapport.json")
-    mtime = datetime.datetime.fromtimestamp(
-        os.path.getmtime(modele)).strftime(
-        "%Y-%m-%dT%H:%M:%S")
-
-    def ecrire_rapport(termine, series=None,
-                       gagnant=None, nouveau=False,
-                       strict_t=None, strict_g=None):
-        recolte = _mega_recolte(evalues)
-        meilleur = (min(
-            evalues,
-            key=lambda t: (t[0],
-                           _cle_params(t[1])))
-            if evalues else None)
-        rap = {
-            "genere": datetime.datetime.now()
-                .strftime("%Y-%m-%dT%H:%M:%S"),
-            "termine": termine,
-            "photo": args.photo,
-            "appareil": str(device),
-            "modele_mtime": mtime,
-            "seed": args.seed,
-            "budget": budget,
-            "evalues": len(evalues),
-            "travailleurs":
-                W if pool is not None else 1,
-            "duree_s": round(time.time() - t0, 1),
-            "arene": {
-                "defauts": round(sc_defauts, 4),
-                "tenant": round(sc_tenant, 4),
-                "meilleur":
-                    round(meilleur[0], 4)
-                    if meilleur else None,
-                "params_meilleur":
-                    meilleur[1]
-                    if meilleur else None,
-            },
-            "recolte": [
-                {"params": p,
-                 "score_arene": round(s, 4)}
-                for s, p in recolte],
-            "series": series,
-            "tenant_selection": None,
-            "strict": {
-                "tenant": strict_t,
-                "gagnant": strict_g},
-            "nouveau_champion": nouveau,
-        }
-        if series is not None:
-            rap["tenant_selection"] = tenant_sel
-            rap["gagnant"] = gagnant
-        tmp = rap_path + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(rap, f, indent=1,
+    def ecrire_rapport():
+        rapport["genere"] = \
+            datetime.datetime.now().strftime(
+                "%Y-%m-%dT%H:%M:%S")
+        out = os.path.join(
+            args.sortie, "rapport-tournoi-oeil.json")
+        with open(out, "w") as f:
+            json.dump(rapport, f, indent=1,
                       sort_keys=True)
-        os.replace(tmp, rap_path)
 
+    def ligne_echec(taille, tol, message):
+        return {
+            "taille": taille, "tolerance": tol,
+            "meilleure_epoque": None,
+            "n_epoques": None,
+            "score_selection_pct": None,
+            "strict_servi_moyenne_pct": None,
+            "strict_servi_pire_pct": None,
+            "strict_servi_mediane_pct": None,
+            "erreur": message,
+        }
+
+    def maj_gagnant():
+        valides = [r for r in rapport["resultats"]
+                   if r["score_selection_pct"]
+                   is not None]
+        if valides:
+            rapport["gagnant"] = min(
+                valides,
+                key=lambda r:
+                    r["score_selection_pct"])
+
+    ecrire_rapport()
     faits = 0
-    while faits < budget:
-        n = min(LOT, budget - faits)
-        boite = (_mega_boite_confiance(evalues)
-                 if faits >= 2 * LOT else None)
-        recolte_c = (_mega_recolte(evalues)
-                     if evalues else [])
-        moitie = recolte_c[:max(
-            1, len(recolte_c) // 2)]
-        cands = []
-        if faits == 0:
-            cands = [dict(PARAMS_DEFAUT),
-                     dict(tenant)]
-        while len(cands) < n:
-            r = rng.random()
-            if moitie and r < 0.45:
-                parent = dict(
-                    rng.choice(moitie)[1])
-                cands.append(_muter(parent, rng))
-            elif boite is not None and r < 0.80:
-                cands.append(
-                    _mega_echantillon(rng, boite))
+    for taille in YEUX:
+        SIZE = taille
+        print(f"PHASE Œil {taille} — préparation "
+              f"des exemples…", flush=True)
+        rng = np.random.default_rng(13)
+        synth_info = None
+        try:
+            X, Y = build_dataset(
+                train_elites, resolve, rng,
+                rotations=args.rotations)
+            if X is None:
+                raise RuntimeError(
+                    "aucune image lisible")
+            if args.ignorer_synthetiques:
+                synth_info = {"n": 0, "ignore": True}
+                print("banque synthétique : "
+                      "ignorée (case cochée)",
+                      flush=True)
             else:
-                cands.append(
-                    _mega_echantillon(rng))
-        if pool is not None:
-            res = list(pool.imap(
-                _mega_eval, cands, chunksize=24))
-        else:
-            _mega_init(ctx)
-            res = [_mega_eval(c) for c in cands]
-        for s, p in res:
-            evalues.append((float(s), p))
-            archive.write(json.dumps(
-                {"params": p,
-                 "score": round(float(s), 5)},
-                sort_keys=True) + "\n")
-        archive.flush()
-        faits += len(res)
-        meilleur = min(
-            evalues,
-            key=lambda t: (t[0],
-                           _cle_params(t[1])))
-        print(f"prospection : {faits}/{budget} "
-              f"· meilleur arène "
-              f"{meilleur[0]:.3f} %", flush=True)
-        print(f"PROGRES "
-              f"{5 + int(70 * faits / budget)}",
+                sb = charger_banque_synth(
+                    args.racine)
+                if sb is not None:
+                    Xs, Ys = sb
+                    X = np.concatenate([X, Xs])
+                    Y = np.concatenate([Y, Ys])
+                    synth_info = {"n": int(len(Xs))}
+                    print(f"banque synthétique : "
+                          f"{len(Xs)} images "
+                          f"ajoutées à "
+                          f"l'entraînement",
+                          flush=True)
+        except Exception as e:
+            print(f"œil {taille} : préparation en "
+                  f"échec ({e}) — ses 5 "
+                  f"combinaisons sont notées en "
+                  f"échec, le tournoi continue",
+                  flush=True)
+            for tol in TOLERANCES:
+                faits += 1
+                rapport["resultats"].append(
+                    ligne_echec(
+                        taille, tol,
+                        f"préparation : {e}"))
+            maj_gagnant()
+            ecrire_rapport()
+            continue
+        rapport["synthetique"] = synth_info
+        for it in (dev_items + banc_items
+                   + strict_items):
+            it["_img"] = None
+        for tol in TOLERANCES:
+            faits += 1
+            print(f"=== combinaison {faits}/{total} "
+                  f": œil {taille} · tolérance "
+                  f"{tol} ===", flush=True)
+            print(f"PROGRES "
+                  f"{int((faits - 1) / total * 100)}",
+                  flush=True)
+            dossier = os.path.join(
+                base, f"oeil-{taille}-tol-{tol}")
+            model = None
+            try:
+                model, bulletin = train_and_eval(
+                    (X, Y), dev_items, banc_items,
+                    resolve=resolve,
+                    epochs=args.epochs,
+                    strict_items=strict_items,
+                    patience=tol,
+                    dossier_archives=dossier)
+                bulletin["synthetique"] = synth_info
+                bulletin["rotations"] = \
+                    args.rotations
+                bulletin["taille"] = taille
+                bulletin["n_train_elites"] = \
+                    len(train_elites)
+                bulletin["strict_groupes"] = \
+                    sp["strict_groupes"]
+                bulletin["genere"] = \
+                    datetime.datetime.now().strftime(
+                        "%Y-%m-%dT%H:%M:%S")
+                os.makedirs(dossier, exist_ok=True)
+                with open(os.path.join(
+                        dossier, "bulletin.json"),
+                        "w") as f:
+                    json.dump(bulletin, f, indent=1,
+                              sort_keys=True)
+                sel = bulletin.get("selection") \
+                    or {}
+                st = bulletin.get("strict") or {}
+                score = sel.get(
+                    "meilleur_score_pct")
+                moy = pire = None
+                for ev in (sel.get("evaluations")
+                           or []):
+                    if ev.get(
+                            "score_selection_pct") \
+                            == score:
+                        moy = ev.get(
+                            "strict_servi_moyenne_pct")
+                        pire = ev.get(
+                            "strict_servi_pire_pct")
+                        break
+                ligne = {
+                    "taille": taille,
+                    "tolerance": tol,
+                    "meilleure_epoque":
+                        sel.get("meilleure_epoque"),
+                    "n_epoques":
+                        bulletin.get("epochs"),
+                    "score_selection_pct": score,
+                    "strict_servi_moyenne_pct":
+                        moy,
+                    "strict_servi_pire_pct": pire,
+                    "strict_servi_mediane_pct":
+                        st.get(
+                            "servi_erreur_mediane_pct"),
+                    "erreur": None,
+                }
+                print(f"œil {taille} · tolérance "
+                      f"{tol} : score {score} % "
+                      f"(époque "
+                      f"{ligne['meilleure_epoque']})",
+                      flush=True)
+            except Exception as e:
+                print(f"œil {taille} · tolérance "
+                      f"{tol} : ÉCHEC — {e} "
+                      f"(le tournoi continue)",
+                      flush=True)
+                ligne = ligne_echec(
+                    taille, tol, str(e))
+            rapport["resultats"].append(ligne)
+            maj_gagnant()
+            ecrire_rapport()
+            if model is not None:
+                del model
+            import gc
+            gc.collect()
+            try:
+                import torch
+                if torch.backends.mps.is_available():
+                    torch.mps.empty_cache()
+            except Exception:
+                pass
+        del X, Y
+    rapport["termine"] = True
+    ecrire_rapport()
+    valides = sorted(
+        [r for r in rapport["resultats"]
+         if r["score_selection_pct"] is not None],
+        key=lambda r: r["score_selection_pct"])
+    print("=== GRAND TOURNOI D'ŒIL — classement "
+          "(score = strict servi, moyenne + pire) "
+          "===", flush=True)
+    for r in valides[:10]:
+        print(f"œil {r['taille']} · tol "
+              f"{r['tolerance']} : "
+              f"{r['score_selection_pct']} % "
+              f"(moy {r['strict_servi_moyenne_pct']}"
+              f" · pire "
+              f"{r['strict_servi_pire_pct']} · "
+              f"époque {r['meilleure_epoque']})",
               flush=True)
-        ecrire_rapport(False)
-    archive.close()
-    if pool is not None:
-        pool.close()
-        pool.join()
-
-    print("PHASE Méga-tournoi — séries sur la "
-          "sélection…", flush=True)
-    print("PROGRES 85", flush=True)
-    tenant_sel = _servi_score(tenant, sel)
-    series = []
-    for s_arene, p in _mega_recolte(evalues):
-        series.append({
-            "params": p,
-            "score_arene": round(s_arene, 4),
-            "score_selection": _servi_score(
-                p, sel),
-        })
-    series.sort(key=lambda d: (
-        d["score_selection"],
-        _cle_params(d["params"])))
-    gagnant = series[0] if series else None
-    nouveau = bool(
-        gagnant
-        and gagnant["score_selection"]
-        < tenant_sel - 0.001)
-    strict_tenant = (_servi_score(tenant, ver)
-                     if ver else None)
-    strict_gagnant = (
-        _servi_score(gagnant["params"], ver)
-        if (nouveau and ver) else strict_tenant)
-    if nouveau:
-        out_c = os.path.join(
-            args.sortie, "extraction-champion.json")
-        with open(out_c, "w") as f:
-            json.dump({
-                "params": gagnant["params"],
-                "score_selection":
-                    gagnant["score_selection"],
-                "score_strict": strict_gagnant,
-                "genere":
-                    datetime.datetime.now()
-                    .strftime("%Y-%m-%dT%H:%M:%S"),
-                "modele_mtime": mtime,
-                "origine":
-                    f"mega-photo-{args.photo}",
-            }, f, indent=1, sort_keys=True)
-    ecrire_rapport(True, series=series,
-                   gagnant=gagnant,
-                   nouveau=nouveau,
-                   strict_t=strict_tenant,
-                   strict_g=strict_gagnant)
-    if nouveau:
-        print(f"NOUVEAU CHAMPION (méga) : "
-              f"sélection {tenant_sel} → "
-              f"{gagnant['score_selection']} % · "
-              f"strict {strict_tenant} → "
-              f"{strict_gagnant} % — constantes "
-              f"écrites dans "
-              f"extraction-champion.json",
+    if valides:
+        g = valides[0]
+        print(f"GAGNANT : œil {g['taille']} · "
+              f"tolérance {g['tolerance']} — score "
+              f"{g['score_selection_pct']} %",
               flush=True)
-    else:
-        print(f"Le tenant garde son titre : "
-              f"sélection {tenant_sel} % · "
-              f"strict {strict_tenant} % — la "
-              f"prospection n'a rien trouvé qui "
-              f"se transfère.", flush=True)
-    print(f"rapport écrit : {rap_path}",
-          flush=True)
     print("PROGRES 100", flush=True)
     return 0
 
-
-# ---------------- Main ----------------
 
 def main():
-    ap = argparse.ArgumentParser()
+    # allow_abbrev=False : drapeaux exacts —
+    # les anciens modes (--tournoi, --mega,
+    # --oracle, retirés au build 157) sont
+    # refusés net au lieu d'être devinés par
+    # abréviation vers --tournoi-oeil.
+    ap = argparse.ArgumentParser(
+        allow_abbrev=False)
     ap.add_argument("--racine", default=os.path.expanduser(
         "~/Library/Application Support/ScanRecus/Atelier"))
     ap.add_argument("--sortie", default=".")
@@ -2962,7 +2416,7 @@ def main():
                          "réseau (défaut 256 — le "
                          "champ « Œil » de "
                          "l'onglet Contours) ; "
-                         "bornes 20–1024, arrondie "
+                         "bornes 8–1024, arrondie "
                          "au multiple de 4")
     ap.add_argument("--patience", type=int,
                     default=8,
@@ -2981,41 +2435,12 @@ def main():
                     help="évaluation seule : charge le "
                          "modèle existant et régénère "
                          "le bulletin sans entraîner")
-    ap.add_argument("--tournoi", action="store_true",
-                    help="tournoi des constantes "
-                         "d'extraction : variantes en "
-                         "compétition sur dev+banc, "
-                         "verdict sur le strict scellé")
-    ap.add_argument("--generations", type=int,
-                    default=25)
-    ap.add_argument("--enfants", type=int,
-                    default=16)
-    ap.add_argument("--seed", type=int,
-                    default=20261027)
-    ap.add_argument("--mega", action="store_true",
-                    help="méga-tournoi : prospection "
-                         "massive sur une "
-                         "photo-arène, séries sur "
-                         "la sélection, verdict "
-                         "sur le strict scellé")
-    ap.add_argument("--photo", type=int,
-                    default=67,
-                    help="photo-arène du "
-                         "méga-tournoi")
-    ap.add_argument("--budget", type=int,
-                    default=100000,
-                    help="nombre d'enfants du "
-                         "méga-tournoi")
-    ap.add_argument("--travailleurs", type=int,
-                    default=0,
-                    help="processus parallèles "
-                         "du méga-tournoi "
-                         "(0 = auto)")
-    ap.add_argument("--oracle", action="store_true",
-                    help="écart oracle : meilleur "
-                         "tenant par photo, pleine "
-                         "précision (mesure, aucun "
-                         "champion écrit)")
+    ap.add_argument("--tournoi-oeil", action="store_true",
+                    help="grand tournoi d'œil : "
+                         "grille 8–512 (paliers qui "
+                         "doublent) × tolérances "
+                         "3, 5, 7, 9, 11, verdict "
+                         "au strict servi")
     ap.add_argument("--synthetique", action="store_true")
     ap.add_argument("--modele", default=None,
                     help="modèle à charger pour "
@@ -3031,7 +2456,7 @@ def main():
     # réseau descend deux fois (÷4), d'où
     # l'arrondi au multiple de 4.
     global SIZE
-    _oeil = max(20, min(1024, int(args.taille)))
+    _oeil = max(8, min(1024, int(args.taille)))
     _oeil = ((_oeil + 2) // 4) * 4
     SIZE = _oeil
     print(f"œil du traceur : {SIZE}×{SIZE}",
@@ -3052,29 +2477,13 @@ def main():
             return 2
         return evaluer_seul(args)
 
-    if args.tournoi:
+    if args.tournoi_oeil:
         if args.synthetique:
-            print("Le tournoi exige un modèle "
-                  "entraîné : pas de mode "
-                  "synthétique.", flush=True)
-            return 2
-        return tournoi_seul(args)
-
-    if args.mega:
-        if args.synthetique:
-            print("Le méga-tournoi exige un "
-                  "modèle entraîné : pas de "
-                  "mode syntétique.", flush=True)
-            return 2
-        return mega_seul(args)
-
-    if args.oracle:
-        if args.synthetique:
-            print("L'écart oracle exige un "
-                  "modèle entraîné : pas de "
+            print("Le grand tournoi d'œil exige "
+                  "les vraies données : pas de "
                   "mode synthétique.", flush=True)
             return 2
-        return oracle_seul(args)
+        return tournoi_oeil(args)
 
     if args.fabrique:
         return fabriquer_banque(

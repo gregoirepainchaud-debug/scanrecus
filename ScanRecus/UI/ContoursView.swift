@@ -46,18 +46,8 @@ struct ContoursView: View {
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
-                Button("Lancer le tournoi") {
-                    runner.tournoi()
-                }
-                .disabled(runner.running
-                          || !runner.atelierPret)
-                Button("Méga-tournoi (photo 67)") {
-                    runner.mega()
-                }
-                .disabled(runner.running
-                          || !runner.atelierPret)
-                Button("Écart oracle") {
-                    runner.oracle()
+                Button("Grand tournoi d'œil") {
+                    runner.tournoiOeil()
                 }
                 .disabled(runner.running
                           || !runner.atelierPret)
@@ -140,16 +130,8 @@ struct ContoursView: View {
                 bulletinCard(b)
             }
 
-            if let t = runner.tournoiRapport {
-                tournoiCard(t)
-            }
-
-            if let m = runner.megaRapport {
-                megaCard(m)
-            }
-
-            if let o = runner.oracleRapport {
-                oracleCard(o)
+            if let t = runner.tournoiOeilRapport {
+                tournoiOeilCard(t)
             }
 
             ScrollView {
@@ -271,13 +253,13 @@ struct ContoursView: View {
         .background(Color.secondary.opacity(0.08))
     }
 
-    /// La carte du dernier tournoi (build 143) :
-    /// tenant contre champion, sur la sélection
-    /// (dev+banc) et sur le strict scellé — le
-    /// verdict qui dit si les nouvelles constantes
-    /// généralisent ou si elles ont seulement
-    /// mémorisé la sélection.
-    private func tournoiCard(_ t: [String: Any])
+    /// Carte du grand tournoi d'œil (build 157) :
+    /// la grille complète (7 yeux × 5 tolérances),
+    /// l'avancement, le podium au barème habituel
+    /// (strict servi : moyenne + pire cas) et le
+    /// gagnant provisoire ou final. Chaînes
+    /// pré-calculées avant la vue.
+    private func tournoiOeilCard(_ t: [String: Any])
         -> some View {
         func num(_ d: [String: Any]?, _ k: String)
             -> String {
@@ -286,152 +268,60 @@ struct ContoursView: View {
             else { return "—" }
             return String(format: "%.2f", v)
         }
-        let ten = t["tenant"] as? [String: Any]
-        let ch = t["champion"] as? [String: Any]
-        let nouveau = (ch?["nouveau"] as? Bool) ?? false
+        func entier(_ d: [String: Any]?, _ k: String)
+            -> Int {
+            (d?[k] as? NSNumber)?.intValue ?? 0
+        }
         let genere = (t["genere"] as? String) ?? "?"
-        let nGen = (t["generations"] as? NSNumber)?
-            .intValue ?? 0
-        let nEnf = (t["enfants"] as? NSNumber)?
-            .intValue ?? 0
-        let l1 = "Tournoi des constantes — \(genere)"
-            + " · \(nGen) générations × \(nEnf) enfants"
-        let l2 = "Tenant : sélection "
-            + "\(num(ten, "score_selection")) % · strict "
-            + "\(num(ten, "score_strict")) %"
-        let verdict = nouveau
-            ? " — nouvelles constantes actives partout"
-            : " — le tenant garde son titre"
-        let l3 = "Champion : sélection "
-            + "\(num(ch, "score_selection")) % · strict "
-            + "\(num(ch, "score_strict")) %" + verdict
-        return VStack(alignment: .leading, spacing: 2) {
-            Text(l1)
-            Text(l2)
-            Text(l3)
-        }
-        .font(.system(size: 11.5, design: .monospaced))
-        .padding(8)
-        .background(Color.secondary.opacity(0.08))
-    }
-
-    /// Carte du méga-tournoi (build 144) :
-    /// l'arène (photo 67, pleine précision), les
-    /// séries sur la sélection et le verdict du
-    /// strict. Chaînes pré-calculées avant la
-    /// vue (leçon des builds 143-144).
-    private func megaCard(_ m: [String: Any])
-        -> some View {
-        func n3(_ d: [String: Any]?, _ k: String)
-            -> String {
-            guard let v = (d?[k] as? NSNumber)?
-                .doubleValue
-            else { return "—" }
-            return String(format: "%.3f", v)
-        }
-        func n2(_ d: [String: Any]?, _ k: String)
-            -> String {
-            guard let v = (d?[k] as? NSNumber)?
-                .doubleValue
-            else { return "—" }
-            return String(format: "%.2f", v)
-        }
-        let photo = (m["photo"] as? NSNumber)?
-            .intValue ?? 0
-        let faits = (m["evalues"] as? NSNumber)?
-            .intValue ?? 0
-        let budget = (m["budget"] as? NSNumber)?
-            .intValue ?? 0
-        let termine = (m["termine"] as? Bool)
+        let res = (t["resultats"]
+            as? [[String: Any]]) ?? []
+        let total = ((t["yeux"] as? [Any])?.count
+            ?? 7)
+            * ((t["tolerances"] as? [Any])?.count
+            ?? 5)
+        let termine = (t["termine"] as? Bool)
             ?? false
-        let arene = m["arene"] as? [String: Any]
-        let strc = m["strict"] as? [String: Any]
-        let gag = m["gagnant"] as? [String: Any]
-        let nouveau = (m["nouveau_champion"]
-            as? Bool) ?? false
-        let selT = (m["tenant_selection"]
-            as? NSNumber).map {
-            String(format: "%.2f", $0.doubleValue)
-        } ?? "—"
-        let l1 = "Méga-tournoi — photo \(photo)"
-            + " · \(faits)/\(budget) enfants"
-            + (termine ? ""
-               : " · en cours (point de contrôle)")
-        let l2 = "Arène : défauts "
-            + "\(n3(arene, "defauts")) % · tenant "
-            + "\(n3(arene, "tenant")) % · meilleur "
-            + "\(n3(arene, "meilleur")) %"
-        var l3 = ""
-        if termine {
-            if nouveau, let g = gag {
-                l3 = "Séries : sélection "
-                    + "\(selT) → "
-                    + "\(n2(g, "score_selection")) %"
-                    + " · strict "
-                    + "\(n2(strc, "tenant")) → "
-                    + "\(n2(strc, "gagnant")) %"
-                    + " — nouveau champion"
-            } else {
-                l3 = "Séries : le tenant garde son "
-                    + "titre (sélection \(selT) %)"
+        var l1 = "Grand tournoi d'œil — \(genere)"
+            + " · \(res.count)/\(total) combinaisons"
+        if !termine { l1 += " (en cours)" }
+        let podium = res
+            .filter {
+                $0["score_selection_pct"] is NSNumber
             }
+            .sorted {
+                (($0["score_selection_pct"]
+                    as? NSNumber)?.doubleValue ?? 999)
+                < (($1["score_selection_pct"]
+                    as? NSNumber)?.doubleValue ?? 999)
+            }
+            .prefix(3)
+        var lignes: [String] = [l1]
+        for (i, r) in podium.enumerated() {
+            lignes.append(
+                "\(i + 1). œil \(entier(r, "taille"))"
+                + " · tol \(entier(r, "tolerance"))"
+                + " — score "
+                + "\(num(r, "score_selection_pct")) %"
+                + " (moy "
+                + "\(num(r, "strict_servi_moyenne_pct"))"
+                + " · pire "
+                + "\(num(r, "strict_servi_pire_pct"))"
+                + " · époque "
+                + "\(entier(r, "meilleure_epoque")))")
+        }
+        if let g = t["gagnant"] as? [String: Any] {
+            lignes.append(
+                "Gagnant : œil \(entier(g, "taille"))"
+                + " · tolérance "
+                + "\(entier(g, "tolerance"))"
+                + " — score "
+                + "\(num(g, "score_selection_pct")) %")
         }
         return VStack(alignment: .leading, spacing: 2) {
-            Text(l1)
-            Text(l2)
-            if !l3.isEmpty { Text(l3) }
-        }
-        .font(.system(size: 11.5, design: .monospaced))
-        .padding(8)
-        .background(Color.secondary.opacity(0.08))
-    }
-
-    /// Carte de l'écart oracle (build 145) :
-    /// le meilleur tenant unique contre le
-    /// meilleur choix par photo, sur la
-    /// sélection et au strict (plafond
-    /// théorique, pas un score atteignable).
-    private func oracleCard(_ o: [String: Any])
-        -> some View {
-        func n2(_ d: [String: Any]?, _ k: String)
-            -> String {
-            guard let v = (d?[k] as? NSNumber)?
-                .doubleValue
-            else { return "—" }
-            return String(format: "%.2f", v)
-        }
-        func n4(_ d: [String: Any]?, _ k: String)
-            -> String {
-            guard let v = (d?[k] as? NSNumber)?
-                .doubleValue
-            else { return "—" }
-            return String(format: "%.4f", v)
-        }
-        let port = (o["portefeuille"] as? [String])?
-            .count ?? 0
-        let sel = o["selection"] as? [String: Any]
-        let selTen = sel?["tenants"]
-            as? [String: Any]
-        let ens = o["ensembles"] as? [String: Any]
-        let strc = ens?["strict"] as? [String: Any]
-        let strTen = strc?["tenants"]
-            as? [String: Any]
-        let l1 = "Écart oracle — portefeuille "
-            + "de \(port) tenants"
-        let l2 = "Sélection : champion "
-            + "\(n4(selTen, "champion")) → oracle "
-            + "\(n4(sel, "oracle")) %"
-            + " (défauts+champion : "
-            + "\(n4(sel, "oracle_2")) %)"
-        let l3 = "Strict : champion "
-            + "\(n4(strTen, "champion")) → oracle "
-            + "\(n4(strc, "oracle")) %"
-            + " — plafond théorique"
-        return VStack(alignment: .leading,
-                      spacing: 2) {
-            Text(l1)
-            Text(l2)
-            Text(l3)
+            ForEach(Array(lignes.enumerated()),
+                    id: \.offset) { _, l in
+                Text(l)
+            }
         }
         .font(.system(size: 11.5, design: .monospaced))
         .padding(8)
@@ -599,88 +489,26 @@ struct ContoursView: View {
                 + serviSuffix(st))
             lignes += details(st)
         }
-        if let t = runner.tournoiRapport {
-            let ten = t["tenant"] as? [String: Any]
-            let ch = t["champion"] as? [String: Any]
-            let tGen = (t["genere"] as? String) ?? "?"
-            let tEval = (t["evaluations"] as? NSNumber)?
-                .intValue ?? 0
-            let selT = n(ten, "score_selection")
-            let selC = n(ch, "score_selection")
-            let strT = n(ten, "score_strict")
-            let strC = n(ch, "score_strict")
-            var tl = "Tournoi des constantes (\(tGen)"
-                + " · \(tEval) évaluations) : sélection "
-                + "\(selT) → \(selC) % · strict "
-                + "\(strT) → \(strC) %"
-            if (ch?["nouveau"] as? Bool) == true {
-                tl += " — champion actif"
-            } else {
-                tl += " — le tenant garde son titre"
+        if let t = runner.tournoiOeilRapport {
+            let res = (t["resultats"]
+                as? [[String: Any]]) ?? []
+            let tGen = (t["genere"] as? String)
+                ?? "?"
+            var tl = "Grand tournoi d'œil (\(tGen)"
+                + " · \(res.count)/35 combinaisons)"
+            if let g = t["gagnant"]
+                as? [String: Any] {
+                let gT = (g["taille"] as? NSNumber)?
+                    .intValue ?? 0
+                let gTol = (g["tolerance"]
+                    as? NSNumber)?.intValue ?? 0
+                tl += " : gagnant œil \(gT)"
+                    + " · tolérance \(gTol) — score "
+                    + "\(n(g, "score_selection_pct")) %"
             }
             lignes.append(tl)
         }
-        if let mg = runner.megaRapport {
-            let mPhoto = (mg["photo"] as? NSNumber)?
-                .intValue ?? 0
-            let mEval = (mg["evalues"]
-                as? NSNumber)?.intValue ?? 0
-            let mArene = mg["arene"]
-                as? [String: Any]
-            let mStrc = mg["strict"]
-                as? [String: Any]
-            let mGag = mg["gagnant"]
-                as? [String: Any]
-            let aDef = n(mArene, "defauts")
-            let aBest = n(mArene, "meilleur")
-            var ml = "Méga-tournoi (photo "
-                + "\(mPhoto) · \(mEval) enfants) : "
-                + "arène \(aDef) → \(aBest) %"
-            if let g = mGag {
-                let selT2 = (mg["tenant_selection"]
-                    as? NSNumber).map {
-                    String(format: "%.2f",
-                           $0.doubleValue)
-                } ?? "—"
-                let selG = n(g, "score_selection")
-                let stT = n(mStrc, "tenant")
-                let stG = n(mStrc, "gagnant")
-                ml += " · sélection \(selT2) → "
-                    + "\(selG) % · strict "
-                    + "\(stT) → \(stG) %"
-                if (mg["nouveau_champion"]
-                    as? Bool) == true {
-                    ml += " — nouveau champion (méga)"
-                } else {
-                    ml += " — le tenant garde "
-                        + "son titre"
-                }
-            }
-            lignes.append(ml)
-        }
-        if let oc = runner.oracleRapport {
-            let oPort = (oc["portefeuille"]
-                as? [String])?.count ?? 0
-            let oSel = oc["selection"]
-                as? [String: Any]
-            let oSelTen = oSel?["tenants"]
-                as? [String: Any]
-            let oEns = oc["ensembles"]
-                as? [String: Any]
-            let oStr = oEns?["strict"]
-                as? [String: Any]
-            let oStrTen = oStr?["tenants"]
-                as? [String: Any]
-            let ol = "Écart oracle (\(oPort) "
-                + "tenants) : sélection champion "
-                + "\(n(oSelTen, "champion")) → "
-                + "oracle \(n(oSel, "oracle")) %"
-                + " · strict "
-                + "\(n(oStrTen, "champion")) → "
-                + "\(n(oStr, "oracle")) %"
-                + " — plafond théorique"
-            lignes.append(ol)
-        }
+
         let v = verdictTexte(dev: dev, box: box)
         if !v.isEmpty { lignes.append(v) }
         return lignes.joined(separator: "\n")
