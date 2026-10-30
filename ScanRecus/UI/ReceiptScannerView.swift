@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import SwiftUI
+import Vision
 
 /// NOUVEAU SCANNER (build 158, 2026-10-30) — le premier onglet
 /// devient une capture SIMPLE, selon le design de Grégoire :
@@ -10,6 +11,16 @@ import SwiftUI
 /// de l'app Gestion. Le traceur et le jeu du lasso sont mis
 /// de côté ; le scanner composite continue de servir les
 /// autres sections, inchangées.
+///
+/// BUILD 159 (2026-10-30) : la DÉTECTION AUTOMATIQUE revient.
+/// Grégoire tient le reçu à deux mains — impossible de peser
+/// sur le déclencheur. Le capteur d'image fixe juge donc
+/// chaque image au critère éprouvé du scanner composite
+/// (papier + texte + disposition stable, logique pure :
+/// ReceiptAutoTrigger) et photographie tout seul dès que la
+/// scène est stable. Le bouton déclencheur reste, pour les
+/// fois où une main est libre ; la détection se désactive
+/// par un interrupteur du panneau (persisté).
 
 // MARK: - Routeur de frames
 
@@ -49,9 +60,19 @@ final class FrameRouter: NSObject,
 /// Reçoit le flux vidéo et garde la dernière image convertie
 /// en CGImage : le « déclencheur » la photographie telle
 /// quelle. UNE image fixe, nette autant que la caméra sait
-/// l'être à son meilleur format — pas de composite, pas de
-/// détection. Conversion étranglée (~8/s) : photographier ne
-/// doit pas coûter un flux plein cadre en continu.
+/// l'être à son meilleur format — pas de composite.
+/// Conversion étranglée (~8/s) : photographier ne doit pas
+/// coûter un flux plein cadre en continu.
+///
+/// DÉTECTION AUTOMATIQUE (build 159) : quand elle est armée
+/// (phase capture, interrupteur ouvert), chaque image
+/// convertie est aussi jugée — zones de texte Vision (le
+/// reçu peut être présenté de côté : les orientations
+/// pivotées sont essayées, comme au scanner composite) et
+/// clarté du papier — puis soumise au déclencheur pur
+/// (ReceiptAutoTrigger). Au tir, `onAutoTrigger` part sur le
+/// thread principal ; les changements de verdict partent par
+/// `onAutoStatus`, seulement quand le texte change.
 final class StillFrameGrabber: NSObject,
     AVCaptureVideoDataOutputSampleBufferDelegate,
     @unchecked Sendable {
@@ -62,6 +83,45 @@ final class StillFrameGrabber: NSObject,
     private var lastConvert = Date.distantPast
     private let ciContext = CIContext(
         options: [.useSoftwareRenderer: false])
+    private let graySpace = CGColorSpaceCreateDeviceGray()
+
+    // Détection auto : état lu/écrit sous le verrou, sauf le
+    // déclencheur et l'orientation préférée, qui ne vivent
+    // que sur la file des frames.
+    private var armedFlag = false
+    private var resetPending = false
+    private var trigger = ReceiptAutoTrigger()
+    private var preferredOrientation:
+        CGImagePropertyOrientation = .up
+    private var lastStatusSent: String?
+
+    /// Posés une fois par la session (thread principal).
+    var onAutoTrigger: (() -> Void)?
+    var onAutoStatus: ((String) -> Void)?
+
+    /// La détection juge les images quand vrai. Faux pendant
+    /// l'ajustement : aucun calcul Vision ne brûle pour rien.
+    var armed: Bool {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return armedFlag
+        }
+        set {
+            lock.lock()
+            armedFlag = newValue
+            lock.unlock()
+        }
+    }
+
+    /// Réarme le déclencheur (oublie disposition, compte et
+    /// verrou de tir) à la prochaine image — le reset lui-même
+    /// se fait sur la file des frames, là où vit le déclencheur.
+    func rearmAuto() {
+        lock.lock()
+        resetPending = true
+        lock.unlock()
+    }
 
     var hasFrame: Bool {
         lock.lock()
@@ -92,7 +152,157 @@ final class StillFrameGrabber: NSObject,
             image, from: image.extent) else { return }
         lock.lock()
         latest = cg
+        let isArmed = armedFlag
+        let doReset = resetPending
+        resetPending = false
         lock.unlock()
+        guard isArmed else { return }
+        if doReset {
+            trigger.reset()
+            lastStatusSent = nil
+        }
+        runAutoDetection(buffer: buffer, frame: image)
+    }
+
+    // MARK: - Détection automatique (file des frames)
+
+    /// Juge l'image courante : texte + clarté → déclencheur.
+    /// Au tir, la session est prévenue sur le thread principal
+    /// (elle photographiera l'image gardée, qui est celle-ci
+    /// ou la suivante — la scène est stable par construction).
+    private func runAutoDetection(buffer: CVPixelBuffer,
+                                  frame: CIImage) {
+        let boxes = detectEvidenceBoxes(buffer: buffer,
+                                        frame: frame)
+        let bright = grayPercentile65(frame)
+        if trigger.evaluate(boxes: boxes, brightness: bright) {
+            DispatchQueue.main.async { [weak self] in
+                self?.onAutoTrigger?()
+            }
+            return
+        }
+        let message: String
+        switch trigger.reading {
+        case .noEvidence(let n):
+            message = n == 0
+                ? "Présentez un reçu à la caméra…"
+                : "Du texte est visible, mais pas assez de "
+                    + "papier blanc — approchez le reçu…"
+        case .unstable:
+            message = "Papier et texte détectés — tenez le "
+                + "reçu tranquille…"
+        case .stabilizing(let count, let needed):
+            message = "Papier et texte détectés — "
+                + "stabilisez… (\(count)/\(needed))"
+        }
+        guard message != lastStatusSent else { return }
+        lastStatusSent = message
+        DispatchQueue.main.async { [weak self] in
+            self?.onAutoStatus?(message)
+        }
+    }
+
+    /// Zones de texte pour la preuve : l'orientation préférée
+    /// d'abord, puis les autres ; la première à ≥ 5 boîtes
+    /// gagne et devient la préférée (un reçu présenté DE CÔTÉ
+    /// rend le détecteur presque aveugle sur l'image telle
+    /// quelle — repris du scanner composite).
+    private func detectEvidenceBoxes(buffer: CVPixelBuffer,
+                                     frame: CIImage) -> [CGRect] {
+        var order: [CGImagePropertyOrientation] =
+            [preferredOrientation]
+        for o in [CGImagePropertyOrientation.up, .right, .left]
+        where o != preferredOrientation {
+            order.append(o)
+        }
+        var best: [CGRect] = []
+        for o in order {
+            let boxes = o == .up
+                ? detectTextBoxes(buffer: buffer)
+                : detectTextBoxes(frame: frame, orientation: o)
+            if boxes.count > best.count { best = boxes }
+            if boxes.count >= 5 {
+                preferredOrientation = o
+                return boxes
+            }
+        }
+        return best
+    }
+
+    /// Zones de texte détectées par Vision (boîtes
+    /// normalisées) — détection seule, aucune lecture.
+    private func detectTextBoxes(buffer: CVPixelBuffer)
+    -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(
+            cvPixelBuffer: buffer, options: [:])
+        guard (try? handler.perform([request])) != nil
+        else { return [] }
+        return (request.results ?? []).map { $0.boundingBox }
+    }
+
+    /// Boîtes de texte d'une image pivotée de 90°, ramenées
+    /// dans l'espace normalisé de l'image d'origine (les axes
+    /// s'échangent — formules de transposition EXIF, reprises
+    /// du scanner composite).
+    private func detectTextBoxes(
+        frame: CIImage,
+        orientation: CGImagePropertyOrientation) -> [CGRect] {
+        let request = VNDetectTextRectanglesRequest()
+        request.reportCharacterBoxes = false
+        let handler = VNImageRequestHandler(
+            ciImage: frame.oriented(orientation), options: [:])
+        guard (try? handler.perform([request])) != nil
+        else { return [] }
+        return (request.results ?? []).map {
+            rawSpaceBox($0.boundingBox, orientation: orientation)
+        }
+    }
+
+    /// Boîte normalisée lue dans une image pivotée → boîte
+    /// normalisée de l'image d'origine (.left/.right).
+    private func rawSpaceBox(
+        _ box: CGRect,
+        orientation: CGImagePropertyOrientation) -> CGRect {
+        switch orientation {
+        case .right:
+            return CGRect(x: 1 - box.maxY, y: box.minX,
+                          width: box.height, height: box.width)
+        case .left:
+            return CGRect(x: box.minY, y: 1 - box.maxX,
+                          width: box.height, height: box.width)
+        default:
+            return box
+        }
+    }
+
+    /// Percentile 65 de gris de l'image, sur un rendu réduit
+    /// (≤ 240 px de grand côté) — la « grande surface claire »
+    /// du critère papier (repris du scanner composite).
+    private func grayPercentile65(_ image: CIImage) -> CGFloat {
+        let longest = max(image.extent.width, image.extent.height)
+        guard longest > 0 else { return 0 }
+        let k = min(1, 240 / longest)
+        let small = image.transformed(
+            by: CGAffineTransform(scaleX: k, y: k))
+        let w = max(1, Int(small.extent.width.rounded()))
+        let h = max(1, Int(small.extent.height.rounded()))
+        var buf = [UInt8](repeating: 0, count: w * h)
+        buf.withUnsafeMutableBytes { raw in
+            ciContext.render(small, toBitmap: raw.baseAddress!,
+                             rowBytes: w, bounds: small.extent,
+                             format: .L8, colorSpace: graySpace)
+        }
+        var hist = [Int](repeating: 0, count: 256)
+        for v in buf { hist[Int(v)] += 1 }
+        let target = 0.65 * Double(buf.count)
+        var acc = 0.0
+        for i in 0..<256 {
+            acc += Double(hist[i])
+            if acc >= target { return CGFloat(i) / 255 }
+        }
+        return 1
     }
 }
 
@@ -118,10 +328,69 @@ final class ReceiptScanSession {
     private(set) var outboxCount = 0
     private(set) var isFlushing = false
 
+    /// Détection automatique (build 159) : l'interrupteur du
+    /// panneau, persisté sur ce Mac. À l'ouverture, le capteur
+    /// photographie tout seul dès qu'un reçu stable est là ;
+    /// à la fermeture, seul le bouton déclencheur photographie.
+    var autoDetectionEnabled = true {
+        didSet {
+            UserDefaults.standard.set(
+                autoDetectionEnabled,
+                forKey: "receiptAutoDetection")
+            applyAutoArming()
+        }
+    }
+
     let grabber = StillFrameGrabber()
     let outbox = ReceiptOutbox()
 
-    init() { refreshOutboxCount() }
+    init() {
+        autoDetectionEnabled = UserDefaults.standard.object(
+            forKey: "receiptAutoDetection") as? Bool ?? true
+        refreshOutboxCount()
+        grabber.onAutoTrigger = { [weak self] in
+            self?.autoShutter()
+        }
+        grabber.onAutoStatus = { [weak self] message in
+            guard let self, self.phase == .capture else { return }
+            self.statusMessage = message
+        }
+        // L'affectation d'init ne passe pas par didSet :
+        // armer explicitement si l'interrupteur est ouvert.
+        grabber.armed = autoDetectionEnabled
+        if autoDetectionEnabled {
+            statusMessage = "Présentez un reçu : il se "
+                + "photographiera tout seul dès qu'il sera stable."
+        }
+    }
+
+    /// Ouverture/fermeture de la détection selon
+    /// l'interrupteur et la phase : armée seulement en
+    /// capture, toujours réarmée à zéro quand elle s'arme.
+    private func applyAutoArming() {
+        if autoDetectionEnabled && phase == .capture {
+            grabber.rearmAuto()
+            grabber.armed = true
+            statusMessage = "Présentez un reçu : il se "
+                + "photographiera tout seul dès qu'il sera stable."
+        } else {
+            grabber.armed = false
+            if phase == .capture {
+                statusMessage = "Présentez un reçu devant la "
+                    + "caméra, puis déclenchez."
+            }
+        }
+    }
+
+    /// Tir automatique : même geste que le bouton, venu du
+    /// capteur. Ignoré hors phase capture (un tir en vol
+    /// pendant l'ajustement ne doit rien photographier).
+    func autoShutter() {
+        guard phase == .capture, autoDetectionEnabled else {
+            return
+        }
+        shutter()
+    }
 
     /// Déclencheur : photographie l'image courante de la caméra.
     func shutter() {
@@ -130,6 +399,7 @@ final class ReceiptScanSession {
                 + "— un petit instant…"
             return
         }
+        grabber.armed = false
         photo = frame
         angleDegrees = 0
         cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -139,12 +409,14 @@ final class ReceiptScanSession {
             + "aux ciseaux si besoin, puis « Next »."
     }
 
-    /// « Reprendre la photo » : jette l'image courante.
+    /// « Reprendre la photo » : jette l'image courante et
+    /// réarme la détection (le prochain reçu repart de zéro).
     func retake() {
         photo = nil
         phase = .capture
         statusMessage = "Présentez un reçu devant la caméra, "
             + "puis déclenchez."
+        applyAutoArming()
     }
 
     /// « Next » : rend le JPEG (rotation + crop + compression),
@@ -187,6 +459,18 @@ final class ReceiptScanSession {
             : "Reçu \(numero) gardé dans la file d'envoi — "
                 + "l'envoi reprendra tout seul dès que le "
                 + "réseau ou le serveur répondra."
+        // Réarmer la détection, mais pas tout de suite : le
+        // message de confirmation doit rester lisible un
+        // moment avant que la chasse au prochain reçu
+        // reprenne ses propres messages.
+        if autoDetectionEnabled {
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 2.5) { [weak self] in
+                guard let self, self.phase == .capture
+                else { return }
+                self.applyAutoArming()
+            }
+        }
     }
 
     /// Tente de vider la file d'envoi (au lancement, à chaque
@@ -251,25 +535,44 @@ struct ReceiptScannerStage: View {
         .coordinateSpace(name: "receiptStage")
     }
 
-    // Capture : le déclencheur, par-dessus l'aperçu partagé.
+    // Capture : l'état de la détection en haut (visible
+    // pendant qu'il tient le reçu à deux mains — « stabilisez…
+    // (2/3) » lui dit où en est le compte), le déclencheur
+    // manuel en bas, par-dessus l'aperçu partagé.
     private var captureContent: some View {
-        VStack {
-            Spacer()
-            Button {
-                session.shutter()
-            } label: {
-                ZStack {
-                    Circle()
-                        .stroke(Color.white, lineWidth: 4)
-                        .frame(width: 76, height: 76)
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: 60, height: 60)
+        ZStack {
+            VStack {
+                HStack {
+                    Text(session.statusMessage)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.black.opacity(0.55))
+                        .cornerRadius(8)
+                    Spacer()
                 }
-                .shadow(color: .black.opacity(0.5), radius: 4)
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .padding(.bottom, 26)
+            .padding(12)
+            VStack {
+                Spacer()
+                Button {
+                    session.shutter()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white, lineWidth: 4)
+                            .frame(width: 76, height: 76)
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 60, height: 60)
+                    }
+                    .shadow(color: .black.opacity(0.5), radius: 4)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 26)
+            }
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
@@ -504,13 +807,21 @@ private enum CropHandle: CaseIterable {
 /// jeton, gardé sur ce Mac seulement — jamais dans le code,
 /// le dépôt est public).
 struct ReceiptScannerPanel: View {
-    var session: ReceiptScanSession
+    @Bindable var session: ReceiptScanSession
     @AppStorage("receiptUploadToken") private var uploadToken = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(session.statusMessage)
                 .font(.system(size: 15, weight: .medium))
+            Toggle(isOn: $session.autoDetectionEnabled) {
+                Text("Détection automatique — le reçu se "
+                    + "photographie tout seul dès qu'il est "
+                    + "stable (les deux mains restent sur le reçu)")
+                    .font(.system(size: 13.5))
+            }
+            .toggleStyle(.switch)
+            .frame(maxWidth: 560, alignment: .leading)
             if session.outboxCount > 0 {
                 HStack(spacing: 10) {
                     Text("📤 \(session.outboxCount) reçu(s) "
