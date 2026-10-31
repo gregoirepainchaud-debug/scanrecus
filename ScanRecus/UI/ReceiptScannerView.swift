@@ -34,24 +34,36 @@ import Vision
 
 /// Aiguille les images de la caméra : vers le scanner
 /// composite dans les sections héritées (comportement
-/// d'origine, inchangé), vers le capteur d'image fixe dans la
-/// section Scanner. CameraManager ne retient pas son délégué :
-/// c'est la vue qui retient le routeur, qui ne tient les deux
-/// consommateurs que faiblement.
+/// d'origine, inchangé), vers le capteur d'image fixe du
+/// Scanner dans la section Scanner, vers CELUI DU SCANNER 2
+/// (build 165) dans la section Scanner 2 — chaque scanner a
+/// son propre capteur, un seul reçoit les frames à la fois.
+/// CameraManager ne retient pas son délégué : c'est la vue
+/// qui retient le routeur, qui ne tient les consommateurs
+/// que faiblement.
 final class FrameRouter: NSObject,
     AVCaptureVideoDataOutputSampleBufferDelegate {
 
     weak var legacy: CompositeScanner?
     weak var grabber: StillFrameGrabber?
+    weak var grabber2: StillFrameGrabber?
     /// Vrai dans la section Scanner (nouveau flux).
     var receiptMode = true
+    /// Vrai dans la section Scanner 2 (build 165) — prioritaire
+    /// sur receiptMode : les deux sections ne sont jamais
+    /// actives en même temps, mais l'ordre tranche sans débat.
+    var receipt2Mode = false
 
     func captureOutput(
         _ output: AVCaptureOutput,
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        if receiptMode {
+        if receipt2Mode {
+            grabber2?.captureOutput(output,
+                                    didOutput: sampleBuffer,
+                                    from: connection)
+        } else if receiptMode {
             grabber?.captureOutput(output,
                                    didOutput: sampleBuffer,
                                    from: connection)

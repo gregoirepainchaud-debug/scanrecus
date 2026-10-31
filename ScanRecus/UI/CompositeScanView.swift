@@ -38,6 +38,11 @@ struct CompositeScanView: View {
     /// section Scanner, vers le scanner composite partout
     /// ailleurs (sections héritées inchangées).
     @State private var receiptSession = ReceiptScanSession()
+    /// SCANNER 2 (build 165) : la session de la section
+    /// voisine — capture automatique, aperçu brut,
+    /// envoi du scan COMPLET sans préparation
+    /// (ReceiptScanner2View.swift).
+    @State private var receipt2Session = ReceiptScan2Session()
     @State private var frameRouter = FrameRouter()
     /// Aperçu commutable (choix mémorisé, partagé avec l'ancien écran) :
     /// vrai = miroir (déplacements intuitifs, texte inversé),
@@ -66,7 +71,7 @@ struct CompositeScanView: View {
     /// pas encore codé (il le sera pendant que Grégoire
     /// génère le matériel).
     private enum AppSection {
-        case scanner, materiel, entrainement, juge,
+        case scanner, scanner2, materiel, entrainement, juge,
              contours
     }
     @State private var appSection: AppSection = .scanner
@@ -127,7 +132,8 @@ struct CompositeScanView: View {
                     CameraPreviewView(session: camera.session)
                         .scaleEffect(x: previewMirrored ? -1 : 1, y: 1,
                                      anchor: .center)
-                    if !isDone, appSection != .scanner {
+                    if !isDone, appSection != .scanner,
+                       appSection != .scanner2 {
                         ScanOverlayView(quad: scanner.quad,
                                         totalBox: nil,
                                         hoverRect: nil,
@@ -169,7 +175,8 @@ struct CompositeScanView: View {
                             containerSize: geo.size)
                     }
                     if isDone, appSection != .entrainement,
-                       appSection != .scanner {
+                       appSection != .scanner,
+                       appSection != .scanner2 {
                         // Le scan figé, par-dessus l'aperçu
                         // (caméra déjà coupée) : d'abord la
                         // meilleure image retenue pendant que
@@ -213,6 +220,11 @@ struct CompositeScanView: View {
                             session: receiptSession,
                             containerSize: geo.size)
                     }
+                    if appSection == .scanner2 {
+                        ReceiptScanner2Stage(
+                            session: receipt2Session,
+                            containerSize: geo.size)
+                    }
                 }
             }
             .frame(minHeight: 220)
@@ -244,6 +256,8 @@ struct CompositeScanView: View {
                         HStack(alignment: .center, spacing: 14) {
                         Picker("", selection: $appSection) {
                             Text("Scanner").tag(AppSection.scanner)
+                            Text("Scanner 2")
+                                .tag(AppSection.scanner2)
                             Text("Générer matériel")
                                 .tag(AppSection.materiel)
                             Text("Entraînement IA")
@@ -267,17 +281,22 @@ struct CompositeScanView: View {
                         // (Proposeur.cleIAChoisie) reste en vigueur
                         // pour le jeu du lasso.)
 
-                        if appSection != .scanner {
+                        if appSection != .scanner,
+                           appSection != .scanner2 {
                             Text(scanner.statusText)
                                 .font(.system(size: 16, weight: .medium))
                         }
 
-                        if appSection != .scanner {
+                        if appSection != .scanner,
+                           appSection != .scanner2 {
                             journalRow
                         }
 
                         if appSection == .scanner {
                             ReceiptScannerPanel(session: receiptSession)
+                        } else if appSection == .scanner2 {
+                            ReceiptScanner2Panel(
+                                session: receipt2Session)
                         } else if appSection == .materiel {
                             materielPanel
                         } else if appSection == .entrainement {
@@ -291,7 +310,8 @@ struct CompositeScanView: View {
                             extractionPanel(ex)
                         }
 
-                        if appSection != .scanner {
+                        if appSection != .scanner,
+                           appSection != .scanner2 {
                         HStack(spacing: 12) {
                             Button("Next scan") { nextScan() }
                                 .controlSize(.large)
@@ -336,7 +356,9 @@ struct CompositeScanView: View {
             rafraichirModelesIA()
             frameRouter.legacy = scanner
             frameRouter.grabber = receiptSession.grabber
+            frameRouter.grabber2 = receipt2Session.grabber
             frameRouter.receiptMode = (appSection == .scanner)
+            frameRouter.receipt2Mode = (appSection == .scanner2)
             camera.start(delegate: frameRouter)
             // Plein écran dès l'ouverture, toujours (demandé par
             // Grégoire le 2026-10-19) — indépendant du panneau
@@ -349,6 +371,7 @@ struct CompositeScanView: View {
                 rafraichirModelesIA()
             }
             frameRouter.receiptMode = (section == .scanner)
+            frameRouter.receipt2Mode = (section == .scanner2)
             scanner.setBankingMode(section == .materiel)
             if section == .entrainement
                 || section == .juge {
