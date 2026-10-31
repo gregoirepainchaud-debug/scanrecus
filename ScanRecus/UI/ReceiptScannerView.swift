@@ -751,12 +751,17 @@ struct ReceiptScannerStage: View {
         }
     }
 
-    /// Grille guide mince, FIXE à l'écran (elle ne tourne pas
-    /// avec la photo) : c'est contre ses lignes qu'on aligne
-    /// le texte du reçu.
+    /// Grille guide, FIXE à l'écran (elle ne tourne pas avec
+    /// la photo) : c'est contre ses lignes qu'on aligne le
+    /// texte du reçu. Build 163 (réglage de Grégoire) : deux
+    /// fois plus dense (12 pas), lignes CHARCOAL — lisibles
+    /// sur le papier blanc, là où le blanc se perdait — et
+    /// 1 px plus larges (1,75).
     private func gridOverlay(fit: CGRect) -> some View {
         Canvas { context, _ in
-            let steps = 6
+            let charcoal = Color(red: 0.16, green: 0.18,
+                                 blue: 0.20)
+            let steps = 12
             var lines = Path()
             for i in 1..<steps {
                 let x = fit.minX + fit.width * CGFloat(i)
@@ -769,19 +774,19 @@ struct ReceiptScannerStage: View {
                 lines.addLine(to: CGPoint(x: fit.maxX, y: y))
             }
             context.stroke(lines,
-                           with: .color(.white.opacity(0.25)),
-                           lineWidth: 0.75)
+                           with: .color(charcoal.opacity(0.45)),
+                           lineWidth: 1.75)
             var cross = Path()
             cross.move(to: CGPoint(x: fit.midX, y: fit.minY))
             cross.addLine(to: CGPoint(x: fit.midX, y: fit.maxY))
             cross.move(to: CGPoint(x: fit.minX, y: fit.midY))
             cross.addLine(to: CGPoint(x: fit.maxX, y: fit.midY))
             context.stroke(cross,
-                           with: .color(.white.opacity(0.45)),
-                           lineWidth: 0.75)
+                           with: .color(charcoal.opacity(0.7)),
+                           lineWidth: 1.75)
             context.stroke(Path(fit),
-                           with: .color(.white.opacity(0.45)),
-                           lineWidth: 0.75)
+                           with: .color(charcoal.opacity(0.7)),
+                           lineWidth: 1.75)
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
