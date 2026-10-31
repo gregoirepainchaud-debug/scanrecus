@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CoreImage
 import SwiftUI
@@ -349,6 +350,7 @@ final class ReceiptScanSession {
 
     let grabber = StillFrameGrabber()
     let outbox = ReceiptOutbox()
+    let brutOutbox = ReceiptBrutOutbox()
 
     init() {
         autoDetectionEnabled = UserDefaults.standard.object(
@@ -463,6 +465,15 @@ final class ReceiptScanSession {
                 + error.localizedDescription
             return
         }
+        // La photo brute + le « chemin » (angle + cadre) pour
+        // la banque d'entraînement : au mieux — un échec ici
+        // ne doit jamais coûter le reçu, déjà en sûreté.
+        if let brut = ReceiptPhotoRenderer.renderRawJPEG(
+            photo: photo) {
+            try? brutOutbox.enqueue(
+                jpeg: brut, numero: numero,
+                angleDegrees: angleDegrees, crop: cropNormalized)
+        }
         refreshOutboxCount()
         self.photo = nil
         phase = .capture
@@ -499,19 +510,34 @@ final class ReceiptScanSession {
             isFlushing = false
             refreshOutboxCount()
         }
-        return await outbox.flush(
+        let sent = await outbox.flush(
             send: ReceiptUploader.sender(token: token))
+        // Les bruts d'entraînement suivent, au mieux : leur
+        // sort ne change rien au verdict des reçus.
+        _ = await brutOutbox.flush(
+            send: ReceiptUploader.brutSender(token: token))
+        return sent
     }
 
-    /// Le bouton « Réessayer l'envoi » du panneau.
+    /// Le bouton « Réessayer l'envoi » du panneau : il dit
+    /// TOUJOURS son verdict — un réessai muet a déjà coûté un
+    /// aller-retour de débogage (2026-10-30).
     @MainActor
     func retryFlush(token: String) async {
+        let avant = outboxCount
         let sent = await flush(token: token)
         if !sent.isEmpty {
             statusMessage = outboxCount == 0
                 ? "File d'envoi vidée ✓ (\(sent.count) reçu(s) parti(s))"
                 : "\(sent.count) reçu(s) envoyé(s) — il en "
                     + "reste \(outboxCount) dans la file."
+        } else if avant > 0 {
+            statusMessage = token.trimmingCharacters(
+                in: .whitespacesAndNewlines).isEmpty
+                ? "⚠️ Aucun envoi : le jeton est manquant "
+                    + "(voir « Réglages d'envoi »)."
+                : "⚠️ L'envoi a échoué — jeton refusé ou "
+                    + "réseau muet. Le reçu reste dans la file."
         }
     }
 
@@ -875,6 +901,22 @@ struct ReceiptScannerPanel: View {
                               text: $uploadToken)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 520)
+                    HStack(spacing: 10) {
+                        Button("Coller le jeton") {
+                            if let texte = NSPasteboard.general
+                                .string(forType: .string) {
+                                uploadToken = texte
+                                    .trimmingCharacters(
+                                        in: .whitespacesAndNewlines)
+                            }
+                        }
+                        Text(uploadToken.isEmpty
+                            ? "Aucun jeton présent."
+                            : "Jeton présent : "
+                                + "\(uploadToken.count) caractères.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
                     Text("Destination : la boîte « Reçus » de "
                         + "l'app Gestion (app.gregoirepainchaud.ca). "
                         + "Chaque « Next » y envoie un reçu, "

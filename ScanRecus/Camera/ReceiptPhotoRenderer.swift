@@ -84,4 +84,36 @@ enum ReceiptPhotoRenderer {
         else { return nil }
         return data as Data
     }
+
+    /// La photo BRUTE, sans rotation ni crop (même plafond de
+    /// taille et même qualité que le rendu final) : elle part
+    /// vers la banque d'entraînement avec le « chemin » — l'angle
+    /// et le cadre que Grégoire a choisis — et, une fois le reçu
+    /// révisé, l'échantillon complet servira à apprendre à une
+    /// IA l'orientation et le cadrage.
+    static func renderRawJPEG(photo: CGImage) -> Data? {
+        let source = CIImage(cgImage: photo)
+        let factor = ReceiptGeometry.downscaleFactor(
+            size: source.extent.size, maxLongSide: maxLongSide)
+        var image = source
+        if factor < 1 {
+            image = image.transformed(
+                by: CGAffineTransform(scaleX: factor, y: factor))
+        }
+        let extent = image.extent.integral
+        guard extent.width > 0, extent.height > 0,
+              let cg = context.createCGImage(image, from: extent)
+        else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data, UTType.jpeg.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(
+            destination, cg,
+            [kCGImageDestinationLossyCompressionQuality:
+                jpegQuality] as CFDictionary)
+        guard CGImageDestinationFinalize(destination)
+        else { return nil }
+        return data as Data
+    }
 }
