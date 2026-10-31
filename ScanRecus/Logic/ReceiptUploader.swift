@@ -121,4 +121,42 @@ enum ReceiptUploader {
                              token: token) != .failed
         }
     }
+
+    // ------------------------------------------------ retrait
+
+    static let retirerEndpoint = URL(
+        string: "https://app.gregoirepainchaud.ca/api/recus/retirer")!
+
+    enum RetraitOutcome: Equatable {
+        case retire       // 200 : retiré du serveur
+        case dejaRevise   // 409 : déjà révisé, retrait refusé
+        case introuvable  // 404 : le serveur ne l'a pas (déjà parti)
+        case failed       // réseau, jeton refusé, autre réponse
+    }
+
+    /// Retire un scan raté du serveur (build 162) : la ligne,
+    /// la photo et les bruts sont supprimés là-bas. Le serveur
+    /// refuse (409) un reçu déjà révisé.
+    static func retirer(numero: String, token: String,
+                        session: URLSession = .shared)
+        async -> RetraitOutcome {
+        var request = URLRequest(url: retirerEndpoint)
+        request.httpMethod = "POST"
+        request.setValue(token, forHTTPHeaderField: "X-Recus-Token")
+        request.setValue(numero, forHTTPHeaderField: "X-Recu-Numero")
+        request.timeoutInterval = 30
+        do {
+            let (_, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse
+            else { return .failed }
+            switch http.statusCode {
+            case 200: return .retire
+            case 409: return .dejaRevise
+            case 404: return .introuvable
+            default: return .failed
+            }
+        } catch {
+            return .failed
+        }
+    }
 }

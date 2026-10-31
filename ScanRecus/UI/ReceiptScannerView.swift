@@ -335,6 +335,23 @@ final class ReceiptScanSession {
     private(set) var outboxCount = 0
     private(set) var isFlushing = false
 
+    /// Le dernier scan parti (build 162), persisté sur ce
+    /// Mac : le panneau offre « Reprendre ce scan » — retirer
+    /// un scan raté (de la file s'il y est encore, du serveur
+    /// sinon) pour rescanner le même reçu.
+    var dernierScanNumero: String? {
+        didSet {
+            if let dernierScanNumero {
+                UserDefaults.standard.set(
+                    dernierScanNumero,
+                    forKey: "receiptLastScanNumero")
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: "receiptLastScanNumero")
+            }
+        }
+    }
+
     /// Détection automatique (build 159) : l'interrupteur du
     /// panneau, persisté sur ce Mac. À l'ouverture, le capteur
     /// photographie tout seul dès qu'un reçu stable est là ;
@@ -355,6 +372,8 @@ final class ReceiptScanSession {
     init() {
         autoDetectionEnabled = UserDefaults.standard.object(
             forKey: "receiptAutoDetection") as? Bool ?? true
+        dernierScanNumero = UserDefaults.standard.string(
+            forKey: "receiptLastScanNumero")
         refreshOutboxCount()
         grabber.onAutoTrigger = { [weak self] in
             self?.autoShutter()
@@ -474,6 +493,7 @@ final class ReceiptScanSession {
                 jpeg: brut, numero: numero,
                 angleDegrees: angleDegrees, crop: cropNormalized)
         }
+        dernierScanNumero = numero
         refreshOutboxCount()
         self.photo = nil
         phase = .capture
@@ -543,6 +563,54 @@ final class ReceiptScanSession {
 
     func refreshOutboxCount() {
         outboxCount = outbox.count
+    }
+
+    /// « Reprendre ce scan » (build 162) : retire le dernier
+    /// scan parti — de la file d'envoi s'il y est encore (rien
+    /// n'est jamais parti), du serveur sinon (POST
+    /// /api/recus/retirer) — pour que Grégoire rescanne le
+    /// même reçu. Un reçu déjà RÉVISÉ ne se reprend pas d'ici :
+    /// sa dépense existe, ça se règle dans l'app Gestion.
+    /// Le brut d'entraînement suit le même sort que le reçu.
+    @MainActor
+    func reprendreDernierScan(token: String) async {
+        guard let numero = dernierScanNumero else { return }
+        let token = token.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        if outbox.items().contains(where: { $0.numero == numero }) {
+            outbox.remove(numero: numero)
+            brutOutbox.remove(numero: numero)
+            dernierScanNumero = nil
+            refreshOutboxCount()
+            statusMessage = "Scan \(numero) repris : il était "
+                + "encore dans la file, rien n'est parti. "
+                + "Rescannez le reçu."
+            return
+        }
+        guard !token.isEmpty else {
+            statusMessage = "⚠️ Pour retirer le scan \(numero) "
+                + "du serveur, il faut le jeton — voir "
+                + "« Réglages d'envoi »."
+            return
+        }
+        switch await ReceiptUploader.retirer(
+            numero: numero, token: token) {
+        case .retire, .introuvable:
+            brutOutbox.remove(numero: numero)
+            dernierScanNumero = nil
+            statusMessage = "Scan \(numero) retiré — "
+                + "rescannez le reçu."
+        case .dejaRevise:
+            statusMessage = "⚠️ Le reçu \(numero) est déjà "
+                + "RÉVISÉ : il ne se reprend plus d'ici. Si "
+                + "c'est une erreur, supprimez-le dans "
+                + "l'app Gestion."
+        case .failed:
+            statusMessage = "⚠️ Le retrait du scan \(numero) "
+                + "a échoué (réseau ou serveur muet) — il est "
+                + "toujours dans la boîte. Réessayez, ou "
+                + "supprimez-le dans l'app Gestion."
+        }
     }
 }
 
@@ -889,6 +957,19 @@ struct ReceiptScannerPanel: View {
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }
+                }
+            }
+            if let numero = session.dernierScanNumero {
+                HStack(spacing: 10) {
+                    Text("Dernier scan : \(numero)")
+                        .font(.system(size: 14))
+                    Button("Reprendre ce scan") {
+                        Task {
+                            await session.reprendreDernierScan(
+                                token: uploadToken)
+                        }
+                    }
+                    .disabled(session.isFlushing)
                 }
             }
             DisclosureGroup("Réglages d'envoi") {
