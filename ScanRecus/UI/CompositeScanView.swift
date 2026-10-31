@@ -70,11 +70,30 @@ struct CompositeScanView: View {
     /// ni analyse) ; « Entraînement IA » — annoncé au menu,
     /// pas encore codé (il le sera pendant que Grégoire
     /// génère le matériel).
-    private enum AppSection {
+    /// Valeurs String (build 167) : la section choisie est
+    /// mémorisée dans UserDefaults (voir appSection).
+    private enum AppSection: String {
         case scanner, scanner2, materiel, entrainement, juge,
              contours
     }
-    @State private var appSection: AppSection = .scanner
+    /// La section courante, MÉMORISÉE : l'app rouvre là où
+    /// on l'a laissée. Défaut au premier lancement :
+    /// Scanner 2 — depuis le build 167, c'est la SEULE
+    /// section active tant que « Outils hérités » est
+    /// fermé ; un lancement qui retrouverait une section
+    /// héritée désactivée démarre sur Scanner 2 (voir
+    /// onAppear et le garde d'onChange plus bas).
+    @AppStorage("sectionChoisie") private var appSection:
+        AppSection = .scanner2
+    /// « Outils hérités » (build 167, stabilisation) :
+    /// DÉSACTIVÉ par défaut. Fermé, toutes les sections
+    /// sauf Scanner 2 — Scanner 1 compris — sont GRISES et
+    /// non sélectionnables dans le menu ; leur code et
+    /// leurs vues restent intacts, et cet interrupteur (il
+    /// vit juste sous le menu) les réactive d'un geste.
+    /// Persisté : le choix survit aux relancements.
+    @AppStorage("outilsHeritesActifs")
+    private var outilsHeritesActifs = false
     /// Sélecteur d'IA (build 152) : les IA de
     /// l'atelier (la servie + les archives —
     /// une par époque d'entraînement) et
@@ -255,17 +274,32 @@ struct CompositeScanView: View {
 
                         HStack(alignment: .center, spacing: 14) {
                         Picker("", selection: $appSection) {
+                            // Sections héritées (build
+                            // 167) : GRISES et non
+                            // sélectionnables tant que
+                            // « Outils hérités » est fermé
+                            // — le segment désactivé se
+                            // voit et ne répond ni au clic
+                            // ni aux flèches du clavier ;
+                            // le garde d'onChange, plus
+                            // bas, refuse en plus toute
+                            // sélection programmatique.
                             Text("Scanner").tag(AppSection.scanner)
+                                .disabled(!outilsHeritesActifs)
                             Text("Scanner 2")
                                 .tag(AppSection.scanner2)
                             Text("Générer matériel")
                                 .tag(AppSection.materiel)
+                                .disabled(!outilsHeritesActifs)
                             Text("Entraînement IA")
                                 .tag(AppSection.entrainement)
+                                .disabled(!outilsHeritesActifs)
                             Text("Juge")
                                 .tag(AppSection.juge)
+                                .disabled(!outilsHeritesActifs)
                             Text("Contours")
                                 .tag(AppSection.contours)
+                                .disabled(!outilsHeritesActifs)
                         }
                         .pickerStyle(.segmented)
                         .frame(maxWidth: 560)
@@ -273,6 +307,26 @@ struct CompositeScanView: View {
                             NSApplication.shared.terminate(nil)
                         }
                         .controlSize(.large)
+                        }
+
+                        // « Outils hérités » (build 167) :
+                        // l'interrupteur de réactivation,
+                        // juste sous le menu, visible et
+                        // simple. Fermé (par défaut), les
+                        // sections héritées sont grisées
+                        // ci-dessus ; ouvert, tout
+                        // redevient sélectionnable — rien
+                        // n'a été supprimé.
+                        HStack(spacing: 10) {
+                            Toggle("Outils hérités",
+                                   isOn: $outilsHeritesActifs)
+                            Text("Scanner 1, Générer "
+                                + "matériel, Entraînement "
+                                + "IA, Juge et Contours — "
+                                + "grisés tant que c'est "
+                                + "fermé.")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
                         }
 
                         // (Le sélecteur « IA des contours » a quitté
@@ -339,6 +393,39 @@ struct CompositeScanView: View {
                             }
                         }
                         }
+
+                        if appSection == .scanner2 {
+                        // « Next scan » de retour dans la
+                        // section Scanner 2 (build 167) :
+                        // le bouton de la barre du bas, à
+                        // sa place et fonction d'origine
+                        // — abandonner le scan en cours et
+                        // repartir en recherche pour le
+                        // suivant. Grégoire l'a réclamé :
+                        // il avait « disparu » de son
+                        // Scanner 2 quand les touches
+                        // Entrée/Espace sont arrivées
+                        // (build 166) — en fait la rangée
+                        // du bas n'a jamais été montrée
+                        // dans cette section. Pour le
+                        // Scanner 2, le geste EST
+                        // « Recommencer le scan » : jeter
+                        // l'aperçu s'il y en a un, webcam
+                        // en direct, détection réarmée
+                        // (avec son délai de grâce, voir
+                        // ReceiptScan2Session
+                        // .recommencer). Il coexiste avec
+                        // les raccourcis de l'aperçu
+                        // (Entrée/Espace/Maj) et le bloc
+                        // « Reprendre ce scan » ci-dessus.
+                        HStack(spacing: 12) {
+                            Button("Next scan") {
+                                receipt2Session.recommencer()
+                            }
+                            .controlSize(.large)
+                            Spacer()
+                        }
+                        }
                     }
 
                 }
@@ -354,11 +441,24 @@ struct CompositeScanView: View {
         .frame(minWidth: 780, minHeight: 760)
         .onAppear {
             rafraichirModelesIA()
+            // Section de démarrage (build 167) : une
+            // section héritée MÉMORISÉE ne survit pas à un
+            // lancement avec « Outils hérités » fermé — on
+            // démarre sur Scanner 2, et c'est cette section
+            // déterministe qui règle le routeur (la
+            // correction d'appSection, elle, déclenchera
+            // aussi le onChange ordinaire).
+            let sectionDepart: AppSection =
+                (!outilsHeritesActifs && appSection != .scanner2)
+                ? .scanner2 : appSection
+            if sectionDepart != appSection {
+                appSection = sectionDepart
+            }
             frameRouter.legacy = scanner
             frameRouter.grabber = receiptSession.grabber
             frameRouter.grabber2 = receipt2Session.grabber
-            frameRouter.receiptMode = (appSection == .scanner)
-            frameRouter.receipt2Mode = (appSection == .scanner2)
+            frameRouter.receiptMode = (sectionDepart == .scanner)
+            frameRouter.receipt2Mode = (sectionDepart == .scanner2)
             camera.start(delegate: frameRouter)
             // Plein écran dès l'ouverture, toujours (demandé par
             // Grégoire le 2026-10-19) — indépendant du panneau
@@ -367,6 +467,18 @@ struct CompositeScanView: View {
         }
         .onDisappear { camera.stop() }
         .onChange(of: appSection) { oldSection, section in
+            // Garde « Outils hérités » (build 167) : tant
+            // que l'interrupteur est fermé, AUCUNE
+            // sélection d'une section héritée ne tient —
+            // ni au clavier, ni par programme (les segments
+            // désactivés du menu couvrent déjà le clic).
+            // On revient sur Scanner 2 ; ce retour
+            // déclenche un nouvel onChange qui repartira
+            // par le chemin normal ci-dessous.
+            if !outilsHeritesActifs, section != .scanner2 {
+                appSection = .scanner2
+                return
+            }
             if section == .scanner {
                 rafraichirModelesIA()
             }
@@ -388,6 +500,17 @@ struct CompositeScanView: View {
             } else if oldSection == .entrainement
                         || oldSection == .juge {
                 camera.start(delegate: frameRouter)
+            }
+        }
+        .onChange(of: outilsHeritesActifs) { _, actif in
+            // Refermer l'interrupteur pendant qu'une
+            // section héritée est affichée : retour
+            // immédiat à Scanner 2 — le onChange de la
+            // section fera alors le reste (routeur,
+            // redémarrage de la caméra si on sortait
+            // d'Entraînement IA ou du Juge).
+            if !actif, appSection != .scanner2 {
+                appSection = .scanner2
             }
         }
         .onChange(of: scanner.frozenFrameStamp) { _, _ in

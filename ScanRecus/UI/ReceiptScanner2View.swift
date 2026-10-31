@@ -51,6 +51,21 @@ import SwiftUI
 /// aperçu : un moniteur d'événements local (voir la scène)
 /// est installé à l'apparition de l'aperçu et retiré à sa
 /// disparition, et il revérifie la phase avant d'agir.
+///
+/// BUILD 167 (2026-10-30) — STABILISATION : « en faire une
+/// vraie app de bureau » (Grégoire) ; l'app restera ensuite
+/// telle quelle quelques trimestres, le temps que la banque
+/// de reçus grossisse. Quatre chantiers : (1) « Recommencer
+/// le scan » réparé — le réarmement immédiat
+/// re-photographiait le mauvais reçu encore tenu devant la
+/// caméra (voir recommencer()) ; (2) raccourcis clavier
+/// fiabilisés — le moniteur vit au niveau de la scène et sa
+/// logique est une fonction nommée (voir installerMoniteur-
+/// Clavier et raccourci) ; (3) « Next scan », le bouton de
+/// la barre du bas, est de retour dans la section
+/// Scanner 2 (voir CompositeScanView) ; (4) les sections
+/// héritées — Scanner 1 compris — sont grisées tant que
+/// « Outils hérités » est fermé (voir CompositeScanView).
 
 // MARK: - Session du Scanner 2
 
@@ -151,14 +166,47 @@ final class ReceiptScan2Session {
             + "vous l'avez raté."
     }
 
-    /// « Recommencer le scan » : jette la photo et réarme la
-    /// capture automatique — le prochain reçu repart de zéro.
+    /// « Recommencer le scan » : jette la photo, rend la
+    /// webcam en direct et réarme la capture automatique —
+    /// le prochain reçu repart de zéro.
+    ///
+    /// CORRECTIF build 167 — le réarmement était IMMÉDIAT :
+    /// le mauvais reçu, toujours tenu devant la caméra au
+    /// moment d'appuyer, re-déclenchait la photo après ~3
+    /// images stables (~0,5 s). L'aperçu revenait avec une
+    /// image jumelle de la mauvaise, et Grégoire ne voyait
+    /// jamais le flux en direct : « ça loadait le calque au
+    /// lieu de repartir la webcam et de flusher la mauvaise
+    /// image ». La correction rend d'abord la main : la
+    /// photo est jetée (elle n'a jamais été déposée dans
+    /// la file — rien à retirer), la scène repasse en
+    /// capture donc le flux caméra redevient visible, et la
+    /// détection reste DÉSACTIVÉE pendant un délai de
+    /// grâce (1,5 s) — le temps de repositionner le reçu —
+    /// avant le réarmement à zéro, même état qu'à
+    /// l'ouverture de la section. Même patron que le délai
+    /// de 2,5 s après un envoi (voir envoyer()).
     func recommencer() {
         photo = nil
         phase = .capture
-        statusMessage = "Présentez un reçu : il se "
-            + "photographiera tout seul dès qu'il sera stable."
-        rearm()
+        // Désarmement immédiat : sans lui, la détection
+        // repartirait sur la scène inchangée avant même
+        // que le délai de grâce commence.
+        grabber.armed = false
+        statusMessage = "Mauvaise photo jetée — la webcam "
+            + "est en direct. Repositionnez le reçu : la "
+            + "détection repart dans un instant…"
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + 1.5) { [weak self] in
+            // Seulement si on est toujours en capture : un
+            // déclenchement manuel entre-temps rend le
+            // réarmement inutile, et un envoi a le sien.
+            guard let self, self.phase == .capture else { return }
+            self.statusMessage = "Présentez un reçu : il se "
+                + "photographiera tout seul dès qu'il sera "
+                + "stable."
+            self.rearm()
+        }
     }
 
     /// « Envoyer » : encode le frame brut en JPEG (politique
@@ -322,9 +370,10 @@ struct ReceiptScanner2Stage: View {
     @AppStorage("receiptUploadToken") private var uploadToken = ""
 
     /// Moniteur d'événements clavier local des raccourcis
-    /// de l'aperçu (build 166) : installé seulement pendant
-    /// que l'aperçu est à l'écran, retiré dès qu'il en sort
-    /// — voir installerMoniteurClavier().
+    /// de l'aperçu (build 166 ; fiabilisé au build 167) :
+    /// installé tant que la section Scanner 2 est à l'écran,
+    /// retiré quand on la quitte — voir
+    /// installerMoniteurClavier().
     @State private var moniteurClavier: Any?
 
     var body: some View {
@@ -337,6 +386,14 @@ struct ReceiptScanner2Stage: View {
         }
         .frame(width: containerSize.width,
                height: containerSize.height)
+        // Le moniteur vit au niveau de la SCÈNE (build
+        // 167) : il ne dépend plus du montage/démontage de
+        // la branche aperçu dans le ZStack — il existe de
+        // façon certaine tant que la section est là. Ce
+        // qui borne les raccourcis à l'aperçu, c'est le
+        // garde de phase du gestionnaire (voir raccourci).
+        .onAppear { installerMoniteurClavier() }
+        .onDisappear { retirerMoniteurClavier() }
     }
 
     // Capture : l'état de la détection en haut (visible
@@ -432,11 +489,9 @@ struct ReceiptScanner2Stage: View {
                 .padding(.bottom, 14)
             }
         }
-        .onAppear { installerMoniteurClavier() }
-        .onDisappear { retirerMoniteurClavier() }
     }
 
-    // MARK: - Raccourcis clavier de l'aperçu (build 166)
+    // MARK: - Raccourcis clavier de l'aperçu (builds 166-167)
 
     /// Installe le moniteur local qui donne ses raccourcis
     /// à l'aperçu : Entrée ou Espace = Envoyer, Maj seule =
@@ -456,55 +511,34 @@ struct ReceiptScanner2Stage: View {
     /// avale Entrée avant lui, il ne tire qu'en dernier
     /// recours.
     ///
-    /// Portée : le moniteur n'existe que pendant que
-    /// l'aperçu est à l'écran (onAppear/onDisappear de
-    /// l'aperçu) et son gestionnaire revérifie
-    /// `phase == .apercu` avant chaque geste — en capture
-    /// et dans les autres sections, ces touches ne font
-    /// donc rien de spécial. Le jeton est lu frais dans
-    /// UserDefaults (le même stockage que le @AppStorage
-    /// « receiptUploadToken » des panneaux) au moment de la
-    /// touche.
+    /// Portée et fiabilité (build 167) : le moniteur est
+    /// installé au niveau de la SCÈNE du Scanner 2 — le
+    /// onAppear/onDisappear de la scène, ci-dessus — et non
+    /// plus sur la branche aperçu (build 166) : son
+    /// existence ne dépend plus du moment exact où SwiftUI
+    /// monte ou démonte l'aperçu dans le ZStack. Il vit
+    /// tant que la section Scanner 2 est à l'écran, et il
+    /// est retiré quand on la quitte — jamais actif dans
+    /// les autres sections. Ce qui borne les raccourcis à
+    /// l'aperçu, c'est le garde `phase == .apercu` de
+    /// raccourci() : en capture, les mêmes touches
+    /// traversent sans aucun effet. Le jeton est lu frais
+    /// dans UserDefaults (le même stockage que le
+    /// @AppStorage « receiptUploadToken » des panneaux) au
+    /// moment de la touche. (Au build 166, Grégoire
+    /// doutait que Maj « marchât » : le geste tirait
+    /// recommencer(), mais le réarmement immédiat
+    /// re-photographiait le même reçu — rien ne semblait
+    /// se passer. Le correctif est dans recommencer() ;
+    /// ici, le mécanisme est rendu démontrable : une
+    /// fonction nommée, un seul garde, aucun état caché.)
     private func installerMoniteurClavier() {
         retirerMoniteurClavier()
         moniteurClavier = NSEvent.addLocalMonitorForEvents(
             matching: [.keyDown, .flagsChanged]) {
             [session] event in
-            guard session.phase == .apercu else { return event }
-            if event.type == .flagsChanged {
-                // Maj seule, à l'APPUI : le keyCode dit
-                // quelle touche de modification a changé
-                // (56 = Maj gauche, 60 = Maj droite) et les
-                // drapeaux portent l'état APRÈS le changement
-                // — à l'appui ils contiennent .shift, au
-                // relâchement non. « Seule » : aucun autre
-                // modificateur pertinent en même temps.
-                let pertinents = event.modifierFlags
-                    .intersection([.command, .control, .option,
-                                   .shift, .function])
-                if (event.keyCode == 56 || event.keyCode == 60),
-                   pertinents == [.shift] {
-                    session.recommencer()
-                }
-                // Ne pas avaler : le suivi des modificateurs
-                // par le reste de l'interface continue.
-                return event
-            }
-            // keyDown : Entrée (36, ou 76 au pavé numérique)
-            // ou Espace (49), sans modificateur de commande.
-            let mods = event.modifierFlags
-                .intersection([.command, .control, .option,
-                               .function])
-            guard mods.isEmpty,
-                  event.keyCode == 49 || event.keyCode == 36
-                    || event.keyCode == 76
-            else { return event }
-            let jeton = UserDefaults.standard.string(
-                forKey: "receiptUploadToken") ?? ""
-            Task { await session.envoyer(token: jeton) }
-            // Avalé : le bouton focalisé, s'il y en a un, ne
-            // recevra pas la touche — pas de double geste.
-            return nil
+            ReceiptScanner2Stage.raccourci(
+                event, session: session)
         }
     }
 
@@ -513,6 +547,59 @@ struct ReceiptScanner2Stage: View {
             NSEvent.removeMonitor(moniteurClavier)
             self.moniteurClavier = nil
         }
+    }
+
+    /// Le juge des raccourcis de l'aperçu : retourne nil
+    /// pour AVALER l'événement traité (Entrée/Espace =
+    /// Envoyer — le bouton focalisé, s'il y en a un, ne le
+    /// recevra pas : pas de double geste), l'événement
+    /// inchangé dans tous les autres cas. Fonction statique
+    /// sans état propre, pour que la logique se lise et se
+    /// démontre sans la vue autour.
+    private static func raccourci(
+        _ event: NSEvent,
+        session: ReceiptScan2Session
+    ) -> NSEvent? {
+        // Le seul garde de portée : hors aperçu, on ne
+        // touche à rien.
+        guard session.phase == .apercu else { return event }
+        if event.type == .flagsChanged {
+            // Maj seule, à l'APPUI : le keyCode dit quelle
+            // touche de modification a changé (56 = Maj
+            // gauche, 60 = Maj droite) et les drapeaux
+            // portent l'état APRÈS le changement — à
+            // l'appui ils contiennent .shift, au
+            // relâchement non. « Seule » : les drapeaux
+            // pertinents valent exactement [.shift].
+            let pertinents = event.modifierFlags
+                .intersection([.command, .control, .option,
+                               .shift, .function])
+            if (event.keyCode == 56 || event.keyCode == 60),
+               pertinents == [.shift] {
+                session.recommencer()
+            }
+            // Ne pas avaler : le suivi des modificateurs
+            // par le reste de l'interface continue.
+            return event
+        }
+        // keyDown : Entrée (36, ou 76 au pavé numérique)
+        // ou Espace (49), sans AUCUN modificateur — Maj
+        // compris (build 167) : pendant le geste Maj, qui
+        // vient de déclencher « Recommencer », un
+        // Entrée/Espace ne doit pas en plus envoyer.
+        let mods = event.modifierFlags
+            .intersection([.command, .control, .option,
+                           .shift, .function])
+        guard mods.isEmpty,
+              event.keyCode == 49 || event.keyCode == 36
+                || event.keyCode == 76
+        else { return event }
+        let jeton = UserDefaults.standard.string(
+            forKey: "receiptUploadToken") ?? ""
+        Task { await session.envoyer(token: jeton) }
+        // Avalé : le bouton focalisé, s'il y en a un, ne
+        // recevra pas la touche — pas de double geste.
+        return nil
     }
 }
 
