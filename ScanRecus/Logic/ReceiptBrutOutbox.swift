@@ -48,14 +48,19 @@ final class ReceiptBrutOutbox {
     }
 
     /// Dépose un brut et son chemin (angle en degrés, cadre
-    /// normalisé [x, y, largeur, hauteur]) sous le numéro du
+    /// normalisé [x, y, largeur, hauteur], réglages d'image
+    /// des sliders en unités −100…+100) sous le numéro du
     /// reçu. Écritures atomiques.
     func enqueue(jpeg: Data, numero: String,
-                 angleDegrees: Double, crop: CGRect) throws {
+                 angleDegrees: Double, crop: CGRect,
+                 luminosite: Double = 0,
+                 contraste: Double = 0) throws {
         let params: [String: Any] = [
             "angle_deg": angleDegrees,
             "crop": [Double(crop.origin.x), Double(crop.origin.y),
                      Double(crop.size.width), Double(crop.size.height)],
+            "luminosite": luminosite,
+            "contraste": contraste,
         ]
         let paramsData = try JSONSerialization.data(
             withJSONObject: params)
@@ -98,9 +103,12 @@ final class ReceiptBrutOutbox {
     }
 
     /// Lit un brut et son chemin ; nil si illisible (le
-    /// vidange le retirera plutôt que boucler dessus).
+    /// vidange le retirera plutôt que boucler dessus). Les
+    /// réglages d'image absents (bruts d'avant le build 164)
+    /// valent zéro.
     func read(_ item: Item) -> (jpeg: Data, angleDegrees: Double,
-                                crop: [Double])? {
+                                crop: [Double], luminosite: Double,
+                                contraste: Double)? {
         guard let jpeg = try? Data(contentsOf: item.jpegURL),
               let paramsData = try? Data(contentsOf: item.paramsURL),
               let params = (try? JSONSerialization.jsonObject(
@@ -114,14 +122,18 @@ final class ReceiptBrutOutbox {
             ($0 as? NSNumber)?.doubleValue
         }
         guard crop.count == 4 else { return nil }
-        return (jpeg, angle, crop)
+        let luminosite = (params["luminosite"] as? NSNumber)?
+            .doubleValue ?? 0
+        let contraste = (params["contraste"] as? NSNumber)?
+            .doubleValue ?? 0
+        return (jpeg, angle, crop, luminosite, contraste)
     }
 
     /// Vide la file dans l'ordre ; au premier échec on
     /// s'arrête. Retourne les numéros effectivement envoyés.
     @discardableResult
-    func flush(send: (Data, String, Double, [Double]) async
-               -> Bool) async -> [String] {
+    func flush(send: (Data, String, Double, [Double], Double,
+                      Double) async -> Bool) async -> [String] {
         var sent: [String] = []
         for item in items() {
             guard let brut = read(item) else {
@@ -129,7 +141,8 @@ final class ReceiptBrutOutbox {
                 continue
             }
             guard await send(brut.jpeg, item.numero,
-                             brut.angleDegrees, brut.crop)
+                             brut.angleDegrees, brut.crop,
+                             brut.luminosite, brut.contraste)
             else { break }
             remove(numero: item.numero)
             sent.append(item.numero)

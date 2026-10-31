@@ -78,6 +78,8 @@ enum ReceiptUploader {
     /// serait refusé par le serveur.
     static func uploadBrut(jpeg: Data, numero: String,
                            angleDegrees: Double, crop: [Double],
+                           luminosite: Double = 0,
+                           contraste: Double = 0,
                            token: String,
                            session: URLSession = .shared)
         async -> Outcome {
@@ -93,6 +95,12 @@ enum ReceiptUploader {
             String(format: "%.5f", locale: posix, $0)
         }.joined(separator: ",") + "]"
         request.setValue(cropJSON, forHTTPHeaderField: "X-Recu-Crop")
+        request.setValue(
+            String(format: "%.1f", locale: posix, luminosite),
+            forHTTPHeaderField: "X-Recu-Luminosite")
+        request.setValue(
+            String(format: "%.1f", locale: posix, contraste),
+            forHTTPHeaderField: "X-Recu-Contraste")
         request.setValue("image/jpeg",
                          forHTTPHeaderField: "Content-Type")
         request.httpBody = jpeg
@@ -114,10 +122,13 @@ enum ReceiptUploader {
 
     /// L'expéditeur que la file des bruts consomme.
     static func brutSender(token: String)
-        -> (Data, String, Double, [Double]) async -> Bool {
-        { data, numero, angle, crop in
+        -> (Data, String, Double, [Double], Double, Double)
+            async -> Bool {
+        { data, numero, angle, crop, luminosite, contraste in
             await uploadBrut(jpeg: data, numero: numero,
                              angleDegrees: angle, crop: crop,
+                             luminosite: luminosite,
+                             contraste: contraste,
                              token: token) != .failed
         }
     }

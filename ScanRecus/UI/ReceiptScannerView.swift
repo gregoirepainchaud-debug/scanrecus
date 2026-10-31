@@ -327,6 +327,13 @@ final class ReceiptScanSession {
     private(set) var photo: CGImage?
     /// Angle du bouton rotatif, degrés interface, continu.
     var angleDegrees: Double = 0
+    /// Réglages d'image (build 164) : sliders −100…+100 de
+    /// Grégoire, zéro = neutre. Appliqués à l'aperçu ET au
+    /// rendu final, et consignés dans le « chemin » de la
+    /// banque d'entraînement (la photo brute, elle, reste
+    /// toujours intacte).
+    var luminosite: Double = 0
+    var contraste: Double = 0
     /// Crop normalisé dans le repère de la photo redressée.
     /// Le cadrage est TOUJOURS actif (build 160) : pas de mode.
     var cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -429,6 +436,8 @@ final class ReceiptScanSession {
         grabber.armed = false
         photo = frame
         angleDegrees = 0
+        luminosite = 0
+        contraste = 0
         cropNormalized = CGRect(x: 0, y: 0, width: 1, height: 1)
         phase = .adjust
         statusMessage = "Photo prise ✓ — redressez au bouton "
@@ -470,7 +479,9 @@ final class ReceiptScanSession {
         }
         guard let jpeg = ReceiptPhotoRenderer.renderJPEG(
             photo: photo, uiDegrees: angleDegrees,
-            cropNormalized: cropNormalized) else {
+            cropNormalized: cropNormalized,
+            brightness: luminosite / 100,
+            contrast: 1 + contraste / 100) else {
             statusMessage = "⚠️ Le rendu de la photo a échoué "
                 + "— reprenez la photo."
             return
@@ -491,7 +502,8 @@ final class ReceiptScanSession {
             photo: photo) {
             try? brutOutbox.enqueue(
                 jpeg: brut, numero: numero,
-                angleDegrees: angleDegrees, crop: cropNormalized)
+                angleDegrees: angleDegrees, crop: cropNormalized,
+                luminosite: luminosite, contraste: contraste)
         }
         dernierScanNumero = numero
         refreshOutboxCount()
@@ -702,6 +714,8 @@ struct ReceiptScannerStage: View {
                        height: imageSize.height * scale)
                 .position(x: fit.midX, y: fit.midY)
                 .rotationEffect(.degrees(session.angleDegrees))
+                .brightness(session.luminosite / 100)
+                .contrast(1 + session.contraste / 100)
             gridOverlay(fit: fit)
             cropOverlay(fit: fit)
             // L'indication du cadrage, en haut à gauche —
@@ -729,6 +743,23 @@ struct ReceiptScannerStage: View {
             // La barre d'actions, en bas.
             VStack {
                 Spacer()
+                // Les sliders d'image (build 164) : luminosité
+                // et contraste, −100…+100, effet visible en
+                // direct sur la photo.
+                VStack(spacing: 4) {
+                    sliderRow("Luminosité",
+                              value: $session.luminosite)
+                    sliderRow("Contraste",
+                              value: $session.contraste)
+                }
+                .frame(width: 360)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.55))
+                .cornerRadius(10)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 12) {
                     Button("Reprendre la photo") {
                         session.retake()
@@ -748,6 +779,23 @@ struct ReceiptScannerStage: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 14)
             }
+        }
+    }
+
+    /// Une rangée de slider d'image : nom, glissière
+    /// −100…+100, valeur lue.
+    private func sliderRow(_ nom: String,
+                           value: Binding<Double>) -> some View {
+        HStack(spacing: 8) {
+            Text(nom)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white)
+                .frame(width: 82, alignment: .leading)
+            Slider(value: value, in: -100...100, step: 1)
+            Text("\(Int(value.wrappedValue))")
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(.white)
+                .frame(width: 38, alignment: .trailing)
         }
     }
 

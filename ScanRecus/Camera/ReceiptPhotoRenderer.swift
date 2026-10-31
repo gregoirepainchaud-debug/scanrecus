@@ -23,7 +23,9 @@ enum ReceiptPhotoRenderer {
 
     static func renderJPEG(photo: CGImage,
                            uiDegrees: Double,
-                           cropNormalized: CGRect) -> Data? {
+                           cropNormalized: CGRect,
+                           brightness: Double = 0,
+                           contrast: Double = 1) -> Data? {
         let source = CIImage(cgImage: photo)
         let sourceSize = source.extent.size
         guard sourceSize.width > 0, sourceSize.height > 0
@@ -52,6 +54,24 @@ enum ReceiptPhotoRenderer {
         image = image.transformed(by: CGAffineTransform(
             translationX: -image.extent.minX,
             y: -image.extent.minY))
+
+        // Réglages d'image (build 164) : luminosité et
+        // contraste des sliders, mêmes sémantiques que
+        // l'aperçu SwiftUI (luminosité additive −1…1,
+        // contraste multiplicatif, 1 = neutre, saturation
+        // intacte). Zéro réglage = aucun filtre appliqué.
+        if brightness != 0 || contrast != 1 {
+            let controls = CIFilter(name: "CIColorControls")
+            controls?.setValue(image, forKey: kCIInputImageKey)
+            controls?.setValue(brightness,
+                               forKey: kCIInputBrightnessKey)
+            controls?.setValue(contrast,
+                               forKey: kCIInputContrastKey)
+            controls?.setValue(1.0, forKey: kCIInputSaturationKey)
+            if let output = controls?.outputImage {
+                image = output
+            }
+        }
 
         // Crop rectangulaire (coordonnées CI, Y vers le haut).
         let cropRect = ReceiptGeometry.ciCropRect(
