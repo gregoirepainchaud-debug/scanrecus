@@ -29,6 +29,28 @@ import SwiftUI
 ///
 /// Pas d'envoi « brut » séparé vers la banque d'entraînement :
 /// ici, le téléversement principal EST déjà la photo brute.
+///
+/// BUILD 166 (2026-10-30) — « Reprendre ce scan », en miroir
+/// du build 162 du Scanner : le panneau affiche le dernier
+/// scan envoyé DEPUIS le Scanner 2 et offre de le retirer
+/// (de la file s'il y est encore, du serveur sinon) pour
+/// rescanner le même reçu. Sans ça, un scan complet dont
+/// Grégoire doute de la lisibilité ne pouvait pas être
+/// repris — il rescanait par-dessus et doublait la boîte
+/// (vécu le premier soir : un reçu plié envoyé deux fois).
+/// Le numéro est persisté sous SA PROPRE clé UserDefaults
+/// (« receipt2LastScanNumero ») : un scan du Scanner ne se
+/// reprend pas d'ici, et vice versa. Pas de file de bruts
+/// ici : le retrait ne touche que la file principale et le
+/// serveur, qui supprime la ligne et la photo.
+///
+/// Même build 166 — RACCOURCIS CLAVIER de l'aperçu, pour
+/// trancher sans souris quand le reçu est encore en main :
+/// Entrée ou Espace = « Envoyer », Maj (seule) =
+/// « Recommencer le scan ». Ils ne vivent QU'en phase
+/// aperçu : un moniteur d'événements local (voir la scène)
+/// est installé à l'apparition de l'aperçu et retiré à sa
+/// disparition, et il revérifie la phase avant d'agir.
 
 // MARK: - Session du Scanner 2
 
@@ -46,6 +68,27 @@ final class ReceiptScan2Session {
     private(set) var outboxCount = 0
     private(set) var isFlushing = false
 
+    /// Le dernier scan complet parti DEPUIS le Scanner 2
+    /// (build 166), persisté sur ce Mac : le panneau offre
+    /// « Reprendre ce scan » — retirer un scan dont on doute
+    /// de la lisibilité (de la file s'il y est encore, du
+    /// serveur sinon) pour rescanner le même reçu. Clé
+    /// PROPRE au Scanner 2, distincte de celle du Scanner
+    /// (« receiptLastScanNumero ») : les deux derniers scans
+    /// ne se mélangent jamais.
+    var dernierScanNumero: String? {
+        didSet {
+            if let dernierScanNumero {
+                UserDefaults.standard.set(
+                    dernierScanNumero,
+                    forKey: "receipt2LastScanNumero")
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: "receipt2LastScanNumero")
+            }
+        }
+    }
+
     /// SON capteur d'image fixe (le routeur aiguille les
     /// frames vers lui seulement dans la section Scanner 2) :
     /// la détection automatique du Scanner reste la sienne,
@@ -58,6 +101,8 @@ final class ReceiptScan2Session {
     let outbox = ReceiptOutbox()
 
     init() {
+        dernierScanNumero = UserDefaults.standard.string(
+            forKey: "receipt2LastScanNumero")
         refreshOutboxCount()
         grabber.onAutoTrigger = { [weak self] in
             self?.autoShutter()
@@ -101,8 +146,9 @@ final class ReceiptScan2Session {
         photo = frame
         phase = .apercu
         statusMessage = "Photo prise ✓ — c'est le scan "
-            + "complet, tel quel. « Envoyer » le téléverse ; "
-            + "« Recommencer le scan » si vous l'avez raté."
+            + "complet, tel quel. « Envoyer » (Entrée) le "
+            + "téléverse ; « Recommencer le scan » (Maj) si "
+            + "vous l'avez raté."
     }
 
     /// « Recommencer le scan » : jette la photo et réarme la
@@ -148,6 +194,7 @@ final class ReceiptScan2Session {
                 + error.localizedDescription
             return
         }
+        dernierScanNumero = numero
         refreshOutboxCount()
         self.photo = nil
         phase = .capture
@@ -210,6 +257,55 @@ final class ReceiptScan2Session {
     func refreshOutboxCount() {
         outboxCount = outbox.count
     }
+
+    /// « Reprendre ce scan » (build 166, miroir du build 162
+    /// du Scanner) : retire le dernier scan complet parti —
+    /// de la file d'envoi s'il y est encore (rien n'est
+    /// jamais parti), du serveur sinon (POST
+    /// /api/recus/retirer) — pour que Grégoire rescanne le
+    /// même reçu au lieu de le doubler dans la boîte. Un
+    /// reçu déjà RÉVISÉ ne se reprend pas d'ici : sa dépense
+    /// existe, ça se règle dans l'app Gestion. Pas de file
+    /// de bruts dans le Scanner 2 : le téléversement EST le
+    /// brut, le serveur supprime la ligne et la photo.
+    @MainActor
+    func reprendreDernierScan(token: String) async {
+        guard let numero = dernierScanNumero else { return }
+        let token = token.trimmingCharacters(
+            in: .whitespacesAndNewlines)
+        if outbox.items().contains(where: { $0.numero == numero }) {
+            outbox.remove(numero: numero)
+            dernierScanNumero = nil
+            refreshOutboxCount()
+            statusMessage = "Scan \(numero) repris : il était "
+                + "encore dans la file, rien n'est parti. "
+                + "Rescannez le reçu."
+            return
+        }
+        guard !token.isEmpty else {
+            statusMessage = "⚠️ Pour retirer le scan \(numero) "
+                + "du serveur, il faut le jeton — voir "
+                + "« Réglages d'envoi »."
+            return
+        }
+        switch await ReceiptUploader.retirer(
+            numero: numero, token: token) {
+        case .retire, .introuvable:
+            dernierScanNumero = nil
+            statusMessage = "Scan \(numero) retiré — "
+                + "rescannez le reçu."
+        case .dejaRevise:
+            statusMessage = "⚠️ Le reçu \(numero) est déjà "
+                + "RÉVISÉ : il ne se reprend plus d'ici. Si "
+                + "c'est une erreur, supprimez-le dans "
+                + "l'app Gestion."
+        case .failed:
+            statusMessage = "⚠️ Le retrait du scan \(numero) "
+                + "a échoué (réseau ou serveur muet) — il est "
+                + "toujours dans la boîte. Réessayez, ou "
+                + "supprimez-le dans l'app Gestion."
+        }
+    }
 }
 
 // MARK: - Scène (zone du haut)
@@ -224,6 +320,12 @@ struct ReceiptScanner2Stage: View {
     @Bindable var session: ReceiptScan2Session
     var containerSize: CGSize
     @AppStorage("receiptUploadToken") private var uploadToken = ""
+
+    /// Moniteur d'événements clavier local des raccourcis
+    /// de l'aperçu (build 166) : installé seulement pendant
+    /// que l'aperçu est à l'écran, retiré dès qu'il en sort
+    /// — voir installerMoniteurClavier().
+    @State private var moniteurClavier: Any?
 
     var body: some View {
         ZStack {
@@ -330,6 +432,87 @@ struct ReceiptScanner2Stage: View {
                 .padding(.bottom, 14)
             }
         }
+        .onAppear { installerMoniteurClavier() }
+        .onDisappear { retirerMoniteurClavier() }
+    }
+
+    // MARK: - Raccourcis clavier de l'aperçu (build 166)
+
+    /// Installe le moniteur local qui donne ses raccourcis
+    /// à l'aperçu : Entrée ou Espace = Envoyer, Maj seule =
+    /// Recommencer le scan.
+    ///
+    /// Pourquoi un moniteur NSEvent plutôt que des
+    /// .keyboardShortcut : (1) la touche Maj SEULE ne produit
+    /// aucun keyDown — seuls les événements .flagsChanged la
+    /// signalent, et SwiftUI n'y donne pas accès ; (2) le
+    /// piège du focus — si un bouton a le focus clavier,
+    /// Espace « clique » le bouton focalisé : le moniteur
+    /// local voit l'événement AVANT la chaîne de réponse et
+    /// l'avale (retour nil), donc Espace déclenche toujours
+    /// Envoyer, jamais le bouton focalisé, et jamais deux
+    /// fois. Le .keyboardShortcut(.return) du bouton
+    /// « Envoyer » reste en place comme filet : le moniteur
+    /// avale Entrée avant lui, il ne tire qu'en dernier
+    /// recours.
+    ///
+    /// Portée : le moniteur n'existe que pendant que
+    /// l'aperçu est à l'écran (onAppear/onDisappear de
+    /// l'aperçu) et son gestionnaire revérifie
+    /// `phase == .apercu` avant chaque geste — en capture
+    /// et dans les autres sections, ces touches ne font
+    /// donc rien de spécial. Le jeton est lu frais dans
+    /// UserDefaults (le même stockage que le @AppStorage
+    /// « receiptUploadToken » des panneaux) au moment de la
+    /// touche.
+    private func installerMoniteurClavier() {
+        retirerMoniteurClavier()
+        moniteurClavier = NSEvent.addLocalMonitorForEvents(
+            matching: [.keyDown, .flagsChanged]) {
+            [session] event in
+            guard session.phase == .apercu else { return event }
+            if event.type == .flagsChanged {
+                // Maj seule, à l'APPUI : le keyCode dit
+                // quelle touche de modification a changé
+                // (56 = Maj gauche, 60 = Maj droite) et les
+                // drapeaux portent l'état APRÈS le changement
+                // — à l'appui ils contiennent .shift, au
+                // relâchement non. « Seule » : aucun autre
+                // modificateur pertinent en même temps.
+                let pertinents = event.modifierFlags
+                    .intersection([.command, .control, .option,
+                                   .shift, .function])
+                if (event.keyCode == 56 || event.keyCode == 60),
+                   pertinents == [.shift] {
+                    session.recommencer()
+                }
+                // Ne pas avaler : le suivi des modificateurs
+                // par le reste de l'interface continue.
+                return event
+            }
+            // keyDown : Entrée (36, ou 76 au pavé numérique)
+            // ou Espace (49), sans modificateur de commande.
+            let mods = event.modifierFlags
+                .intersection([.command, .control, .option,
+                               .function])
+            guard mods.isEmpty,
+                  event.keyCode == 49 || event.keyCode == 36
+                    || event.keyCode == 76
+            else { return event }
+            let jeton = UserDefaults.standard.string(
+                forKey: "receiptUploadToken") ?? ""
+            Task { await session.envoyer(token: jeton) }
+            // Avalé : le bouton focalisé, s'il y en a un, ne
+            // recevra pas la touche — pas de double geste.
+            return nil
+        }
+    }
+
+    private func retirerMoniteurClavier() {
+        if let moniteurClavier {
+            NSEvent.removeMonitor(moniteurClavier)
+            self.moniteurClavier = nil
+        }
     }
 }
 
@@ -374,6 +557,19 @@ struct ReceiptScanner2Panel: View {
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                     }
+                }
+            }
+            if let numero = session.dernierScanNumero {
+                HStack(spacing: 10) {
+                    Text("Dernier scan : \(numero)")
+                        .font(.system(size: 14))
+                    Button("Reprendre ce scan") {
+                        Task {
+                            await session.reprendreDernierScan(
+                                token: uploadToken)
+                        }
+                    }
+                    .disabled(session.isFlushing)
                 }
             }
         }
